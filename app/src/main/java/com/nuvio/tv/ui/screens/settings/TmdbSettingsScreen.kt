@@ -123,6 +123,26 @@ fun TmdbSettingsScreen(
 
             item {
                 ToggleCard(
+                    title = "Productions",
+                    subtitle = "Production companies from TMDB",
+                    checked = uiState.useProductions,
+                    enabled = uiState.enabled,
+                    onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleProductions(it)) }
+                )
+            }
+
+            item {
+                ToggleCard(
+                    title = "Networks",
+                    subtitle = "Networks with logos from TMDB",
+                    checked = uiState.useNetworks,
+                    enabled = uiState.enabled,
+                    onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleNetworks(it)) }
+                )
+            }
+
+            item {
+                ToggleCard(
                     title = "Episodes",
                     subtitle = "Episode titles, overviews, thumbnails, and runtime from TMDB",
                     checked = uiState.useEpisodes,

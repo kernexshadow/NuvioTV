@@ -39,6 +39,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.ui.platform.LocalContext
+import coil.decode.SvgDecoder
+import coil.request.ImageRequest
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -264,10 +267,15 @@ private fun MetaInfoRow(meta: Meta) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = "★",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = NuvioTheme.extendedColors.rating
+                    val context = LocalContext.current
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(com.nuvio.tv.R.raw.imdb_logo_2016)
+                            .decoderFactory(SvgDecoder.Factory())
+                            .build(),
+                        contentDescription = "Rating",
+                        modifier = Modifier.size(30.dp),
+                        contentScale = ContentScale.Fit
                     )
                     Text(
                         text = String.format("%.1f", rating),

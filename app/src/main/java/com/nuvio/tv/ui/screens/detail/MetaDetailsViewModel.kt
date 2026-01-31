@@ -164,6 +164,16 @@ class MetaDetailsViewModel @Inject constructor(
             )
         }
 
+        // Group: Productions
+        if (enrichment != null && settings.useProductions && enrichment.productionCompanies.isNotEmpty()) {
+            updated = updated.copy(productionCompanies = enrichment.productionCompanies)
+        }
+
+        // Group: Networks
+        if (enrichment != null && settings.useNetworks && enrichment.networks.isNotEmpty()) {
+            updated = updated.copy(networks = enrichment.networks)
+        }
+
         // Group: Episodes (titles, overviews, thumbnails, runtime)
         if (settings.useEpisodes && meta.type.toApiString() in listOf("series", "tv")) {
             val seasonNumbers = meta.videos.mapNotNull { it.season }.distinct()

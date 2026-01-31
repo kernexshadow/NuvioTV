@@ -5,6 +5,7 @@ import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TmdbEpisode
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaCastMember
+import com.nuvio.tv.domain.model.MetaCompany
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -54,6 +55,24 @@ class TmdbMetadataService @Inject constructor(
                     ?.takeIf { it.isNotEmpty() }
                     ?: details?.originCountry?.takeIf { it.isNotEmpty() }
                 val language = details?.originalLanguage?.takeIf { it.isNotBlank() }
+                val productionCompanies = details?.productionCompanies
+                    .orEmpty()
+                    .mapNotNull { company ->
+                        val name = company.name?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                        MetaCompany(
+                            name = name,
+                            logo = buildImageUrl(company.logoPath, size = "w300")
+                        )
+                    }
+                val networks = details?.networks
+                    .orEmpty()
+                    .mapNotNull { network ->
+                        val name = network.name?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                        MetaCompany(
+                            name = name,
+                            logo = buildImageUrl(network.logoPath, size = "w300")
+                        )
+                    }
                 val poster = buildImageUrl(details?.posterPath, size = "w500")
                 val backdrop = buildImageUrl(details?.backdropPath, size = "w1280")
 
@@ -94,7 +113,8 @@ class TmdbMetadataService @Inject constructor(
                 if (
                     genres.isEmpty() && description == null && backdrop == null && logo == null &&
                     poster == null && castMembers.isEmpty() && director.isEmpty() && writer.isEmpty() &&
-                    releaseInfo == null && rating == null && runtime == null && countries.isNullOrEmpty() && language == null
+                    releaseInfo == null && rating == null && runtime == null && countries.isNullOrEmpty() && language == null &&
+                    productionCompanies.isEmpty() && networks.isEmpty()
                 ) {
                     return@withContext null
                 }
@@ -111,6 +131,8 @@ class TmdbMetadataService @Inject constructor(
                     runtimeMinutes = runtime,
                     director = director,
                     writer = writer,
+                    productionCompanies = productionCompanies,
+                    networks = networks,
                     countries = countries,
                     language = language
                 )
@@ -161,6 +183,8 @@ data class TmdbEnrichment(
     val runtimeMinutes: Int?,
     val director: List<String>,
     val writer: List<String>,
+    val productionCompanies: List<MetaCompany>,
+    val networks: List<MetaCompany>,
     val countries: List<String>?,
     val language: String?
 )

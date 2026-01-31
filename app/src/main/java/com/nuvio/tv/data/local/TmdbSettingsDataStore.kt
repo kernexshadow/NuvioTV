@@ -26,16 +26,20 @@ class TmdbSettingsDataStore @Inject constructor(
     private val useBasicInfoKey = booleanPreferencesKey("tmdb_use_basic_info")
     private val useDetailsKey = booleanPreferencesKey("tmdb_use_details")
     private val useCreditsKey = booleanPreferencesKey("tmdb_use_credits")
+    private val useProductionsKey = booleanPreferencesKey("tmdb_use_productions")
+    private val useNetworksKey = booleanPreferencesKey("tmdb_use_networks")
     private val useEpisodesKey = booleanPreferencesKey("tmdb_use_episodes")
 
     val settings: Flow<TmdbSettings> = dataStore.data.map { prefs ->
         TmdbSettings(
             enabled = prefs[enabledKey] ?: true,
-            useArtwork = prefs[useArtworkKey] ?: false,
-            useBasicInfo = prefs[useBasicInfoKey] ?: false,
-            useDetails = prefs[useDetailsKey] ?: false,
-            useCredits = prefs[useCreditsKey] ?: false,
-            useEpisodes = prefs[useEpisodesKey] ?: false
+            useArtwork = prefs[useArtworkKey] ?: true,
+            useBasicInfo = prefs[useBasicInfoKey] ?: true,
+            useDetails = prefs[useDetailsKey] ?: true,
+            useCredits = prefs[useCreditsKey] ?: true,
+            useProductions = prefs[useProductionsKey] ?: true,
+            useNetworks = prefs[useNetworksKey] ?: true,
+            useEpisodes = prefs[useEpisodesKey] ?: true
         )
     }
 
@@ -57,6 +61,14 @@ class TmdbSettingsDataStore @Inject constructor(
 
     suspend fun setUseCredits(enabled: Boolean) {
         dataStore.edit { it[useCreditsKey] = enabled }
+    }
+
+    suspend fun setUseProductions(enabled: Boolean) {
+        dataStore.edit { it[useProductionsKey] = enabled }
+    }
+
+    suspend fun setUseNetworks(enabled: Boolean) {
+        dataStore.edit { it[useNetworksKey] = enabled }
     }
 
     suspend fun setUseEpisodes(enabled: Boolean) {

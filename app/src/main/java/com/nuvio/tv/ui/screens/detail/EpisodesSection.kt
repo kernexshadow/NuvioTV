@@ -12,9 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +22,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
@@ -35,22 +36,20 @@ import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun SeasonTabs(
     seasons: List<Int>,
     selectedSeason: Int,
-    onSeasonSelected: (Int) -> Unit
+    onSeasonSelected: (Int) -> Unit,
+    selectedTabFocusRequester: FocusRequester
 ) {
     // Move season 0 (specials) to the end
     val sortedSeasons = remember(seasons) {
@@ -70,7 +69,9 @@ fun SeasonTabs(
 
             Card(
                 onClick = { onSeasonSelected(season) },
-                modifier = Modifier.onFocusChanged {
+                modifier = Modifier
+                    .then(if (isSelected) Modifier.focusRequester(selectedTabFocusRequester) else Modifier)
+                    .onFocusChanged {
                     val nowFocused = it.isFocused
                     isFocused = nowFocused
                     if (nowFocused && !isSelected) {
@@ -111,7 +112,8 @@ fun SeasonTabs(
 @Composable
 fun EpisodesRow(
     episodes: List<Video>,
-    onEpisodeClick: (Video) -> Unit
+    onEpisodeClick: (Video) -> Unit,
+    upFocusRequester: FocusRequester
 ) {
     TvLazyRow(
         modifier = Modifier
@@ -122,7 +124,8 @@ fun EpisodesRow(
         items(episodes, key = { it.id }) { episode ->
             EpisodeCard(
                 episode = episode,
-                onClick = { onEpisodeClick(episode) }
+                onClick = { onEpisodeClick(episode) },
+                upFocusRequester = upFocusRequester
             )
         }
     }
@@ -132,10 +135,9 @@ fun EpisodesRow(
 @Composable
 private fun EpisodeCard(
     episode: Video,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    upFocusRequester: FocusRequester
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    
     val formattedDate = remember(episode.released) {
         episode.released?.let { formatReleaseDate(it) } ?: ""
     }
@@ -144,7 +146,7 @@ private fun EpisodeCard(
         onClick = onClick,
         modifier = Modifier
             .width(280.dp)
-            .onFocusChanged { isFocused = it.isFocused },
+            .focusProperties { up = upFocusRequester },
         shape = CardDefaults.shape(
             shape = RoundedCornerShape(8.dp)
         ),
@@ -175,30 +177,6 @@ private fun EpisodeCard(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
-
-                if (isFocused) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(NuvioColors.Background.copy(alpha = 0.3f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(NuvioColors.Primary),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Play",
-                                tint = NuvioColors.OnPrimary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                    }
-                }
 
                 Box(
                     modifier = Modifier

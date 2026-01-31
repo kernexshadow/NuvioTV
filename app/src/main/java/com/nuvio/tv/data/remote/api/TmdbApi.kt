@@ -109,6 +109,8 @@ data class TmdbDetailsResponse(
     @Json(name = "runtime") val runtime: Int? = null,
     @Json(name = "episode_run_time") val episodeRunTime: List<Int>? = null,
     @Json(name = "vote_average") val voteAverage: Double? = null,
+    @Json(name = "production_companies") val productionCompanies: List<TmdbCompany>? = null,
+    @Json(name = "networks") val networks: List<TmdbNetwork>? = null,
     @Json(name = "production_countries") val productionCountries: List<TmdbCountry>? = null,
     @Json(name = "origin_country") val originCountry: List<String>? = null,
     @Json(name = "original_language") val originalLanguage: String? = null,
@@ -120,6 +122,18 @@ data class TmdbDetailsResponse(
 data class TmdbGenre(
     @Json(name = "id") val id: Int,
     @Json(name = "name") val name: String
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbCompany(
+    @Json(name = "name") val name: String? = null,
+    @Json(name = "logo_path") val logoPath: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbNetwork(
+    @Json(name = "name") val name: String? = null,
+    @Json(name = "logo_path") val logoPath: String? = null
 )
 
 @JsonClass(generateAdapter = true)

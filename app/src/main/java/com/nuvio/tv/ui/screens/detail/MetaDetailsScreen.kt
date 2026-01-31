@@ -15,6 +15,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -142,6 +143,7 @@ private fun MetaDetailsContent(
     val isSeries = meta.type == ContentType.SERIES || meta.videos.isNotEmpty()
     val nextEpisode = episodesForSeason.firstOrNull()
     val listState = rememberTvLazyListState()
+    val selectedSeasonFocusRequester = remember { FocusRequester() }
 
     // Track if scrolled past hero (first item)
     val isScrolledPastHero by remember {
@@ -235,13 +237,15 @@ private fun MetaDetailsContent(
                     SeasonTabs(
                         seasons = seasons,
                         selectedSeason = selectedSeason,
-                        onSeasonSelected = onSeasonSelected
+                        onSeasonSelected = onSeasonSelected,
+                        selectedTabFocusRequester = selectedSeasonFocusRequester
                     )
                 }
                 item {
                     EpisodesRow(
                         episodes = episodesForSeason,
-                        onEpisodeClick = onEpisodeClick
+                        onEpisodeClick = onEpisodeClick,
+                        upFocusRequester = selectedSeasonFocusRequester
                     )
                 }
             }
@@ -258,6 +262,24 @@ private fun MetaDetailsContent(
                         CastSection(cast = castMembersToShow)
                 }
             }
+
+                if (meta.productionCompanies.isNotEmpty()) {
+                    item {
+                        CompanyLogosSection(
+                            title = "Production",
+                            companies = meta.productionCompanies
+                        )
+                    }
+                }
+
+                if (meta.networks.isNotEmpty()) {
+                    item {
+                        CompanyLogosSection(
+                            title = "Network",
+                            companies = meta.networks
+                        )
+                    }
+                }
         }
     }
 }

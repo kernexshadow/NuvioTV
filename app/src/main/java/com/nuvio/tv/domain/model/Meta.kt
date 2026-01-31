@@ -18,6 +18,8 @@ data class Meta(
     val cast: List<String>,
     val castMembers: List<MetaCastMember> = emptyList(),
     val videos: List<Video>,
+    val productionCompanies: List<MetaCompany> = emptyList(),
+    val networks: List<MetaCompany> = emptyList(),
     val country: String?,
     val awards: String?,
     val language: String?,
@@ -28,6 +30,11 @@ data class MetaCastMember(
     val name: String,
     val character: String? = null,
     val photo: String? = null
+)
+
+data class MetaCompany(
+    val name: String,
+    val logo: String? = null
 )
 
 data class Video(

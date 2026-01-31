@@ -36,6 +36,8 @@ class TmdbSettingsViewModel @Inject constructor(
             is TmdbSettingsEvent.ToggleBasicInfo -> update { dataStore.setUseBasicInfo(event.enabled) }
             is TmdbSettingsEvent.ToggleDetails -> update { dataStore.setUseDetails(event.enabled) }
             is TmdbSettingsEvent.ToggleCredits -> update { dataStore.setUseCredits(event.enabled) }
+            is TmdbSettingsEvent.ToggleProductions -> update { dataStore.setUseProductions(event.enabled) }
+            is TmdbSettingsEvent.ToggleNetworks -> update { dataStore.setUseNetworks(event.enabled) }
             is TmdbSettingsEvent.ToggleEpisodes -> update { dataStore.setUseEpisodes(event.enabled) }
         }
     }
@@ -47,11 +49,13 @@ class TmdbSettingsViewModel @Inject constructor(
 
 data class TmdbSettingsUiState(
     val enabled: Boolean = true,
-    val useArtwork: Boolean = false,
-    val useBasicInfo: Boolean = false,
-    val useDetails: Boolean = false,
-    val useCredits: Boolean = false,
-    val useEpisodes: Boolean = false
+    val useArtwork: Boolean = true,
+    val useBasicInfo: Boolean = true,
+    val useDetails: Boolean = true,
+    val useCredits: Boolean = true,
+    val useProductions: Boolean = true,
+    val useNetworks: Boolean = true,
+    val useEpisodes: Boolean = true
 ) {
     fun fromSettings(settings: TmdbSettings): TmdbSettingsUiState = copy(
         enabled = settings.enabled,
@@ -59,6 +63,8 @@ data class TmdbSettingsUiState(
         useBasicInfo = settings.useBasicInfo,
         useDetails = settings.useDetails,
         useCredits = settings.useCredits,
+        useProductions = settings.useProductions,
+        useNetworks = settings.useNetworks,
         useEpisodes = settings.useEpisodes
     )
 }
@@ -69,5 +75,7 @@ sealed class TmdbSettingsEvent {
     data class ToggleBasicInfo(val enabled: Boolean) : TmdbSettingsEvent()
     data class ToggleDetails(val enabled: Boolean) : TmdbSettingsEvent()
     data class ToggleCredits(val enabled: Boolean) : TmdbSettingsEvent()
+    data class ToggleProductions(val enabled: Boolean) : TmdbSettingsEvent()
+    data class ToggleNetworks(val enabled: Boolean) : TmdbSettingsEvent()
     data class ToggleEpisodes(val enabled: Boolean) : TmdbSettingsEvent()
 }
