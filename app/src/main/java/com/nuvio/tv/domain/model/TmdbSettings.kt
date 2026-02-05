@@ -1,7 +1,7 @@
 package com.nuvio.tv.domain.model
 
 data class TmdbSettings(
-    val enabled: Boolean = true,
+    val enabled: Boolean = false,
     // Group: Artwork (logo, backdrop)
     val useArtwork: Boolean = true,
     // Group: Basic Info (description, genres, rating)

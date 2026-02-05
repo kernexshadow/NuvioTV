@@ -1,4 +1,7 @@
-@file:OptIn(ExperimentalTvMaterial3Api::class)
+@file:OptIn(
+    ExperimentalTvMaterial3Api::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class
+)
 
 package com.nuvio.tv.ui.screens.player
 
@@ -14,6 +17,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
@@ -33,10 +37,8 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
-import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.runtime.Composable
@@ -169,6 +171,11 @@ fun PlayerScreen(
             .focusRequester(containerFocusRequester)
             .focusable()
             .onKeyEvent { keyEvent ->
+                // When a side panel or dialog is open, let it handle all keys
+                val panelOrDialogOpen = uiState.showEpisodesPanel || uiState.showSourcesPanel ||
+                        uiState.showAudioDialog || uiState.showSubtitleDialog || uiState.showSpeedDialog
+                if (panelOrDialogOpen) return@onKeyEvent false
+
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                     when (keyEvent.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
@@ -630,22 +637,6 @@ private fun PlayerControlsOverlay(
                         contentDescription = if (uiState.isPlaying) "Pause" else "Play",
                         onClick = onPlayPause,
                         focusRequester = playPauseFocusRequester,
-                        onFocused = onResetHideTimer
-                    )
-
-                    // Rewind 10s
-                    ControlButton(
-                        icon = Icons.Default.Replay10,
-                        contentDescription = "Rewind 10 seconds",
-                        onClick = onSeekBackward,
-                        onFocused = onResetHideTimer
-                    )
-
-                    // Forward 10s
-                    ControlButton(
-                        icon = Icons.Default.Forward10,
-                        contentDescription = "Forward 10 seconds",
-                        onClick = onSeekForward,
                         onFocused = onResetHideTimer
                     )
 

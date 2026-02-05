@@ -48,7 +48,7 @@ class TmdbSettingsViewModel @Inject constructor(
 }
 
 data class TmdbSettingsUiState(
-    val enabled: Boolean = true,
+    val enabled: Boolean = false,
     val useArtwork: Boolean = true,
     val useBasicInfo: Boolean = true,
     val useDetails: Boolean = true,

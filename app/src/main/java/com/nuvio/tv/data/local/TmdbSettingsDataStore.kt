@@ -32,7 +32,7 @@ class TmdbSettingsDataStore @Inject constructor(
 
     val settings: Flow<TmdbSettings> = dataStore.data.map { prefs ->
         TmdbSettings(
-            enabled = prefs[enabledKey] ?: true,
+            enabled = prefs[enabledKey] ?: false,
             useArtwork = prefs[useArtworkKey] ?: true,
             useBasicInfo = prefs[useBasicInfoKey] ?: true,
             useDetails = prefs[useDetailsKey] ?: true,
