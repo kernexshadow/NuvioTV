@@ -24,10 +24,14 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "0.1.0-beta"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
+
+        // In-app updater (GitHub Releases)
+        buildConfigField("String", "GITHUB_OWNER", "\"tapframe\"")
+        buildConfigField("String", "GITHUB_REPO", "\"NuvioTV\"")
     }
 
     signingConfigs {
@@ -137,6 +141,9 @@ dependencies {
     implementation(libs.quickjs.kt)
     implementation(libs.jsoup)
     implementation(libs.gson)
+
+    // Markdown rendering
+    implementation(libs.markdown.renderer.m3)
 
     // Bundle real crypto-js (JS) for QuickJS plugins
     implementation(libs.crypto.js)

@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.DrawerValue
 import androidx.tv.material3.Icon
@@ -52,6 +53,8 @@ import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
+import com.nuvio.tv.updater.UpdateViewModel
+import com.nuvio.tv.updater.ui.UpdatePromptDialog
 import androidx.tv.material3.NavigationDrawerItemDefaults
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -73,6 +76,9 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     shape = RectangleShape
                 ) {
+                    val updateViewModel: UpdateViewModel = hiltViewModel(this@MainActivity)
+                    val updateState by updateViewModel.uiState.collectAsState()
+
                     val navController = rememberNavController()
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentRoute = navBackStackEntry?.destination?.route
@@ -194,6 +200,15 @@ class MainActivity : ComponentActivity() {
                             NuvioNavHost(navController = navController)
                         }
                     }
+
+                    UpdatePromptDialog(
+                        state = updateState,
+                        onDismiss = { updateViewModel.dismissDialog() },
+                        onDownload = { updateViewModel.downloadUpdate() },
+                        onInstall = { updateViewModel.installUpdateOrRequestPermission() },
+                        onIgnore = { updateViewModel.ignoreThisVersion() },
+                        onOpenUnknownSources = { updateViewModel.openUnknownSourcesSettings() }
+                    )
                 }
             }
         }

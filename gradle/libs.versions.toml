@@ -26,6 +26,7 @@ media3 = "1.9.1"
 quickjsKt = "1.0.1"
 jsoup = "1.17.2"
 gson = "2.10.1"
+markdownRenderer = "0.33.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -85,6 +86,9 @@ media3-common = { group = "androidx.media3", name = "media3-common", version.ref
 quickjs-kt = { group = "io.github.dokar3", name = "quickjs-kt-android", version.ref = "quickjsKt" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+
+# Markdown rendering
+markdown-renderer-m3 = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

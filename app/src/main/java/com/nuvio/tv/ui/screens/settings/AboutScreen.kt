@@ -5,6 +5,7 @@ package com.nuvio.tv.ui.screens.settings
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -33,6 +34,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -40,14 +42,17 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.updater.UpdateViewModel
 
 @Composable
 fun AboutScreen(
     onBackPress: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val updateViewModel: UpdateViewModel = hiltViewModel(context as ComponentActivity)
 
     BackHandler { onBackPress() }
 
@@ -77,7 +82,68 @@ fun AboutScreen(
             color = NuvioColors.TextSecondary
         )
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Version ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = NuvioColors.TextSecondary
+        )
+
         Spacer(modifier = Modifier.height(48.dp))
+
+        // Check for updates
+        var updateFocused by remember { mutableStateOf(false) }
+        Card(
+            onClick = {
+                updateViewModel.checkForUpdates(force = true, showNoUpdateFeedback = true)
+            },
+            modifier = Modifier
+                .fillMaxWidth(0.5f)
+                .onFocusChanged { updateFocused = it.isFocused },
+            colors = CardDefaults.colors(
+                containerColor = NuvioColors.BackgroundCard,
+                focusedContainerColor = NuvioColors.FocusBackground
+            ),
+            border = CardDefaults.border(
+                focusedBorder = Border(
+                    border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            ),
+            shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+            scale = CardDefaults.scale(focusedScale = 1.02f)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Check for updates",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = NuvioColors.TextPrimary
+                    )
+                    Text(
+                        text = "Download and install latest release",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NuvioColors.TextSecondary
+                    )
+                }
+
+                Icon(
+                    imageVector = Icons.Default.OpenInNew,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = if (updateFocused) NuvioColors.Primary else NuvioColors.TextSecondary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         // Privacy Policy
         var isFocused by remember { mutableStateOf(false) }
@@ -131,5 +197,14 @@ fun AboutScreen(
                 )
             }
         }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Text(
+            text = "v${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.bodySmall,
+            color = NuvioColors.TextSecondary.copy(alpha = 0.5f),
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
     }
 }

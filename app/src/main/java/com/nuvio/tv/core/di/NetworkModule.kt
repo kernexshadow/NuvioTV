@@ -4,6 +4,7 @@ import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.data.remote.api.AddonApi
 import com.nuvio.tv.data.remote.api.AniSkipApi
 import com.nuvio.tv.data.remote.api.ArmApi
+import com.nuvio.tv.data.remote.api.GitHubReleaseApi
 import com.nuvio.tv.data.remote.api.IntroDbApi
 import com.nuvio.tv.data.remote.api.ParentalGuideApi
 import com.nuvio.tv.data.remote.api.TmdbApi
@@ -131,4 +132,21 @@ object NetworkModule {
     @Singleton
     fun provideArmApi(@Named("arm") retrofit: Retrofit): ArmApi =
         retrofit.create(ArmApi::class.java)
+
+    // --- GitHub Releases API (in-app updates) ---
+
+    @Provides
+    @Singleton
+    @Named("github")
+    fun provideGitHubRetrofit(okHttpClient: OkHttpClient, moshi: Moshi): Retrofit =
+        Retrofit.Builder()
+            .baseUrl("https://api.github.com/")
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+
+    @Provides
+    @Singleton
+    fun provideGitHubReleaseApi(@Named("github") retrofit: Retrofit): GitHubReleaseApi =
+        retrofit.create(GitHubReleaseApi::class.java)
 }

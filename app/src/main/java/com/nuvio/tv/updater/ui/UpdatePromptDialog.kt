@@ -1,0 +1,211 @@
+package com.nuvio.tv.updater.ui
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import com.mikepenz.markdown.m3.Markdown
+import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.updater.UpdateUiState
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun UpdatePromptDialog(
+    state: UpdateUiState,
+    onDismiss: () -> Unit,
+    onDownload: () -> Unit,
+    onInstall: () -> Unit,
+    onIgnore: () -> Unit,
+    onOpenUnknownSources: () -> Unit
+) {
+    if (!state.showDialog) return
+
+    val closeFocusRequester = remember { FocusRequester() }
+    val primaryFocusRequester = remember { FocusRequester() }
+    val canDownload = state.isUpdateAvailable && state.update != null
+    val hasPrimaryAction = state.showUnknownSourcesDialog ||
+        state.downloadedApkPath != null ||
+        canDownload
+
+    Dialog(onDismissRequest = onDismiss) {
+        val shape = RoundedCornerShape(16.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .background(NuvioColors.BackgroundCard, shape)
+                .border(BorderStroke(2.dp, NuvioColors.FocusRing), shape)
+                .padding(32.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    text = "App Update",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = NuvioColors.TextPrimary
+                )
+
+                val subtitle = when {
+                    state.errorMessage != null -> state.errorMessage
+                    state.isChecking -> "Checking for updates…"
+                    state.update != null && state.isUpdateAvailable -> "New version: ${state.update.tag}"
+                    state.update != null && !state.isUpdateAvailable -> "You're up to date."
+                    else -> ""
+                }
+
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NuvioColors.TextSecondary,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                if (state.update?.notes?.isNotBlank() == true && state.isUpdateAvailable) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Markdown(
+                            content = state.update.notes
+                        )
+                    }
+                }
+
+                if (state.isDownloading) {
+                    val pct = ((state.downloadProgress ?: 0f) * 100).toInt().coerceIn(0, 100)
+                    Text(
+                        text = "Downloading… ${pct}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NuvioColors.TextSecondary
+                    )
+                }
+
+                if (state.showUnknownSourcesDialog) {
+                    Text(
+                        text = "Allow installs from unknown sources to continue.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NuvioColors.TextSecondary
+                    )
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.End),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.focusRequester(closeFocusRequester),
+                        colors = ButtonDefaults.colors(
+                            containerColor = NuvioColors.Background,
+                            contentColor = NuvioColors.TextPrimary,
+                            focusedContainerColor = NuvioColors.FocusBackground,
+                            focusedContentColor = NuvioColors.Primary
+                        ),
+                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                    ) {
+                        Text("Close")
+                    }
+
+                    if (state.showUnknownSourcesDialog) {
+                        Button(
+                            onClick = onOpenUnknownSources,
+                            modifier = Modifier.focusRequester(primaryFocusRequester),
+                            colors = ButtonDefaults.colors(
+                                containerColor = NuvioColors.BackgroundCard,
+                                contentColor = NuvioColors.TextPrimary,
+                                focusedContainerColor = NuvioColors.FocusBackground,
+                                focusedContentColor = NuvioColors.Primary
+                            ),
+                            shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                        ) {
+                            Text("Open Settings")
+                        }
+                    } else if (state.downloadedApkPath != null) {
+                        Button(
+                            onClick = onInstall,
+                            modifier = Modifier.focusRequester(primaryFocusRequester),
+                            colors = ButtonDefaults.colors(
+                                containerColor = NuvioColors.BackgroundCard,
+                                contentColor = NuvioColors.TextPrimary,
+                                focusedContainerColor = NuvioColors.FocusBackground,
+                                focusedContentColor = NuvioColors.Primary
+                            ),
+                            shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                        ) {
+                            Text("Install")
+                        }
+                    } else if (canDownload) {
+                        Button(
+                            onClick = onDownload,
+                            enabled = !state.isDownloading,
+                            modifier = Modifier.focusRequester(primaryFocusRequester),
+                            colors = ButtonDefaults.colors(
+                                containerColor = NuvioColors.BackgroundCard,
+                                contentColor = NuvioColors.TextPrimary,
+                                focusedContainerColor = NuvioColors.FocusBackground,
+                                focusedContentColor = NuvioColors.Primary
+                            ),
+                            shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                        ) {
+                            Text(if (state.isDownloading) "Downloading…" else "Download")
+                        }
+
+                        Button(
+                            onClick = onIgnore,
+                            colors = ButtonDefaults.colors(
+                                containerColor = NuvioColors.Background,
+                                contentColor = NuvioColors.TextPrimary,
+                                focusedContainerColor = NuvioColors.FocusBackground,
+                                focusedContentColor = NuvioColors.Primary
+                            ),
+                            shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                        ) {
+                            Text("Ignore")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(state.showDialog, hasPrimaryAction, state.downloadedApkPath, state.showUnknownSourcesDialog, state.isUpdateAvailable) {
+        // Defer focus until after the dialog subtree has been committed.
+        withFrameNanos { }
+
+        runCatching {
+            if (hasPrimaryAction) {
+                primaryFocusRequester.requestFocus()
+            } else {
+                closeFocusRequester.requestFocus()
+            }
+        }
+    }
+}
