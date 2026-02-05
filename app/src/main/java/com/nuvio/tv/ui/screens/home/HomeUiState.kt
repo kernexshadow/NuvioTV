@@ -32,6 +32,11 @@ sealed class GridItem {
         val catalogId: String,
         val catalogName: String
     ) : GridItem()
+    data class SeeAll(
+        val catalogId: String,
+        val addonId: String,
+        val type: String
+    ) : GridItem()
 }
 
 sealed class HomeEvent {

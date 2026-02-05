@@ -57,6 +57,7 @@ fun HomeScreen(
                             uiState = uiState,
                             focusState = focusState,
                             onNavigateToDetail = onNavigateToDetail,
+                            onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
                             onLoadMore = { cid, aid, t ->
                                 viewModel.onEvent(HomeEvent.OnLoadMoreCatalog(cid, aid, t))
                             },

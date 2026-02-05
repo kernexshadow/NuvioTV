@@ -227,13 +227,24 @@ class HomeViewModel @Inject constructor(
                             type = row.type.toApiString()
                         )
                     )
-                    row.items.take(15).forEach { item ->
+                    val hasEnoughForSeeAll = row.items.size >= 15
+                    val displayItems = if (hasEnoughForSeeAll) row.items.take(14) else row.items.take(15)
+                    displayItems.forEach { item ->
                         add(
                             GridItem.Content(
                                 item = item,
                                 addonBaseUrl = row.addonBaseUrl,
                                 catalogId = row.catalogId,
                                 catalogName = row.catalogName
+                            )
+                        )
+                    }
+                    if (hasEnoughForSeeAll) {
+                        add(
+                            GridItem.SeeAll(
+                                catalogId = row.catalogId,
+                                addonId = row.addonId,
+                                type = row.type.toApiString()
                             )
                         )
                     }

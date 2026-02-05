@@ -29,6 +29,7 @@ fun ClassicHomeContent(
     uiState: HomeUiState,
     focusState: HomeScreenFocusState,
     onNavigateToDetail: (String, String, String) -> Unit,
+    onNavigateToCatalogSeeAll: (String, String, String) -> Unit,
     onLoadMore: (catalogId: String, addonId: String, type: String) -> Unit,
     onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>) -> Unit
 ) {
@@ -113,6 +114,13 @@ fun ClassicHomeContent(
                 },
                 onLoadMore = {
                     onLoadMore(
+                        catalogRow.catalogId,
+                        catalogRow.addonId,
+                        catalogRow.type.toApiString()
+                    )
+                },
+                onSeeAll = {
+                    onNavigateToCatalogSeeAll(
                         catalogRow.catalogId,
                         catalogRow.addonId,
                         catalogRow.type.toApiString()

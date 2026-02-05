@@ -10,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,11 +34,17 @@ import androidx.tv.foundation.lazy.grid.TvGridItemSpan
 import androidx.tv.foundation.lazy.grid.TvLazyVerticalGrid
 import androidx.tv.foundation.lazy.grid.rememberTvLazyGridState
 import androidx.tv.material3.Border
-import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.Icon
 import com.nuvio.tv.ui.components.GridContentCard
 import com.nuvio.tv.ui.components.HeroCarousel
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -79,7 +84,6 @@ fun GridHomeContent(
 
     // Track current section for sticky header
     var currentSectionName by remember { mutableStateOf<String?>(null) }
-    var currentSectionInfo by remember { mutableStateOf<SectionInfo?>(null) }
 
     LaunchedEffect(gridState, sectionMapping) {
         snapshotFlow { gridState.firstVisibleItemIndex }
@@ -87,7 +91,6 @@ fun GridHomeContent(
             .collect { firstVisibleIndex ->
                 val section = sectionMapping.findSectionForIndex(firstVisibleIndex)
                 currentSectionName = section?.catalogName
-                currentSectionInfo = section
             }
     }
 
@@ -166,14 +169,7 @@ fun GridHomeContent(
                             span = { TvGridItemSpan(maxLineSpan) }
                         ) {
                             SectionDivider(
-                                catalogName = gridItem.catalogName,
-                                onSeeAllClick = {
-                                    onNavigateToCatalogSeeAll(
-                                        gridItem.catalogId,
-                                        gridItem.addonId,
-                                        gridItem.type
-                                    )
-                                }
+                                catalogName = gridItem.catalogName
                             )
                         }
                     }
@@ -195,6 +191,23 @@ fun GridHomeContent(
                             )
                         }
                     }
+
+                    is GridItem.SeeAll -> {
+                        item(
+                            key = "see_all_${gridItem.catalogId}_${gridItem.addonId}",
+                            span = { TvGridItemSpan(1) }
+                        ) {
+                            SeeAllGridCard(
+                                onClick = {
+                                    onNavigateToCatalogSeeAll(
+                                        gridItem.catalogId,
+                                        gridItem.addonId,
+                                        gridItem.type
+                                    )
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -206,68 +219,33 @@ fun GridHomeContent(
             exit = fadeOut()
         ) {
             StickyCategoryHeader(
-                sectionName = currentSectionName ?: "",
-                onSeeAllClick = {
-                    currentSectionInfo?.let { info ->
-                        onNavigateToCatalogSeeAll(info.catalogId, info.addonId, info.type)
-                    }
-                }
+                sectionName = currentSectionName ?: ""
             )
         }
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun SectionDivider(
     catalogName: String,
-    onSeeAllClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 24.dp, bottom = 12.dp, start = 24.dp, end = 24.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(top = 24.dp, bottom = 12.dp, start = 24.dp, end = 24.dp)
     ) {
         Text(
             text = catalogName,
             style = MaterialTheme.typography.headlineMedium,
             color = NuvioColors.TextPrimary
         )
-
-        Button(
-            onClick = onSeeAllClick,
-            modifier = Modifier.height(36.dp),
-            shape = ButtonDefaults.shape(
-                shape = RoundedCornerShape(18.dp)
-            ),
-            colors = ButtonDefaults.colors(
-                containerColor = Color.White.copy(alpha = 0.1f),
-                focusedContainerColor = NuvioColors.FocusBackground
-            ),
-            border = ButtonDefaults.border(
-                focusedBorder = Border(
-                    border = BorderStroke(1.dp, NuvioColors.FocusRing),
-                    shape = RoundedCornerShape(18.dp)
-                )
-            )
-        ) {
-            Text(
-                text = "See All \u2192",
-                style = MaterialTheme.typography.labelMedium,
-                color = NuvioColors.TextSecondary
-            )
-        }
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun StickyCategoryHeader(
     sectionName: String,
-    onSeeAllClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -282,46 +260,68 @@ private fun StickyCategoryHeader(
                     )
                 )
             )
+            .padding(horizontal = 48.dp, vertical = 12.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 48.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Crossfade(
-                targetState = sectionName,
-                animationSpec = tween(300),
-                label = "sectionNameCrossfade"
-            ) { name ->
-                Text(
-                    text = name,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = NuvioColors.TextPrimary
-                )
-            }
+        Crossfade(
+            targetState = sectionName,
+            animationSpec = tween(300),
+            label = "sectionNameCrossfade"
+        ) { name ->
+            Text(
+                text = name,
+                style = MaterialTheme.typography.titleLarge,
+                color = NuvioColors.TextPrimary
+            )
+        }
+    }
+}
 
-            Button(
-                onClick = onSeeAllClick,
-                modifier = Modifier.height(32.dp),
-                shape = ButtonDefaults.shape(
-                    shape = RoundedCornerShape(16.dp)
-                ),
-                colors = ButtonDefaults.colors(
-                    containerColor = Color.White.copy(alpha = 0.08f),
-                    focusedContainerColor = NuvioColors.FocusBackground
-                ),
-                border = ButtonDefaults.border(
-                    focusedBorder = Border(
-                        border = BorderStroke(1.dp, NuvioColors.FocusRing),
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                )
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SeeAllGridCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(210.dp),
+        shape = CardDefaults.shape(
+            shape = RoundedCornerShape(8.dp)
+        ),
+        colors = CardDefaults.colors(
+            containerColor = NuvioColors.BackgroundCard,
+            focusedContainerColor = NuvioColors.BackgroundCard
+        ),
+        border = CardDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(8.dp)
+            )
+        ),
+        scale = CardDefaults.scale(
+            focusedScale = 1.02f
+        )
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = "See All",
+                    modifier = Modifier.size(32.dp),
+                    tint = NuvioColors.TextSecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "See All \u2192",
-                    style = MaterialTheme.typography.labelSmall,
+                    text = "See All",
+                    style = MaterialTheme.typography.titleSmall,
                     color = NuvioColors.TextSecondary
                 )
             }
@@ -394,6 +394,7 @@ private fun buildSectionBounds(gridItems: List<GridItem>): List<SectionBound> {
                 lastContentIndex = index
             }
             is GridItem.Hero -> { /* skip */ }
+            is GridItem.SeeAll -> { /* skip */ }
         }
     }
     flushSection()
