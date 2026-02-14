@@ -53,6 +53,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,6 +97,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.launch
 
 @Composable
 fun PlayerScreen(
@@ -110,6 +112,7 @@ fun PlayerScreen(
     val streamsFocusRequester = remember { FocusRequester() }
     val sourceStreamsFocusRequester = remember { FocusRequester() }
     val skipIntroFocusRequester = remember { FocusRequester() }
+    val coroutineScope = rememberCoroutineScope()
 
     BackHandler {
         if (uiState.showPauseOverlay) {
@@ -162,7 +165,13 @@ fun PlayerScreen(
                 uiState.detectedFrameRate,
                 onBeforeSwitch = { if (wasPlaying) viewModel.exoPlayer?.pause() },
                 onAfterSwitch = { mode ->
-                    if (wasPlaying) viewModel.exoPlayer?.play()
+                    if (wasPlaying) {
+                        coroutineScope.launch {
+                            // Kodi-like delay to let the display settle after a refresh switch.
+                            kotlinx.coroutines.delay(2000)
+                            viewModel.exoPlayer?.play()
+                        }
+                    }
                     viewModel.onEvent(
                         PlayerEvent.OnShowDisplayModeInfo(
                             DisplayModeInfo(
