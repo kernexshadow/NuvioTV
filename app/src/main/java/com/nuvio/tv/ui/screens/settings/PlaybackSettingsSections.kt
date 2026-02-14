@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,7 +22,6 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PauseCircle
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -46,6 +47,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.TrailerSettings
+import com.nuvio.tv.data.local.FrameRateMatchingMode
 import com.nuvio.tv.ui.theme.NuvioColors
 
 private enum class PlaybackSection {
@@ -53,6 +55,14 @@ private enum class PlaybackSection {
     STREAM_SELECTION,
     AUDIO_TRAILER,
     SUBTITLES
+}
+
+private fun frameRateMatchingModeLabel(mode: FrameRateMatchingMode): String {
+    return when (mode) {
+        FrameRateMatchingMode.OFF -> "Off"
+        FrameRateMatchingMode.START -> "On start"
+        FrameRateMatchingMode.START_STOP -> "On start/stop"
+    }
 }
 
 @Composable
@@ -76,12 +86,12 @@ internal fun PlaybackSettingsSections(
     onSetLoadingOverlayEnabled: (Boolean) -> Unit,
     onSetPauseOverlayEnabled: (Boolean) -> Unit,
     onSetSkipIntroEnabled: (Boolean) -> Unit,
-    onSetFrameRateMatching: (Boolean) -> Unit,
     onSetTrailerEnabled: (Boolean) -> Unit,
     onSetTrailerDelaySeconds: (Int) -> Unit,
     onSetSkipSilence: (Boolean) -> Unit,
     onSetTunnelingEnabled: (Boolean) -> Unit,
     onSetMapDV7ToHevc: (Boolean) -> Unit,
+    onSetFrameRateMatchingMode: (FrameRateMatchingMode) -> Unit,
     onSetSubtitleSize: (Int) -> Unit,
     onSetSubtitleVerticalOffset: (Int) -> Unit,
     onSetSubtitleBold: (Boolean) -> Unit,
@@ -93,11 +103,13 @@ internal fun PlaybackSettingsSections(
     var streamExpanded by rememberSaveable { mutableStateOf(false) }
     var audioTrailerExpanded by rememberSaveable { mutableStateOf(false) }
     var subtitlesExpanded by rememberSaveable { mutableStateOf(false) }
+    var afrExpanded by rememberSaveable { mutableStateOf(false) }
 
     val generalHeaderFocus = remember { FocusRequester() }
     val streamHeaderFocus = remember { FocusRequester() }
     val audioTrailerHeaderFocus = remember { FocusRequester() }
     val subtitlesHeaderFocus = remember { FocusRequester() }
+    val afrHeaderFocus = remember { FocusRequester() }
 
     var focusedSection by remember { mutableStateOf<PlaybackSection?>(null) }
 
@@ -169,14 +181,24 @@ internal fun PlaybackSettingsSections(
             }
 
             item {
-                ToggleSettingsItem(
-                    icon = Icons.Default.Speed,
+                PlaybackSectionHeader(
                     title = "Auto Frame Rate",
-                    subtitle = "Match display refresh rate to video frame rate.",
-                    isChecked = playerSettings.frameRateMatching,
-                    onCheckedChange = onSetFrameRateMatching,
+                    description = frameRateMatchingModeLabel(playerSettings.frameRateMatchingMode),
+                    expanded = afrExpanded,
+                    onToggle = { afrExpanded = !afrExpanded },
+                    focusRequester = afrHeaderFocus,
                     onFocused = { focusedSection = PlaybackSection.GENERAL }
                 )
+            }
+
+            if (afrExpanded) {
+                item {
+                    FrameRateMatchingModeOptions(
+                        selectedMode = playerSettings.frameRateMatchingMode,
+                        onSelect = onSetFrameRateMatchingMode,
+                        onFocused = { focusedSection = PlaybackSection.GENERAL }
+                    )
+                }
             }
         }
 
@@ -450,4 +472,42 @@ internal fun PlaybackSettingsDialogsHost(
         onDismissPluginSelectionDialog = onDismissStreamAutoPlayPluginSelectionDialog,
         onDismissReuseLastLinkCacheDialog = onDismissReuseLastLinkCacheDialog
     )
+
+}
+
+@Composable
+private fun FrameRateMatchingModeOptions(
+    selectedMode: FrameRateMatchingMode,
+    onSelect: (FrameRateMatchingMode) -> Unit,
+    onFocused: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        RenderTypeSettingsItem(
+            title = "Off",
+            subtitle = "Don't change display refresh rate.",
+            isSelected = selectedMode == FrameRateMatchingMode.OFF,
+            onClick = { onSelect(FrameRateMatchingMode.OFF) },
+            onFocused = onFocused
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        RenderTypeSettingsItem(
+            title = "On start",
+            subtitle = "Switch when playback starts.",
+            isSelected = selectedMode == FrameRateMatchingMode.START,
+            onClick = { onSelect(FrameRateMatchingMode.START) },
+            onFocused = onFocused
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        RenderTypeSettingsItem(
+            title = "On start/stop",
+            subtitle = "Switch on start and restore on stop.",
+            isSelected = selectedMode == FrameRateMatchingMode.START_STOP,
+            onClick = { onSelect(FrameRateMatchingMode.START_STOP) },
+            onFocused = onFocused
+        )
+    }
 }

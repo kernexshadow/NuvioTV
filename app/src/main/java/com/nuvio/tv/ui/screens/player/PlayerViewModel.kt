@@ -262,6 +262,8 @@ class PlayerViewModel @Inject constructor(
     private fun observeSubtitleSettings() {
         viewModelScope.launch {
             playerSettingsDataStore.playerSettings.collect { settings ->
+                val wasFrameRateMatchingEnabled =
+                    _uiState.value.frameRateMatchingMode != com.nuvio.tv.data.local.FrameRateMatchingMode.OFF
                 _uiState.update { state ->
                     val shouldShowOverlay = if (settings.loadingOverlayEnabled && !hasRenderedFirstFrame) {
                         true
@@ -275,8 +277,16 @@ class PlayerViewModel @Inject constructor(
                         subtitleStyle = settings.subtitleStyle,
                         loadingOverlayEnabled = settings.loadingOverlayEnabled,
                         showLoadingOverlay = shouldShowOverlay,
-                        pauseOverlayEnabled = settings.pauseOverlayEnabled
+                        pauseOverlayEnabled = settings.pauseOverlayEnabled,
+                        frameRateMatchingMode = settings.frameRateMatchingMode
                     )
+                }
+                if (!wasFrameRateMatchingEnabled &&
+                    settings.frameRateMatchingMode != com.nuvio.tv.data.local.FrameRateMatchingMode.OFF &&
+                    _uiState.value.detectedFrameRate <= 0f &&
+                    currentStreamUrl.isNotBlank()
+                ) {
+                    startFrameRateProbe(currentStreamUrl, currentHeaders, true)
                 }
 
                 if (!settings.pauseOverlayEnabled) {
@@ -650,7 +660,7 @@ class PlayerViewModel @Inject constructor(
                     }
 
                     
-                    _uiState.update { it.copy(frameRateMatchingEnabled = playerSettings.frameRateMatching) }
+                    _uiState.update { it.copy(frameRateMatchingMode = playerSettings.frameRateMatchingMode) }
 
                     
                     try {
@@ -670,7 +680,11 @@ class PlayerViewModel @Inject constructor(
 
                     playWhenReady = true
                     prepare()
-                    startFrameRateProbe(url, headers, playerSettings.frameRateMatching)
+                    startFrameRateProbe(
+                        url,
+                        headers,
+                        playerSettings.frameRateMatchingMode != com.nuvio.tv.data.local.FrameRateMatchingMode.OFF
+                    )
 
                     addListener(object : Player.Listener {
                         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1043,7 +1057,11 @@ class PlayerViewModel @Inject constructor(
                 player.setMediaSource(createMediaSource(url, newHeaders))
                 player.prepare()
                 player.playWhenReady = true
-                startFrameRateProbe(url, newHeaders, _uiState.value.frameRateMatchingEnabled)
+                startFrameRateProbe(
+                    url,
+                    newHeaders,
+                    _uiState.value.frameRateMatchingMode != com.nuvio.tv.data.local.FrameRateMatchingMode.OFF
+                )
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message ?: "Failed to play selected stream") }
                 return
@@ -1292,7 +1310,11 @@ class PlayerViewModel @Inject constructor(
                 player.setMediaSource(createMediaSource(url, newHeaders))
                 player.prepare()
                 player.playWhenReady = true
-                startFrameRateProbe(url, newHeaders, _uiState.value.frameRateMatchingEnabled)
+                startFrameRateProbe(
+                    url,
+                    newHeaders,
+                    _uiState.value.frameRateMatchingMode != com.nuvio.tv.data.local.FrameRateMatchingMode.OFF
+                )
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message ?: "Failed to play selected stream") }
                 return
@@ -1969,6 +1991,17 @@ class PlayerViewModel @Inject constructor(
             }
             PlayerEvent.OnParentalGuideHide -> {
                 _uiState.update { it.copy(showParentalGuide = false) }
+            }
+            is PlayerEvent.OnShowDisplayModeInfo -> {
+                _uiState.update {
+                    it.copy(
+                        displayModeInfo = event.info,
+                        showDisplayModeInfo = true
+                    )
+                }
+            }
+            PlayerEvent.OnHideDisplayModeInfo -> {
+                _uiState.update { it.copy(showDisplayModeInfo = false) }
             }
             PlayerEvent.OnDismissPauseOverlay -> {
                 cancelPauseOverlay()
