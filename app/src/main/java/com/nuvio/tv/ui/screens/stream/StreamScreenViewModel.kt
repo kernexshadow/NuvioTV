@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.data.local.PlayerPreference
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
 import com.nuvio.tv.data.local.StreamAutoPlayMode
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -66,6 +68,9 @@ class StreamScreenViewModel @Inject constructor(
         )
     )
     val uiState: StateFlow<StreamScreenUiState> = _uiState.asStateFlow()
+
+    val playerPreference = playerSettingsDataStore.playerSettings
+        .map { it.playerPreference }
 
     init {
         loadMissingMetaDetailsIfNeeded()
@@ -121,7 +126,9 @@ class StreamScreenViewModel @Inject constructor(
                                 videoId = videoId,
                                 season = season,
                                 episode = episode,
-                                episodeTitle = episodeName
+                                episodeTitle = episodeName,
+                                rememberedAudioLanguage = cached.rememberedAudioLanguage,
+                                rememberedAudioName = cached.rememberedAudioName
                             )
                         )
                     }
@@ -274,7 +281,9 @@ class StreamScreenViewModel @Inject constructor(
             videoId = videoId,
             season = season,
             episode = episode,
-            episodeTitle = episodeName
+            episodeTitle = episodeName,
+            rememberedAudioLanguage = null,
+            rememberedAudioName = null
         )
 
         val url = playbackInfo.url
@@ -348,7 +357,7 @@ class StreamScreenViewModel @Inject constructor(
                         append(' ')
                         append(stream.getStreamUrl().orEmpty())
                     }
-                    stream.getStreamUrl() != null && regex.containsMatchIn(searchableText)
+                    stream.getStreamUrl() != null && regex.matches(searchableText)
                 }
             }
         }
@@ -375,5 +384,7 @@ data class StreamPlaybackInfo(
     val videoId: String?,
     val season: Int?,
     val episode: Int?,
-    val episodeTitle: String?
+    val episodeTitle: String?,
+    val rememberedAudioLanguage: String?,
+    val rememberedAudioName: String?
 )

@@ -10,6 +10,7 @@ import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.Subtitle
 import com.nuvio.tv.domain.model.Video
+import com.nuvio.tv.domain.model.WatchProgress
 
 data class PlayerUiState(
     val isPlaying: Boolean = false,
@@ -58,6 +59,9 @@ data class PlayerUiState(
     val currentSeason: Int? = null,
     val currentEpisode: Int? = null,
     val currentEpisodeTitle: String? = null,
+    val blurUnwatchedEpisodes: Boolean = false,
+    val episodeWatchProgressMap: Map<Pair<Int, Int>, WatchProgress> = emptyMap(),
+    val watchedEpisodeKeys: Set<Pair<Int, Int>> = emptySet(),
     val showEpisodeStreams: Boolean = false,
     val isLoadingEpisodeStreams: Boolean = false,
     val episodeStreamsError: String? = null,
@@ -130,10 +134,12 @@ sealed class PlayerEvent {
     data object OnBackFromEpisodeStreams : PlayerEvent()
     data class OnEpisodeSeasonSelected(val season: Int) : PlayerEvent()
     data class OnEpisodeSelected(val video: Video) : PlayerEvent()
+    data object OnReloadEpisodeStreams : PlayerEvent()
     data class OnEpisodeAddonFilterSelected(val addonName: String?) : PlayerEvent()
     data class OnEpisodeStreamSelected(val stream: Stream) : PlayerEvent()
     data object OnShowSourcesPanel : PlayerEvent()
     data object OnDismissSourcesPanel : PlayerEvent()
+    data object OnReloadSourceStreams : PlayerEvent()
     data class OnSourceAddonFilterSelected(val addonName: String?) : PlayerEvent()
     data class OnSourceStreamSelected(val stream: Stream) : PlayerEvent()
     data object OnDismissDialog : PlayerEvent()

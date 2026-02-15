@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -86,6 +87,7 @@ import androidx.tv.material3.Text
 import androidx.tv.material3.rememberDrawerState
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.ThemeDataStore
+import com.nuvio.tv.data.repository.TraktProgressService
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
@@ -99,6 +101,7 @@ import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
 import javax.inject.Inject
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 data class DrawerItem(
     val route: String,
@@ -115,23 +118,27 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var layoutPreferenceDataStore: LayoutPreferenceDataStore
 
+    @Inject
+    lateinit var traktProgressService: TraktProgressService
+
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             val currentTheme by themeDataStore.selectedTheme.collectAsState(initial = AppTheme.OCEAN)
-            val hasChosenLayout by layoutPreferenceDataStore.hasChosenLayout.collectAsState(initial = null as Boolean?)
+            val hasChosenLayout by layoutPreferenceDataStore.hasChosenLayout.collectAsState(initial = true)
 
             NuvioTheme(appTheme = currentTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     shape = RectangleShape
                 ) {
-                    val layoutChosen = hasChosenLayout ?: return@Surface
+                    val layoutChosen = hasChosenLayout ?: false
 
                     val sidebarCollapsed by layoutPreferenceDataStore.sidebarCollapsedByDefault.collectAsState(initial = false)
                     val modernSidebarEnabled by layoutPreferenceDataStore.modernSidebarEnabled.collectAsState(initial = false)
-                    val modernSidebarBlurEnabled by layoutPreferenceDataStore.modernSidebarBlurEnabled.collectAsState(initial = false)
+                    val modernSidebarBlurPref by layoutPreferenceDataStore.modernSidebarBlurEnabled.collectAsState(initial = false)
+                    val modernSidebarBlurEnabled = modernSidebarBlurPref && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
                     val hideBuiltInHeadersForFloatingPill = modernSidebarEnabled && !sidebarCollapsed
 
                     val updateViewModel: UpdateViewModel = hiltViewModel(this@MainActivity)
@@ -224,6 +231,13 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        lifecycleScope.launch {
+            traktProgressService.refreshNow()
+        }
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -306,16 +320,6 @@ private fun LegacySidebarScaffold(
                             modifier = Modifier
                                 .fillMaxWidth(0.9f)
                                 .aspectRatio(1214f / 408f)
-                                .padding(top = sidebarLogoTopPadding),
-                            contentScale = ContentScale.Fit
-                        )
-                    } else {
-                        Image(
-                            painter = painterResource(id = R.drawable.app_logo_mark),
-                            contentDescription = "Nuvio",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
                                 .padding(top = sidebarLogoTopPadding),
                             contentScale = ContentScale.Fit
                         )
@@ -410,7 +414,6 @@ private fun ModernSidebarScaffold(
     var pendingContentFocusTransfer by remember { mutableStateOf(false) }
     var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
     var focusedDrawerIndex by remember { mutableStateOf(-1) }
-    var isCollapsedPillIconOnly by remember { mutableStateOf(false) }
     val keepSidebarFocusDuringCollapse =
         isSidebarExpanded || sidebarCollapsePending || pendingContentFocusTransfer
 
@@ -420,20 +423,13 @@ private fun ModernSidebarScaffold(
             sidebarCollapsePending = false
             pendingContentFocusTransfer = false
             pendingSidebarFocusRequest = false
-            isCollapsedPillIconOnly = false
         }
     }
 
-    BackHandler(enabled = currentRoute in rootRoutes) {
-        if (isSidebarExpanded || sidebarCollapsePending) {
-            pendingContentFocusTransfer = true
-            sidebarCollapsePending = true
-        } else {
-            isSidebarExpanded = true
-            sidebarCollapsePending = false
-            pendingSidebarFocusRequest = true
-            isCollapsedPillIconOnly = false
-        }
+    BackHandler(enabled = currentRoute in rootRoutes && !isSidebarExpanded && !sidebarCollapsePending) {
+        isSidebarExpanded = true
+        sidebarCollapsePending = false
+        pendingSidebarFocusRequest = true
     }
 
     LaunchedEffect(sidebarCollapsePending, isSidebarExpanded, showSidebar) {
@@ -562,18 +558,6 @@ private fun ModernSidebarScaffold(
                 .haze(sidebarHazeState)
                 .onPreviewKeyEvent { keyEvent ->
                     if (
-                        showSidebar &&
-                        !sidebarCollapsed &&
-                        !isSidebarExpanded &&
-                        keyEvent.type == KeyEventType.KeyDown
-                    ) {
-                        when (keyEvent.key) {
-                            Key.DirectionDown -> isCollapsedPillIconOnly = true
-                            Key.DirectionUp -> isCollapsedPillIconOnly = false
-                            else -> Unit
-                        }
-                    }
-                    if (
                         isSidebarExpanded &&
                         !sidebarCollapsePending &&
                         sidebarExpandProgress > 0.2f &&
@@ -598,7 +582,6 @@ private fun ModernSidebarScaffold(
                             isSidebarExpanded = true
                             sidebarCollapsePending = false
                             pendingSidebarFocusRequest = true
-                            isCollapsedPillIconOnly = false
                             true
                         }
                     } else {
@@ -643,7 +626,7 @@ private fun ModernSidebarScaffold(
                                 focusedDrawerIndex == drawerItems.lastIndex
                             }
 
-                            Key.DirectionRight, Key.Back -> {
+                            Key.DirectionRight -> {
                                 pendingContentFocusTransfer = true
                                 sidebarCollapsePending = true
                                 true
@@ -687,7 +670,6 @@ private fun ModernSidebarScaffold(
                     icon = selectedDrawerItem.icon,
                     hazeState = sidebarHazeState,
                     blurEnabled = modernSidebarBlurEnabled,
-                    iconOnly = isCollapsedPillIconOnly,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .offset(
@@ -704,7 +686,6 @@ private fun ModernSidebarScaffold(
                         isSidebarExpanded = true
                         sidebarCollapsePending = false
                         pendingSidebarFocusRequest = true
-                        isCollapsedPillIconOnly = false
                     }
                 )
             }
@@ -718,7 +699,6 @@ private fun CollapsedSidebarPill(
     icon: ImageVector,
     hazeState: HazeState,
     blurEnabled: Boolean,
-    iconOnly: Boolean,
     modifier: Modifier = Modifier,
     onExpand: () -> Unit
 ) {
@@ -809,9 +789,9 @@ private fun CollapsedSidebarPill(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .fillMaxHeight()
-                    .padding(start = 5.dp, end = if (iconOnly) 6.dp else 12.dp),
+                    .padding(start = 5.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (iconOnly) 0.dp else 9.dp)
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -830,17 +810,15 @@ private fun CollapsedSidebarPill(
                     )
                 }
 
-                if (!iconOnly) {
-                    Text(
-                        text = label,
-                        color = Color.White,
-                        style = androidx.tv.material3.MaterialTheme.typography.titleLarge.copy(
-                            lineHeight = 30.sp
-                        ),
-                        modifier = Modifier.offset(y = (-0.5).dp),
-                        maxLines = 1
-                    )
-                }
+                Text(
+                    text = label,
+                    color = Color.White,
+                    style = androidx.tv.material3.MaterialTheme.typography.titleLarge.copy(
+                        lineHeight = 30.sp
+                    ),
+                    modifier = Modifier.offset(y = (-0.5).dp),
+                    maxLines = 1
+                )
             }
         }
     }

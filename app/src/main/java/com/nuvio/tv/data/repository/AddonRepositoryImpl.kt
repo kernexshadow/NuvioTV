@@ -1,5 +1,9 @@
 package com.nuvio.tv.data.repository
 
+import android.content.Context
+import android.util.Log
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.network.safeApiCall
 import com.nuvio.tv.data.local.AddonPreferences
@@ -7,26 +11,85 @@ import com.nuvio.tv.data.mapper.toDomain
 import com.nuvio.tv.data.remote.api.AddonApi
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.repository.AddonRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
+import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.sync.AddonSyncService
 import javax.inject.Inject
 
 class AddonRepositoryImpl @Inject constructor(
     private val api: AddonApi,
-    private val preferences: AddonPreferences
+    private val preferences: AddonPreferences,
+    private val addonSyncService: AddonSyncService,
+    private val authManager: AuthManager,
+    @ApplicationContext private val context: Context
 ) : AddonRepository {
 
+    companion object {
+        private const val TAG = "AddonRepository"
+        private const val MANIFEST_CACHE_PREFS = "addon_manifest_cache"
+        private const val MANIFEST_CACHE_KEY = "manifests"
+    }
+
+    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var syncJob: Job? = null
+    var isSyncingFromRemote = false
+
+    private fun triggerRemoteSync() {
+        if (isSyncingFromRemote) return
+        if (!authManager.isAuthenticated) return
+        syncJob?.cancel()
+        syncJob = syncScope.launch {
+            delay(500)
+            addonSyncService.pushToRemote()
+        }
+    }
+
+    private val gson = Gson()
     private val manifestCache = mutableMapOf<String, Addon>()
+
+    init {
+        loadManifestCacheFromDisk()
+    }
+
+    private fun loadManifestCacheFromDisk() {
+        try {
+            val prefs = context.getSharedPreferences(MANIFEST_CACHE_PREFS, Context.MODE_PRIVATE)
+            val json = prefs.getString(MANIFEST_CACHE_KEY, null) ?: return
+            val type = object : TypeToken<Map<String, Addon>>() {}.type
+            val cached: Map<String, Addon> = gson.fromJson(json, type) ?: return
+            manifestCache.putAll(cached)
+            Log.d(TAG, "Loaded ${cached.size} cached manifests from disk")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load manifest cache from disk", e)
+        }
+    }
+
+    private fun persistManifestCacheToDisk() {
+        try {
+            val prefs = context.getSharedPreferences(MANIFEST_CACHE_PREFS, Context.MODE_PRIVATE)
+            prefs.edit().putString(MANIFEST_CACHE_KEY, gson.toJson(manifestCache.toMap())).apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to persist manifest cache to disk", e)
+        }
+    }
 
     override fun getInstalledAddons(): Flow<List<Addon>> =
         preferences.installedAddonUrls.flatMapLatest { urls ->
             flow {
+                // Emit cached addons immediately (now includes disk-persisted cache)
                 val cached = urls.mapNotNull { manifestCache[it.trimEnd('/')] }
                 if (cached.isNotEmpty()) {
                     emit(cached)
@@ -57,6 +120,7 @@ class AddonRepositoryImpl @Inject constructor(
             is NetworkResult.Success -> {
                 val addon = result.data.toDomain(cleanBaseUrl)
                 manifestCache[cleanBaseUrl] = addon
+                persistManifestCacheToDisk()
                 NetworkResult.Success(addon)
             }
             is NetworkResult.Error -> result
@@ -67,15 +131,18 @@ class AddonRepositoryImpl @Inject constructor(
     override suspend fun addAddon(url: String) {
         val cleanUrl = url.trimEnd('/')
         preferences.addAddon(cleanUrl)
+        triggerRemoteSync()
     }
 
     override suspend fun removeAddon(url: String) {
         val cleanUrl = url.trimEnd('/')
         manifestCache.remove(cleanUrl)
         preferences.removeAddon(cleanUrl)
+        triggerRemoteSync()
     }
 
     override suspend fun setAddonOrder(urls: List<String>) {
         preferences.setAddonOrder(urls)
+        triggerRemoteSync()
     }
 }

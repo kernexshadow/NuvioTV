@@ -21,7 +21,8 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
-import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.net.URL
 import java.security.MessageDigest
 import java.util.Base64
@@ -38,6 +39,7 @@ import javax.inject.Singleton
 
 private const val TAG = "PluginRuntime"
 private const val PLUGIN_TIMEOUT_MS = 60_000L
+private const val MAX_FETCH_RESPONSE_BYTES = 2 * 1024 * 1024
 
 @Singleton
 class PluginRuntime @Inject constructor() {
@@ -432,34 +434,28 @@ class PluginRuntime @Inject constructor() {
             inFlightCalls.add(call)
 
             try {
-                val response = try {
-                    call.execute()
-                } catch (protoEx: java.net.ProtocolException) {
-                    // Handle 407 Proxy Auth or other protocol issues gracefully
-                    Log.w(TAG, "Protocol error for ${url}: ${protoEx.message}")
-                    return gson.toJson(mapOf(
-                        "ok" to false,
-                        "status" to 407,
-                        "statusText" to (protoEx.message ?: "Protocol error"),
-                        "url" to url,
-                        "body" to "",
-                        "headers" to emptyMap<String, String>()
-                    ))
-                }
+                val response = call.execute()
 
                 response.use { httpResponse ->
                     val bodyContentType = httpResponse.body?.contentType()
-                    val responseBodyBytes = httpResponse.body?.bytes() ?: ByteArray(0)
                     val contentEncoding = httpResponse.header("Content-Encoding")?.lowercase()?.trim()
                     val decodedBytes = try {
-                        when (contentEncoding) {
-                            "gzip" -> GZIPInputStream(ByteArrayInputStream(responseBodyBytes)).use { it.readBytes() }
-                            "deflate" -> InflaterInputStream(ByteArrayInputStream(responseBodyBytes)).use { it.readBytes() }
-                            else -> responseBodyBytes
+                        val stream = httpResponse.body?.byteStream()
+                        if (stream == null) {
+                            ByteArray(0)
+                        } else {
+                            val decodeStream: InputStream = when (contentEncoding) {
+                                "gzip" -> GZIPInputStream(stream)
+                                "deflate" -> InflaterInputStream(stream)
+                                else -> stream
+                            }
+                            decodeStream.use {
+                                readAtMostBytes(it, MAX_FETCH_RESPONSE_BYTES)
+                            }
                         }
                     } catch (e: Exception) {
-                        // If decoding fails, fall back to raw bytes.
-                        responseBodyBytes
+                        Log.w(TAG, "Failed to read/decode response body for $url: ${e.message}")
+                        ByteArray(0)
                     }
 
                     val charset = bodyContentType?.charset(Charsets.UTF_8) ?: Charsets.UTF_8
@@ -499,6 +495,20 @@ class PluginRuntime @Inject constructor() {
                 "headers" to emptyMap<String, String>()
             ))
         }
+    }
+
+    private fun readAtMostBytes(stream: InputStream, maxBytes: Int): ByteArray {
+        val out = ByteArrayOutputStream(minOf(maxBytes, 16 * 1024))
+        val buffer = ByteArray(8 * 1024)
+        var remaining = maxBytes
+
+        while (remaining > 0) {
+            val read = stream.read(buffer, 0, minOf(buffer.size, remaining))
+            if (read <= 0) break
+            out.write(buffer, 0, read)
+            remaining -= read
+        }
+        return out.toByteArray()
     }
 
     private fun parseUrl(urlString: String): String {
@@ -541,6 +551,13 @@ class PluginRuntime @Inject constructor() {
                 var method = (options.method || 'GET').toUpperCase();
                 var headers = options.headers || {};
                 var body = options.body || '';
+                var signal = options.signal || null;
+
+                if (signal && signal.aborted) {
+                    var preErr = new Error('The operation was aborted.');
+                    preErr.name = 'AbortError';
+                    throw preErr;
+                }
 
                 // Add default User-Agent
                 if (!headers['User-Agent']) {
@@ -549,6 +566,12 @@ class PluginRuntime @Inject constructor() {
 
                 var result = await __native_fetch(url, method, JSON.stringify(headers), body);
                 var parsed = JSON.parse(result);
+
+                if (signal && signal.aborted) {
+                    var postErr = new Error('The operation was aborted.');
+                    postErr.name = 'AbortError';
+                    throw postErr;
+                }
 
                 return {
                     ok: parsed.ok,
@@ -572,6 +595,84 @@ class PluginRuntime @Inject constructor() {
                     }
                 };
             };
+
+            // AbortController/AbortSignal minimal polyfill
+            if (typeof AbortSignal === 'undefined') {
+                var AbortSignal = function() {
+                    this.aborted = false;
+                    this.reason = undefined;
+                    this._listeners = [];
+                };
+                AbortSignal.prototype.addEventListener = function(type, listener) {
+                    if (type !== 'abort' || typeof listener !== 'function') return;
+                    this._listeners.push(listener);
+                };
+                AbortSignal.prototype.removeEventListener = function(type, listener) {
+                    if (type !== 'abort') return;
+                    this._listeners = this._listeners.filter(function(l) { return l !== listener; });
+                };
+                AbortSignal.prototype.dispatchEvent = function(event) {
+                    if (!event || event.type !== 'abort') return true;
+                    for (var i = 0; i < this._listeners.length; i++) {
+                        try { this._listeners[i].call(this, event); } catch (e) {}
+                    }
+                    return true;
+                };
+                globalThis.AbortSignal = AbortSignal;
+            }
+            if (typeof AbortController === 'undefined') {
+                var AbortController = function() {
+                    this.signal = new AbortSignal();
+                };
+                AbortController.prototype.abort = function(reason) {
+                    if (this.signal.aborted) return;
+                    this.signal.aborted = true;
+                    this.signal.reason = reason;
+                    this.signal.dispatchEvent({ type: 'abort' });
+                };
+                globalThis.AbortController = AbortController;
+            }
+
+            // atob/btoa polyfills
+            if (typeof atob === 'undefined') {
+                globalThis.atob = function(input) {
+                    var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+                    var str = String(input).replace(/=+$/, '');
+                    if (str.length % 4 === 1) {
+                        throw new Error('InvalidCharacterError');
+                    }
+                    var output = '';
+                    var bc = 0, bs, buffer, idx = 0;
+                    while ((buffer = str.charAt(idx++))) {
+                        buffer = chars.indexOf(buffer);
+                        if (buffer === -1) continue;
+                        bs = bc % 4 ? bs * 64 + buffer : buffer;
+                        if (bc++ % 4) {
+                            output += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6)));
+                        }
+                    }
+                    return output;
+                };
+            }
+            if (typeof btoa === 'undefined') {
+                globalThis.btoa = function(input) {
+                    var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+                    var str = String(input);
+                    var output = '';
+                    for (
+                        var block, charCode, idx = 0, map = chars;
+                        str.charAt(idx | 0) || (map = '=', idx % 1);
+                        output += map.charAt(63 & (block >> (8 - (idx % 1) * 8)))
+                    ) {
+                        charCode = str.charCodeAt(idx += 3 / 4);
+                        if (charCode > 0xFF) {
+                            throw new Error('InvalidCharacterError');
+                        }
+                        block = (block << 8) | charCode;
+                    }
+                    return output;
+                };
+            }
 
             // URL class
             var URL = function(urlString, base) {

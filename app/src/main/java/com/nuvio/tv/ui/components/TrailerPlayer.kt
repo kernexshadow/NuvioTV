@@ -13,15 +13,20 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import java.util.concurrent.atomic.AtomicBoolean
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
@@ -36,6 +41,11 @@ fun TrailerPlayer(
     exit: ExitTransition = fadeOut(animationSpec = tween(500))
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentIsPlaying by rememberUpdatedState(isPlaying)
+    val currentTrailerUrl by rememberUpdatedState(trailerUrl)
+    val currentOnEnded by rememberUpdatedState(onEnded)
+    val currentOnFirstFrameRendered by rememberUpdatedState(onFirstFrameRendered)
     var hasRenderedFirstFrame by remember(trailerUrl) { mutableStateOf(false) }
     val playerAlpha by animateFloatAsState(
         targetValue = if (isPlaying && hasRenderedFirstFrame) 1f else 0f,
@@ -55,14 +65,7 @@ fun TrailerPlayer(
             null
         }
     }
-
-    DisposableEffect(trailerPlayer) {
-        onDispose {
-            trailerPlayer?.stop()
-            trailerPlayer?.clearMediaItems()
-            trailerPlayer?.release()
-        }
-    }
+    val releaseCalled = remember(trailerPlayer) { AtomicBoolean(false) }
 
     LaunchedEffect(isPlaying, trailerUrl, muted) {
         val player = trailerPlayer ?: return@LaunchedEffect
@@ -79,23 +82,45 @@ fun TrailerPlayer(
         }
     }
 
-    DisposableEffect(trailerPlayer) {
+    DisposableEffect(lifecycleOwner, trailerPlayer) {
         val player = trailerPlayer ?: return@DisposableEffect onDispose {}
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
-                    onEnded()
+                    currentOnEnded()
                 }
             }
 
             override fun onRenderedFirstFrame() {
                 hasRenderedFirstFrame = true
-                onFirstFrameRendered()
+                currentOnFirstFrameRendered()
+            }
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    if (currentIsPlaying && !currentTrailerUrl.isNullOrBlank()) {
+                        player.playWhenReady = true
+                    }
+                }
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP -> {
+                    player.playWhenReady = false
+                    player.pause()
+                }
+                else -> Unit
             }
         }
         player.addListener(listener)
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            player.removeListener(listener)
+            runCatching { lifecycleOwner.lifecycle.removeObserver(observer) }
+            runCatching { player.removeListener(listener) }
+            if (releaseCalled.compareAndSet(false, true)) {
+                runCatching { player.stop() }
+                runCatching { player.clearMediaItems() }
+                runCatching { player.release() }
+            }
         }
     }
 

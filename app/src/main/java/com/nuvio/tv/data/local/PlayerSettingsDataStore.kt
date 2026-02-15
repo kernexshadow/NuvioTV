@@ -118,6 +118,7 @@ object AudioLanguageOption {
  * Data class representing player settings
  */
 data class PlayerSettings(
+    val playerPreference: PlayerPreference = PlayerPreference.INTERNAL,
     val useLibass: Boolean = false,
     val libassRenderType: LibassRenderType = LibassRenderType.OVERLAY_OPEN_GL,
     val subtitleStyle: SubtitleStyleSettings = SubtitleStyleSettings(),
@@ -160,6 +161,10 @@ enum class FrameRateMatchingMode {
     OFF,
     START,
     START_STOP
+enum class PlayerPreference {
+    INTERNAL,
+    EXTERNAL,
+    ASK_EVERY_TIME
 }
 
 /**
@@ -180,6 +185,9 @@ class PlayerSettingsDataStore @Inject constructor(
 ) {
     private val dataStore = context.playerSettingsDataStore
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Player preference key
+    private val playerPreferenceKey = stringPreferencesKey("player_preference")
 
     // Libass settings keys
     private val useLibassKey = booleanPreferencesKey("use_libass")
@@ -260,6 +268,9 @@ class PlayerSettingsDataStore @Inject constructor(
      */
     val playerSettings: Flow<PlayerSettings> = dataStore.data.map { prefs ->
         PlayerSettings(
+            playerPreference = prefs[playerPreferenceKey]?.let {
+                runCatching { PlayerPreference.valueOf(it) }.getOrDefault(PlayerPreference.INTERNAL)
+            } ?: PlayerPreference.INTERNAL,
             useLibass = prefs[useLibassKey] ?: false,
             libassRenderType = prefs[libassRenderTypeKey]?.let { 
                 try { LibassRenderType.valueOf(it) } catch (e: Exception) { LibassRenderType.OVERLAY_OPEN_GL }
@@ -328,6 +339,14 @@ class PlayerSettingsDataStore @Inject constructor(
         prefs[libassRenderTypeKey]?.let { 
             try { LibassRenderType.valueOf(it) } catch (e: Exception) { LibassRenderType.OVERLAY_OPEN_GL }
         } ?: LibassRenderType.OVERLAY_OPEN_GL
+    }
+
+    // Player preference setter
+
+    suspend fun setPlayerPreference(preference: PlayerPreference) {
+        dataStore.edit { prefs ->
+            prefs[playerPreferenceKey] = preference.name
+        }
     }
 
     // Audio settings setters

@@ -12,6 +12,7 @@ import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.domain.model.WatchProgress
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -151,9 +152,11 @@ class WatchProgressPreferences @Inject constructor(
             )
 
             if (season != null && episode != null) {
-                // Remove specific episode progress
+                // Remove specific episode progress + the series-level entry
+                // so the item disappears from continue watching
                 val key = "${contentId}_s${season}e${episode}"
                 map.remove(key)
+                map.remove(contentId)
                 Log.d(TAG, "removeProgress episodeKey=$key existsAfter=${map.containsKey(key)}")
             } else {
                 // Remove all progress for this content
@@ -178,6 +181,42 @@ class WatchProgressPreferences @Inject constructor(
             lastWatched = System.currentTimeMillis()
         )
         saveProgress(completedProgress)
+    }
+
+    /**
+     * Returns the raw key→WatchProgress map from DataStore (for sync push).
+     */
+    suspend fun getAllRawEntries(): Map<String, WatchProgress> {
+        val preferences = context.watchProgressDataStore.data.first()
+        val json = preferences[watchProgressKey] ?: "{}"
+        return parseProgressMap(json)
+    }
+
+    /**
+     * Merges remote entries into local storage. Newer lastWatched wins per key.
+     */
+    suspend fun mergeRemoteEntries(remoteEntries: Map<String, WatchProgress>) {
+        Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${remoteEntries.size} remote entries")
+        if (remoteEntries.isEmpty()) return
+        context.watchProgressDataStore.edit { preferences ->
+            val json = preferences[watchProgressKey] ?: "{}"
+            val local = parseProgressMap(json).toMutableMap()
+            Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${local.size} existing local entries")
+
+            for ((key, remote) in remoteEntries) {
+                val existing = local[key]
+                if (existing == null || remote.lastWatched > existing.lastWatched) {
+                    local[key] = remote
+                    Log.d("WatchProgressPrefs", "  merged key=$key (existing=${existing != null})")
+                } else {
+                    Log.d("WatchProgressPrefs", "  skipped key=$key (local is newer)")
+                }
+            }
+
+            val pruned = pruneOldItems(local)
+            Log.d("WatchProgressPrefs", "mergeRemoteEntries: ${pruned.size} entries after prune, writing to DataStore")
+            preferences[watchProgressKey] = gson.toJson(pruned)
+        }
     }
 
     /**

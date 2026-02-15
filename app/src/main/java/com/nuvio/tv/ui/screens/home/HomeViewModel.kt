@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.home
 
 import android.util.Log
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
@@ -15,6 +16,7 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.TmdbSettings
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.repository.AddonRepository
@@ -23,6 +25,9 @@ import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,11 +79,17 @@ class HomeViewModel @Inject constructor(
     private var disabledHomeCatalogKeys: Set<String> = emptySet()
     private var currentHeroCatalogKey: String? = null
     private var catalogUpdateJob: Job? = null
+    private var hasRenderedFirstCatalog = false
     private val catalogLoadSemaphore = Semaphore(6)
+    private var pendingCatalogLoads = 0
+    private val truncatedItemsCache = mutableMapOf<String, List<MetaPreview>>()
     private val trailerPreviewLoadingIds = mutableSetOf<String>()
     private val trailerPreviewNegativeCache = mutableSetOf<String>()
+    private val trailerPreviewUrlsState = mutableStateMapOf<String, String>()
     private var activeTrailerPreviewItemId: String? = null
     private var trailerPreviewRequestVersion: Long = 0L
+    val trailerPreviewUrls: Map<String, String>
+        get() = trailerPreviewUrlsState
 
     init {
         loadLayoutPreference()
@@ -181,7 +192,7 @@ class HomeViewModel @Inject constructor(
         }
 
         if (trailerPreviewNegativeCache.contains(itemId)) return
-        if (_uiState.value.trailerPreviewUrls.containsKey(itemId)) return
+        if (trailerPreviewUrlsState.containsKey(itemId)) return
         if (!trailerPreviewLoadingIds.add(itemId)) return
 
         val requestVersion = trailerPreviewRequestVersion
@@ -204,11 +215,8 @@ class HomeViewModel @Inject constructor(
             if (trailerUrl.isNullOrBlank()) {
                 trailerPreviewNegativeCache.add(itemId)
             } else {
-                _uiState.update { state ->
-                    if (state.trailerPreviewUrls[itemId] == trailerUrl) state
-                    else state.copy(
-                        trailerPreviewUrls = state.trailerPreviewUrls + (itemId to trailerUrl)
-                    )
+                if (trailerPreviewUrlsState[itemId] != trailerUrl) {
+                    trailerPreviewUrlsState[itemId] = trailerUrl
                 }
             }
 
@@ -280,15 +288,23 @@ class HomeViewModel @Inject constructor(
     private fun loadContinueWatching() {
         viewModelScope.launch {
             watchProgressRepository.allProgress.collectLatest { items ->
+                Log.d("HomeViewModel", "allProgress emitted ${items.size} items")
+                items.forEach { p ->
+                    Log.d("HomeViewModel", "  item: id=${p.contentId} type=${p.contentType} pos=${p.position} dur=${p.duration} pct=${p.progressPercentage} inProgress=${p.isInProgress()} name='${p.name}'")
+                }
+
                 val inProgressOnly = deduplicateInProgress(
                     items.filter { it.isInProgress() }
                 ).map { ContinueWatchingItem.InProgress(it) }
+
+                Log.d("HomeViewModel", "inProgressOnly: ${inProgressOnly.size} items after filter+dedup")
 
                 // Optimistic immediate render: show in-progress entries instantly.
                 _uiState.update { it.copy(continueWatchingItems = inProgressOnly) }
 
                 // Then compute NextUp enrichment (may need remote meta lookups).
                 val entries = buildContinueWatchingItems(items)
+                Log.d("HomeViewModel", "buildContinueWatchingItems: ${entries.size} final items")
                 _uiState.update { it.copy(continueWatchingItems = entries) }
             }
         }
@@ -425,6 +441,13 @@ class HomeViewModel @Inject constructor(
         _uiState.update { it.copy(isLoading = true, error = null, installedAddonsCount = addons.size) }
         catalogOrder.clear()
         catalogsMap.clear()
+        truncatedItemsCache.clear()
+        hasRenderedFirstCatalog = false
+        trailerPreviewLoadingIds.clear()
+        trailerPreviewNegativeCache.clear()
+        trailerPreviewUrlsState.clear()
+        activeTrailerPreviewItemId = null
+        trailerPreviewRequestVersion = 0L
 
         try {
             if (addons.isEmpty()) {
@@ -440,7 +463,7 @@ class HomeViewModel @Inject constructor(
             }
 
             // Load catalogs
-            addons.forEach { addon ->
+            val catalogsToLoad = addons.flatMap { addon ->
                 addon.catalogs
                     .filterNot {
                         it.isSearchOnlyCatalog() || isCatalogDisabled(
@@ -451,9 +474,11 @@ class HomeViewModel @Inject constructor(
                             catalogName = it.name
                         )
                     }
-                    .forEach { catalog ->
-                        loadCatalog(addon, catalog)
-                    }
+                    .map { catalog -> addon to catalog }
+            }
+            pendingCatalogLoads = catalogsToLoad.size
+            catalogsToLoad.forEach { (addon, catalog) ->
+                loadCatalog(addon, catalog)
             }
         } catch (e: Exception) {
             _uiState.update { it.copy(isLoading = false, error = e.message) }
@@ -464,6 +489,10 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             catalogLoadSemaphore.withPermit {
                 val supportsSkip = catalog.extra.any { it.name == "skip" }
+                Log.d(
+                    TAG,
+                    "Loading home catalog addonId=${addon.id} addonName=${addon.name} type=${catalog.apiType} catalogId=${catalog.id} catalogName=${catalog.name} supportsSkip=$supportsSkip"
+                )
                 catalogRepository.getCatalog(
                     addonBaseUrl = addon.baseUrl,
                     addonId = addon.id,
@@ -482,10 +511,20 @@ class HomeViewModel @Inject constructor(
                                 catalogId = catalog.id
                             )
                             catalogsMap[key] = result.data
+                            pendingCatalogLoads = (pendingCatalogLoads - 1).coerceAtLeast(0)
+                            Log.d(
+                                TAG,
+                                "Home catalog loaded addonId=${addon.id} type=${catalog.apiType} catalogId=${catalog.id} items=${result.data.items.size} pending=$pendingCatalogLoads"
+                            )
                             scheduleUpdateCatalogRows()
                         }
                         is NetworkResult.Error -> {
-                            // Log error but don't fail entire screen
+                            pendingCatalogLoads = (pendingCatalogLoads - 1).coerceAtLeast(0)
+                            Log.w(
+                                TAG,
+                                "Home catalog failed addonId=${addon.id} type=${catalog.apiType} catalogId=${catalog.id} code=${result.code} message=${result.message}"
+                            )
+                            scheduleUpdateCatalogRows()
                         }
                         NetworkResult.Loading -> { /* Handled by individual row */ }
                     }
@@ -541,7 +580,18 @@ class HomeViewModel @Inject constructor(
     private fun scheduleUpdateCatalogRows() {
         catalogUpdateJob?.cancel()
         catalogUpdateJob = viewModelScope.launch {
-            delay(150)
+            // Render immediately for the first catalog arrival, debounce subsequent updates
+            if (!hasRenderedFirstCatalog && catalogsMap.isNotEmpty()) {
+                hasRenderedFirstCatalog = true
+                updateCatalogRows()
+                return@launch
+            }
+            val debounceMs = when {
+                pendingCatalogLoads > 5 -> 300L
+                pendingCatalogLoads > 0 -> 150L
+                else -> 100L
+            }
+            delay(debounceMs)
             updateCatalogRows()
         }
     }
@@ -583,7 +633,19 @@ class HomeViewModel @Inject constructor(
             }
 
             val computedDisplayRows = orderedRows.map { row ->
-                if (row.items.size > 25) row.copy(items = row.items.take(25)) else row
+                if (row.items.size > 25) {
+                    val key = "${row.addonId}_${row.apiType}_${row.catalogId}"
+                    val cached = truncatedItemsCache[key]
+                    if (cached != null && cached.size == 25 && row.items.take(25) == cached) {
+                        row.copy(items = cached)
+                    } else {
+                        val truncated = row.items.take(25)
+                        truncatedItemsCache[key] = truncated
+                        row.copy(items = truncated)
+                    }
+                } else {
+                    row
+                }
             }
 
             val computedGridItems = if (currentLayout == HomeLayout.GRID) {
@@ -631,32 +693,29 @@ class HomeViewModel @Inject constructor(
             Triple(computedDisplayRows, computedHeroItems, computedGridItems)
         }
 
-        val heroItems = enrichHeroItems(baseHeroItems)
-        val gridItems = if (currentLayout == HomeLayout.GRID) {
-            replaceGridHeroItems(baseGridItems, heroItems)
-        } else {
-            baseGridItems
-        }
-
         // Full (untruncated) rows for CatalogSeeAllScreen
         val fullRows = orderedKeys.mapNotNull { key -> catalogSnapshot[key] }
 
-        val currentState = _uiState.value
-        if (
-            currentState.catalogRows == displayRows &&
-            currentState.fullCatalogRows == fullRows &&
-            currentState.heroItems == heroItems &&
-            currentState.gridItems == gridItems &&
-            !currentState.isLoading
-        ) {
-            return
+        val tmdbSettings = tmdbSettingsDataStore.settings.first()
+        val shouldUseEnrichedHeroItems = tmdbSettings.enabled &&
+            (tmdbSettings.useArtwork || tmdbSettings.useBasicInfo || tmdbSettings.useDetails)
+
+        val resolvedHeroItems = if (shouldUseEnrichedHeroItems) {
+            enrichHeroItems(baseHeroItems, tmdbSettings)
+        } else {
+            baseHeroItems
         }
 
-        _uiState.value = currentState.copy(
+        // Render hero from a single source per update cycle.
+        _uiState.value = _uiState.value.copy(
             catalogRows = displayRows,
             fullCatalogRows = fullRows,
-            heroItems = heroItems,
-            gridItems = gridItems,
+            heroItems = resolvedHeroItems,
+            gridItems = if (currentLayout == HomeLayout.GRID) {
+                replaceGridHeroItems(baseGridItems, resolvedHeroItems)
+            } else {
+                baseGridItems
+            },
             isLoading = false
         )
     }
@@ -665,47 +724,56 @@ class HomeViewModel @Inject constructor(
         _uiState.update { it.copy(selectedItemId = itemId) }
     }
 
-    private suspend fun enrichHeroItems(items: List<MetaPreview>): List<MetaPreview> {
+    private suspend fun enrichHeroItems(
+        items: List<MetaPreview>,
+        settings: TmdbSettings
+    ): List<MetaPreview> {
         if (items.isEmpty()) return items
 
-        val settings = tmdbSettingsDataStore.settings.first()
-        if (!settings.enabled) return items
-        if (!settings.useArtwork && !settings.useBasicInfo && !settings.useDetails) return items
+        // Enrich all hero items in parallel
+        return coroutineScope {
+            items.map { item ->
+                async(Dispatchers.IO) {
+                    try {
+                        val tmdbId = tmdbService.ensureTmdbId(item.id, item.apiType) ?: return@async item
+                        val enrichment = tmdbMetadataService.fetchEnrichment(
+                            tmdbId = tmdbId,
+                            contentType = item.type,
+                            language = settings.language
+                        ) ?: return@async item
 
-        return items.map { item ->
-            val tmdbId = tmdbService.ensureTmdbId(item.id, item.apiType) ?: return@map item
-            val enrichment = tmdbMetadataService.fetchEnrichment(
-                tmdbId = tmdbId,
-                contentType = item.type,
-                language = settings.language
-            ) ?: return@map item
+                        var enriched = item
 
-            var enriched = item
+                        if (settings.useArtwork) {
+                            enriched = enriched.copy(
+                                background = enrichment.backdrop ?: enriched.background,
+                                logo = enrichment.logo ?: enriched.logo,
+                                poster = enrichment.poster ?: enriched.poster
+                            )
+                        }
 
-            if (settings.useArtwork) {
-                enriched = enriched.copy(
-                    background = enrichment.backdrop ?: enriched.background,
-                    logo = enrichment.logo ?: enriched.logo,
-                    poster = enrichment.poster ?: enriched.poster
-                )
-            }
+                        if (settings.useBasicInfo) {
+                            enriched = enriched.copy(
+                                name = enrichment.localizedTitle ?: enriched.name,
+                                description = enrichment.description ?: enriched.description,
+                                genres = if (enrichment.genres.isNotEmpty()) enrichment.genres else enriched.genres,
+                                imdbRating = enrichment.rating?.toFloat() ?: enriched.imdbRating
+                            )
+                        }
 
-            if (settings.useBasicInfo) {
-                enriched = enriched.copy(
-                    name = enrichment.localizedTitle ?: enriched.name,
-                    description = enrichment.description ?: enriched.description,
-                    genres = if (enrichment.genres.isNotEmpty()) enrichment.genres else enriched.genres,
-                    imdbRating = enrichment.rating?.toFloat() ?: enriched.imdbRating
-                )
-            }
+                        if (settings.useDetails) {
+                            enriched = enriched.copy(
+                                releaseInfo = enrichment.releaseInfo ?: enriched.releaseInfo
+                            )
+                        }
 
-            if (settings.useDetails) {
-                enriched = enriched.copy(
-                    releaseInfo = enrichment.releaseInfo ?: enriched.releaseInfo
-                )
-            }
-
-            enriched
+                        enriched
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Hero enrichment failed for ${item.id}: ${e.message}")
+                        item
+                    }
+                }
+            }.awaitAll()
         }
     }
 

@@ -47,6 +47,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -83,11 +85,13 @@ private enum class SettingsCategory(
     val icon: ImageVector,
     @param:RawRes val rawIconRes: Int? = null
 ) {
+    // TEMP: Hide Account tab from settings.
+    // ACCOUNT("Account", Icons.Default.Person),
     APPEARANCE("Appearance", Icons.Default.Palette),
     LAYOUT("Layout", Icons.Default.GridView),
     PLUGINS("Plugins", Icons.Default.Build),
-    PLAYBACK("Playback", Icons.Default.Settings),
     TMDB("TMDB", Icons.Default.Tune),
+    PLAYBACK("Playback", Icons.Default.Settings),
     TRAKT("Trakt", Icons.Default.Tune, rawIconRes = R.raw.trakt_tv_glyph),
     ABOUT("About", Icons.Default.Info)
 }
@@ -96,10 +100,17 @@ private enum class SettingsCategory(
 fun SettingsScreen(
     showBuiltInHeader: Boolean = true,
     onNavigateToPlugins: () -> Unit = {},
+    onNavigateToAuthSignIn: () -> Unit = {},
+    onNavigateToSyncGenerate: () -> Unit = {},
+    onNavigateToSyncClaim: () -> Unit = {},
     onNavigateToTrakt: () -> Unit = {}
 ) {
     var selectedCategory by remember { mutableStateOf(SettingsCategory.APPEARANCE) }
     var previousIndex by remember { mutableIntStateOf(0) }
+    val tabFocusRequesters = remember {
+        SettingsCategory.entries.associateWith { FocusRequester() }
+    }
+    var tabRowHasFocus by remember { mutableStateOf(false) }
     val pluginViewModel: PluginViewModel = hiltViewModel()
     val pluginUiState by pluginViewModel.uiState.collectAsState()
 
@@ -159,13 +170,21 @@ fun SettingsScreen(
         TvLazyRow(
             contentPadding = PaddingValues(horizontal = 48.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { state ->
+                    if (!tabRowHasFocus && state.hasFocus) {
+                        tabFocusRequesters[selectedCategory]?.requestFocus()
+                    }
+                    tabRowHasFocus = state.hasFocus
+                }
         ) {
             itemsIndexed(SettingsCategory.entries.toList()) { index, category ->
                 CategoryTab(
                     category = category,
                     isSelected = selectedCategory == category,
                     accentColor = accentColor,
+                    focusRequester = tabFocusRequesters.getValue(category),
                     onClick = {
                         if (category == SettingsCategory.TRAKT) {
                             onNavigateToTrakt()
@@ -240,6 +259,8 @@ fun SettingsScreen(
                         uiState = pluginUiState,
                         viewModel = pluginViewModel
                     )
+                    // TEMP: Hide Account page from settings content.
+                    // SettingsCategory.ACCOUNT -> AccountSettingsContent(...)
                     SettingsCategory.TRAKT -> Unit
                 }
             }
@@ -252,6 +273,7 @@ private fun CategoryTab(
     category: SettingsCategory,
     isSelected: Boolean,
     accentColor: Color,
+    focusRequester: FocusRequester,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -271,6 +293,7 @@ private fun CategoryTab(
         Card(
             onClick = onClick,
             modifier = Modifier
+                .focusRequester(focusRequester)
                 .onFocusChanged { isFocused = it.isFocused },
             colors = CardDefaults.colors(
                 containerColor = when {

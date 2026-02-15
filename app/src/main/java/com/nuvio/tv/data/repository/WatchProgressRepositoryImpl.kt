@@ -1,17 +1,35 @@
 package com.nuvio.tv.data.repository
 
+import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.sync.WatchProgressSyncService
+import com.nuvio.tv.core.sync.WatchedItemsSyncService
 import android.util.Log
 import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.WatchProgressPreferences
+import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.domain.model.WatchedItem
+import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -20,10 +38,174 @@ import javax.inject.Singleton
 class WatchProgressRepositoryImpl @Inject constructor(
     private val watchProgressPreferences: WatchProgressPreferences,
     private val traktAuthDataStore: TraktAuthDataStore,
-    private val traktProgressService: TraktProgressService
+    private val traktProgressService: TraktProgressService,
+    private val watchProgressSyncService: WatchProgressSyncService,
+    private val watchedItemsPreferences: WatchedItemsPreferences,
+    private val watchedItemsSyncService: WatchedItemsSyncService,
+    private val authManager: AuthManager,
+    private val metaRepository: MetaRepository
 ) : WatchProgressRepository {
     companion object {
         private const val TAG = "WatchProgressRepo"
+    }
+
+    private data class EpisodeMetadata(
+        val title: String?,
+        val thumbnail: String?
+    )
+
+    private data class ContentMetadata(
+        val name: String?,
+        val poster: String?,
+        val backdrop: String?,
+        val logo: String?,
+        val episodes: Map<Pair<Int, Int>, EpisodeMetadata>
+    )
+
+    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var syncJob: Job? = null
+    private var watchedItemsSyncJob: Job? = null
+    var isSyncingFromRemote = false
+
+    private val metadataState = MutableStateFlow<Map<String, ContentMetadata>>(emptyMap())
+    private val metadataMutex = Mutex()
+    private val inFlightMetadataKeys = mutableSetOf<String>()
+    private val metadataHydrationLimit = 30
+
+    private fun triggerRemoteSync() {
+        if (isSyncingFromRemote) return
+        if (!authManager.isAuthenticated) return
+        syncJob?.cancel()
+        syncJob = syncScope.launch {
+            delay(2000)
+            watchProgressSyncService.pushToRemote()
+        }
+    }
+
+    private fun triggerWatchedItemsSync() {
+        if (isSyncingFromRemote) return
+        if (!authManager.isAuthenticated) return
+        watchedItemsSyncJob?.cancel()
+        watchedItemsSyncJob = syncScope.launch {
+            delay(2000)
+            watchedItemsSyncService.pushToRemote()
+        }
+    }
+
+    private fun hydrateMetadata(progressList: List<WatchProgress>) {
+        val sorted = progressList.sortedByDescending { it.lastWatched }
+        val uniqueByContent = linkedMapOf<String, WatchProgress>()
+        sorted.forEach { progress ->
+            if (uniqueByContent.size < metadataHydrationLimit) {
+                uniqueByContent.putIfAbsent(progress.contentId, progress)
+            }
+        }
+
+        uniqueByContent.values.forEach { progress ->
+            val contentId = progress.contentId
+            if (contentId.isBlank()) return@forEach
+            if (metadataState.value.containsKey(contentId)) return@forEach
+
+            syncScope.launch {
+                val shouldFetch = metadataMutex.withLock {
+                    if (metadataState.value.containsKey(contentId)) return@withLock false
+                    if (inFlightMetadataKeys.contains(contentId)) return@withLock false
+                    inFlightMetadataKeys.add(contentId)
+                    true
+                }
+                if (!shouldFetch) return@launch
+
+                try {
+                    val metadata = fetchContentMetadata(
+                        contentId = contentId,
+                        contentType = progress.contentType
+                    ) ?: return@launch
+                    metadataState.update { current ->
+                        current + (contentId to metadata)
+                    }
+                } finally {
+                    metadataMutex.withLock {
+                        inFlightMetadataKeys.remove(contentId)
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun fetchContentMetadata(
+        contentId: String,
+        contentType: String
+    ): ContentMetadata? {
+        val typeCandidates = buildList {
+            val normalized = contentType.lowercase()
+            if (normalized.isNotBlank()) add(normalized)
+            if (normalized in listOf("series", "tv")) {
+                add("series")
+                add("tv")
+            } else {
+                add("movie")
+            }
+        }.distinct()
+
+        val idCandidates = buildList {
+            add(contentId)
+            if (contentId.startsWith("tmdb:")) add(contentId.substringAfter(':'))
+            if (contentId.startsWith("trakt:")) add(contentId.substringAfter(':'))
+        }.distinct()
+
+        for (type in typeCandidates) {
+            for (candidateId in idCandidates) {
+                val result = withTimeoutOrNull(3500) {
+                    metaRepository.getMetaFromAllAddons(type = type, id = candidateId)
+                        .first { it !is NetworkResult.Loading }
+                } ?: continue
+
+                val meta = (result as? NetworkResult.Success)?.data ?: continue
+                val episodes = meta.videos
+                    .mapNotNull { video ->
+                        val season = video.season ?: return@mapNotNull null
+                        val episode = video.episode ?: return@mapNotNull null
+                        (season to episode) to EpisodeMetadata(
+                            title = video.title,
+                            thumbnail = video.thumbnail
+                        )
+                    }
+                    .toMap()
+
+                return ContentMetadata(
+                    name = meta.name,
+                    poster = meta.poster,
+                    backdrop = meta.background,
+                    logo = meta.logo,
+                    episodes = episodes
+                )
+            }
+        }
+        return null
+    }
+
+    private fun enrichWithMetadata(
+        progress: WatchProgress,
+        metadataMap: Map<String, ContentMetadata>
+    ): WatchProgress {
+        val metadata = metadataMap[progress.contentId] ?: return progress
+        val episodeMeta = if (progress.season != null && progress.episode != null) {
+            metadata.episodes[progress.season to progress.episode]
+        } else {
+            null
+        }
+        val shouldOverrideName = progress.name.isBlank() || progress.name == progress.contentId
+        val backdrop = progress.backdrop
+            ?: metadata.backdrop
+            ?: episodeMeta?.thumbnail
+
+        return progress.copy(
+            name = if (shouldOverrideName) metadata.name ?: progress.name else progress.name,
+            poster = progress.poster ?: metadata.poster,
+            backdrop = backdrop,
+            logo = progress.logo ?: metadata.logo,
+            episodeTitle = progress.episodeTitle ?: episodeMeta?.title
+        )
     }
 
     override val allProgress: Flow<List<WatchProgress>>
@@ -33,7 +215,13 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 if (isAuthenticated) {
                     traktProgressService.observeAllProgress()
                 } else {
-                    watchProgressPreferences.allProgress
+                    combine(
+                        watchProgressPreferences.allProgress,
+                        metadataState
+                    ) { items, metadataMap ->
+                        hydrateMetadata(items)
+                        items.map { enrichWithMetadata(it, metadataMap) }
+                    }
                 }
             }
 
@@ -102,13 +290,17 @@ class WatchProgressRepositoryImpl @Inject constructor(
             .distinctUntilChanged()
             .flatMapLatest { isAuthenticated ->
                 if (!isAuthenticated) {
-                    return@flatMapLatest if (season != null && episode != null) {
+                    val progressFlow = if (season != null && episode != null) {
                         watchProgressPreferences.getEpisodeProgress(contentId, season, episode)
                             .map { it?.isCompleted() == true }
                     } else {
                         watchProgressPreferences.getProgress(contentId)
                             .map { it?.isCompleted() == true }
                     }
+                    return@flatMapLatest combine(
+                        progressFlow,
+                        watchedItemsPreferences.isWatched(contentId, season, episode)
+                    ) { progressWatched, itemWatched -> progressWatched || itemWatched }
                 }
 
                 if (season != null && episode != null) {
@@ -129,6 +321,20 @@ class WatchProgressRepositoryImpl @Inject constructor(
             return
         }
         watchProgressPreferences.saveProgress(progress)
+        triggerRemoteSync()
+        if (progress.isCompleted()) {
+            watchedItemsPreferences.markAsWatched(
+                WatchedItem(
+                    contentId = progress.contentId,
+                    contentType = progress.contentType,
+                    title = progress.name,
+                    season = progress.season,
+                    episode = progress.episode,
+                    watchedAt = System.currentTimeMillis()
+                )
+            )
+            triggerWatchedItemsSync()
+        }
     }
 
     override suspend fun removeProgress(contentId: String, season: Int?, episode: Int?) {
@@ -143,6 +349,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
             return
         }
         watchProgressPreferences.removeProgress(contentId, season, episode)
+        triggerRemoteSync()
     }
 
     override suspend fun removeFromHistory(contentId: String, season: Int?, episode: Int?) {
@@ -151,6 +358,9 @@ class WatchProgressRepositoryImpl @Inject constructor(
             return
         }
         watchProgressPreferences.removeProgress(contentId, season, episode)
+        watchedItemsPreferences.unmarkAsWatched(contentId, season, episode)
+        triggerRemoteSync()
+        triggerWatchedItemsSync()
     }
 
     override suspend fun markAsCompleted(progress: WatchProgress) {
@@ -181,6 +391,18 @@ class WatchProgressRepositoryImpl @Inject constructor(
             return
         }
         watchProgressPreferences.markAsCompleted(progress)
+        watchedItemsPreferences.markAsWatched(
+            WatchedItem(
+                contentId = progress.contentId,
+                contentType = progress.contentType,
+                title = progress.name,
+                season = progress.season,
+                episode = progress.episode,
+                watchedAt = System.currentTimeMillis()
+            )
+        )
+        triggerRemoteSync()
+        triggerWatchedItemsSync()
     }
 
     override suspend fun clearAll() {

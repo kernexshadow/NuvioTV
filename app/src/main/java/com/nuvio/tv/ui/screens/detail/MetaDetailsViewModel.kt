@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbService
+import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.repository.parseContentIds
 import com.nuvio.tv.domain.model.LibraryEntryInput
@@ -18,6 +19,7 @@ import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.repository.LibraryRepository
 import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
+import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.trailer.TrailerService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,8 +42,10 @@ class MetaDetailsViewModel @Inject constructor(
     private val tmdbMetadataService: TmdbMetadataService,
     private val libraryRepository: LibraryRepository,
     private val watchProgressRepository: WatchProgressRepository,
+    private val watchedItemsPreferences: WatchedItemsPreferences,
     private val trailerService: TrailerService,
     private val trailerSettingsDataStore: TrailerSettingsDataStore,
+    private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val itemId: String = savedStateHandle["itemId"] ?: ""
@@ -61,7 +65,9 @@ class MetaDetailsViewModel @Inject constructor(
     init {
         observeLibraryState()
         observeWatchProgress()
+        observeWatchedEpisodes()
         observeMovieWatched()
+        observeBlurUnwatchedEpisodes()
         loadMeta()
     }
 
@@ -137,11 +143,29 @@ class MetaDetailsViewModel @Inject constructor(
         }
     }
 
+    private fun observeWatchedEpisodes() {
+        if (itemType.lowercase() == "movie") return
+        viewModelScope.launch {
+            watchedItemsPreferences.getWatchedEpisodesForContent(itemId).collectLatest { watchedSet ->
+                _uiState.update { it.copy(watchedEpisodes = watchedSet) }
+                calculateNextToWatch()
+            }
+        }
+    }
+
     private fun observeMovieWatched() {
         if (itemType.lowercase() != "movie") return
         viewModelScope.launch {
             watchProgressRepository.isWatched(itemId).collectLatest { watched ->
                 _uiState.update { it.copy(isMovieWatched = watched) }
+            }
+        }
+    }
+
+    private fun observeBlurUnwatchedEpisodes() {
+        viewModelScope.launch {
+            layoutPreferenceDataStore.blurUnwatchedEpisodes.collectLatest { enabled ->
+                _uiState.update { it.copy(blurUnwatchedEpisodes = enabled) }
             }
         }
     }
@@ -665,6 +689,7 @@ class MetaDetailsViewModel @Inject constructor(
             }
 
             val isWatched = _uiState.value.episodeProgressMap[season to episode]?.isCompleted() == true
+                || _uiState.value.watchedEpisodes.contains(season to episode)
             runCatching {
                 if (isWatched) {
                     watchProgressRepository.removeFromHistory(itemId, season, episode)

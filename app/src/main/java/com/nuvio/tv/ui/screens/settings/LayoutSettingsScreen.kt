@@ -240,7 +240,7 @@ fun LayoutSettingsContent(
                     },
                     onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
                 )
-                if (uiState.modernSidebarEnabled) {
+                if (uiState.modernSidebarEnabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                     CompactToggleRow(
                         title = "Modern Sidebar Blur",
                         subtitle = "Toggle blur effect for modern sidebar surfaces. Enabling may affect performance.",
@@ -293,6 +293,17 @@ fun LayoutSettingsContent(
                     onToggle = {
                         viewModel.onEvent(
                             LayoutSettingsEvent.SetCatalogAddonNameEnabled(!uiState.catalogAddonNameEnabled)
+                        )
+                    },
+                    onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
+                )
+                CompactToggleRow(
+                    title = "Blur Unwatched Episodes",
+                    subtitle = "Blur episode thumbnails until watched to avoid spoilers.",
+                    checked = uiState.blurUnwatchedEpisodes,
+                    onToggle = {
+                        viewModel.onEvent(
+                            LayoutSettingsEvent.SetBlurUnwatchedEpisodes(!uiState.blurUnwatchedEpisodes)
                         )
                     },
                     onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }

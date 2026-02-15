@@ -19,6 +19,7 @@ import com.nuvio.tv.data.remote.dto.trakt.TraktPlaybackItemDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktShowSeasonProgressDto
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.repository.MetaRepository
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -90,7 +91,10 @@ class TraktProgressService @Inject constructor(
         val episodes: Map<Pair<Int, Int>, EpisodeMetadata>
     )
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "Uncaught exception in TraktProgressService scope", throwable)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler)
     private val refreshSignals = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     private val episodeVideoIdCache = mutableMapOf<String, String>()
     private val remoteProgress = MutableStateFlow<List<WatchProgress>>(emptyList())
@@ -114,11 +118,24 @@ class TraktProgressService @Inject constructor(
     private val optimisticTtlMs = 3 * 60_000L
     private val metadataHydrationLimit = 30
     private val fastSyncThrottleMs = 3_000L
+    private val baseRefreshIntervalMs = 60_000L
+    private val maxRefreshIntervalMs = 10 * 60_000L
+    @Volatile
+    private var refreshIntervalMs = baseRefreshIntervalMs
+    @Volatile
+    private var consecutiveRefreshFailures = 0
 
     init {
         scope.launch {
             refreshEvents().collectLatest {
-                refreshRemoteSnapshot()
+                val success = try {
+                    refreshRemoteSnapshot()
+                    true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to refresh remote snapshot", e)
+                    false
+                }
+                updateRefreshBackoff(success)
             }
         }
     }
@@ -367,13 +384,35 @@ class TraktProgressService @Inject constructor(
 
     private fun refreshTicker(): Flow<Unit> = flow {
         while (true) {
-            delay(60_000)
+            delay(refreshIntervalMs)
             emit(Unit)
         }
     }
 
     private fun refreshEvents(): Flow<Unit> {
         return merge(refreshTicker(), refreshSignals).onStart { emit(Unit) }
+    }
+
+    private fun updateRefreshBackoff(success: Boolean) {
+        if (success) {
+            if (consecutiveRefreshFailures > 0 || refreshIntervalMs != baseRefreshIntervalMs) {
+                Log.d(TAG, "Refresh recovered. Resetting Trakt poll interval to ${baseRefreshIntervalMs}ms")
+            }
+            consecutiveRefreshFailures = 0
+            refreshIntervalMs = baseRefreshIntervalMs
+            return
+        }
+
+        consecutiveRefreshFailures += 1
+        val nextInterval = (baseRefreshIntervalMs shl (consecutiveRefreshFailures - 1))
+            .coerceAtMost(maxRefreshIntervalMs)
+        if (nextInterval != refreshIntervalMs) {
+            Log.w(
+                TAG,
+                "Refresh failed $consecutiveRefreshFailures time(s). Backing off Trakt poll interval to ${nextInterval}ms"
+            )
+        }
+        refreshIntervalMs = nextInterval
     }
 
     private suspend fun refreshRemoteSnapshot() {

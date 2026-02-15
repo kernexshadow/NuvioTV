@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.repository
 
+import android.util.Log
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.network.safeApiCall
 import com.nuvio.tv.data.mapper.toDomain
@@ -10,11 +11,19 @@ import com.nuvio.tv.domain.repository.CatalogRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
+import javax.inject.Singleton
 
+@Singleton
 class CatalogRepositoryImpl @Inject constructor(
     private val api: AddonApi
 ) : CatalogRepository {
+    companion object {
+        private const val TAG = "CatalogRepository"
+    }
+
+    private val catalogCache = ConcurrentHashMap<String, CatalogRow>()
 
     override fun getCatalog(
         addonBaseUrl: String,
@@ -27,14 +36,30 @@ class CatalogRepositoryImpl @Inject constructor(
         extraArgs: Map<String, String>,
         supportsSkip: Boolean
     ): Flow<NetworkResult<CatalogRow>> = flow {
-        emit(NetworkResult.Loading)
+        val cacheKey = "${addonId}_${type}_${catalogId}_$skip"
+
+        // Emit cached data immediately if available
+        val cached = catalogCache[cacheKey]
+        if (cached != null) {
+            emit(NetworkResult.Success(cached))
+        } else {
+            emit(NetworkResult.Loading)
+        }
 
         val url = buildCatalogUrl(addonBaseUrl, type, catalogId, skip, extraArgs)
+        Log.d(
+            TAG,
+            "Fetching catalog addonId=$addonId addonName=$addonName type=$type catalogId=$catalogId skip=$skip supportsSkip=$supportsSkip url=$url"
+        )
 
         when (val result = safeApiCall { api.getCatalog(url) }) {
             is NetworkResult.Success -> {
                 val items = result.data.metas.map { it.toDomain() }
-                
+                Log.d(
+                    TAG,
+                    "Catalog fetch success addonId=$addonId type=$type catalogId=$catalogId items=${items.size}"
+                )
+
                 val catalogRow = CatalogRow(
                     addonId = addonId,
                     addonName = addonName,
@@ -49,9 +74,22 @@ class CatalogRepositoryImpl @Inject constructor(
                     currentPage = skip / 100,
                     supportsSkip = supportsSkip
                 )
-                emit(NetworkResult.Success(catalogRow))
+                catalogCache[cacheKey] = catalogRow
+                // Only emit fresh data if it differs from cache
+                if (cached == null || cached.items != catalogRow.items) {
+                    emit(NetworkResult.Success(catalogRow))
+                }
             }
-            is NetworkResult.Error -> emit(result)
+            is NetworkResult.Error -> {
+                Log.w(
+                    TAG,
+                    "Catalog fetch failed addonId=$addonId type=$type catalogId=$catalogId code=${result.code} message=${result.message} url=$url"
+                )
+                // Only emit error if we had no cached data
+                if (cached == null) {
+                    emit(result)
+                }
+            }
             NetworkResult.Loading -> { /* Already emitted */ }
         }
     }

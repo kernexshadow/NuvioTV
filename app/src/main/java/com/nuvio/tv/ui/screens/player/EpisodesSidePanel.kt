@@ -76,6 +76,7 @@ internal fun EpisodesSidePanel(
     streamsFocusRequester: FocusRequester,
     onClose: () -> Unit,
     onBackToEpisodes: () -> Unit,
+    onReloadEpisodeStreams: () -> Unit,
     onSeasonSelected: (Int) -> Unit,
     onAddonFilterSelected: (String?) -> Unit,
     onEpisodeSelected: (Video) -> Unit,
@@ -132,6 +133,7 @@ internal fun EpisodesSidePanel(
                         uiState = uiState,
                         streamsFocusRequester = streamsFocusRequester,
                         onBackToEpisodes = onBackToEpisodes,
+                        onReload = onReloadEpisodeStreams,
                         onAddonFilterSelected = onAddonFilterSelected,
                         onStreamSelected = onStreamSelected
                     )
@@ -153,6 +155,7 @@ private fun EpisodeStreamsView(
     uiState: PlayerUiState,
     streamsFocusRequester: FocusRequester,
     onBackToEpisodes: () -> Unit,
+    onReload: () -> Unit,
     onAddonFilterSelected: (String?) -> Unit,
     onStreamSelected: (Stream) -> Unit
 ) {
@@ -164,6 +167,11 @@ private fun EpisodeStreamsView(
         DialogButton(
             text = "Back",
             onClick = onBackToEpisodes,
+            isPrimary = false
+        )
+        DialogButton(
+            text = "Reload",
+            onClick = onReload,
             isPrimary = false
         )
 
@@ -257,6 +265,14 @@ private fun EpisodesListView(
 ) {
     val seasonTabFocusRequester = remember { FocusRequester() }
     val episodesListState = rememberLazyListState()
+    val lastOpenedEpisodeIndex = remember(
+        uiState.episodes,
+        uiState.episodeStreamsForVideoId
+    ) {
+        val targetId = uiState.episodeStreamsForVideoId
+        if (targetId.isNullOrBlank()) -1
+        else uiState.episodes.indexOfFirst { it.id == targetId }
+    }
     val currentEpisodeIndex = remember(uiState.episodes, uiState.currentSeason, uiState.currentEpisode) {
         uiState.episodes.indexOfFirst { episode ->
             episode.season == uiState.currentSeason && episode.episode == uiState.currentEpisode
@@ -266,7 +282,11 @@ private fun EpisodesListView(
     LaunchedEffect(uiState.showEpisodeStreams, uiState.episodes, currentEpisodeIndex) {
         if (uiState.showEpisodeStreams || uiState.episodes.isEmpty()) return@LaunchedEffect
 
-        val targetIndex = if (currentEpisodeIndex >= 0) currentEpisodeIndex else 0
+        val targetIndex = when {
+            lastOpenedEpisodeIndex >= 0 -> lastOpenedEpisodeIndex
+            currentEpisodeIndex >= 0 -> currentEpisodeIndex
+            else -> 0
+        }
         runCatching {
             episodesListState.scrollToItem(targetIndex)
             delay(32)
@@ -326,14 +346,23 @@ private fun EpisodesListView(
                     itemsIndexed(uiState.episodes) { index, episode ->
                         val isCurrent = episode.season == uiState.currentSeason &&
                             episode.episode == uiState.currentEpisode
-                        val requestInitialFocus = if (currentEpisodeIndex >= 0) {
-                            isCurrent
-                        } else {
-                            index == 0
+                        val requestInitialFocus = when {
+                            lastOpenedEpisodeIndex >= 0 -> index == lastOpenedEpisodeIndex
+                            currentEpisodeIndex >= 0 -> isCurrent
+                            else -> index == 0
                         }
+                        val episodeKey = episode.season?.let { s ->
+                            episode.episode?.let { e -> s to e }
+                        }
+                        val isWatched = episodeKey != null && (
+                            uiState.episodeWatchProgressMap[episodeKey]?.isCompleted() == true ||
+                            uiState.watchedEpisodeKeys.contains(episodeKey)
+                        )
                         EpisodeItem(
                             episode = episode,
                             isCurrent = isCurrent,
+                            isWatched = isWatched,
+                            blurUnwatched = uiState.blurUnwatchedEpisodes,
                             focusRequester = episodesFocusRequester,
                             requestInitialFocus = requestInitialFocus,
                             onClick = { onEpisodeSelected(episode) }
@@ -411,10 +440,13 @@ private fun EpisodesSeasonTabs(
 private fun EpisodeItem(
     episode: Video,
     isCurrent: Boolean,
+    isWatched: Boolean = false,
+    blurUnwatched: Boolean = false,
     focusRequester: FocusRequester,
     requestInitialFocus: Boolean,
     onClick: () -> Unit
 ) {
+    val shouldBlur = blurUnwatched && !isWatched && !isCurrent
     val formattedDate = remember(episode.released) {
         episode.released?.let { formatReleaseDate(it) }?.takeIf { it.isNotBlank() }
     }
@@ -465,6 +497,11 @@ private fun EpisodeItem(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(episode.thumbnail)
                         .crossfade(true)
+                        .apply {
+                            if (shouldBlur) {
+                                transformations(com.nuvio.tv.ui.util.BlurTransformation())
+                            }
+                        }
                         .build(),
                     contentDescription = episode.title,
                     modifier = Modifier.fillMaxSize(),

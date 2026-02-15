@@ -104,9 +104,11 @@ fun MetaDetailsScreen(
     ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _ -> }
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var restorePlayFocusAfterTrailerBackToken by rememberSaveable { mutableIntStateOf(0) }
 
     BackHandler {
         if (uiState.isTrailerPlaying) {
+            restorePlayFocusAfterTrailerBackToken += 1
             viewModel.onEvent(MetaDetailsEvent.OnUserInteraction)
         } else {
             onBackPress()
@@ -167,7 +169,9 @@ fun MetaDetailsScreen(
                     librarySourceMode = uiState.librarySourceMode,
                     nextToWatch = uiState.nextToWatch,
                     episodeProgressMap = uiState.episodeProgressMap,
+                    watchedEpisodes = uiState.watchedEpisodes,
                     episodeWatchedPendingKeys = uiState.episodeWatchedPendingKeys,
+                    blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
                     isMovieWatched = uiState.isMovieWatched,
                     isMovieWatchedPending = uiState.isMovieWatchedPending,
                     onSeasonSelected = { viewModel.onEvent(MetaDetailsEvent.OnSeasonSelected(it)) },
@@ -214,7 +218,8 @@ fun MetaDetailsScreen(
                     },
                     trailerUrl = uiState.trailerUrl,
                     isTrailerPlaying = uiState.isTrailerPlaying,
-                    onTrailerEnded = { viewModel.onEvent(MetaDetailsEvent.OnTrailerEnded) }
+                    onTrailerEnded = { viewModel.onEvent(MetaDetailsEvent.OnTrailerEnded) },
+                    restorePlayFocusAfterTrailerBackToken = restorePlayFocusAfterTrailerBackToken
                 )
             }
         }
@@ -272,7 +277,9 @@ private fun MetaDetailsContent(
     librarySourceMode: LibrarySourceMode,
     nextToWatch: NextToWatch?,
     episodeProgressMap: Map<Pair<Int, Int>, WatchProgress>,
+    watchedEpisodes: Set<Pair<Int, Int>>,
     episodeWatchedPendingKeys: Set<String>,
+    blurUnwatchedEpisodes: Boolean,
     isMovieWatched: Boolean,
     isMovieWatchedPending: Boolean,
     onSeasonSelected: (Int) -> Unit,
@@ -285,7 +292,8 @@ private fun MetaDetailsContent(
     onToggleEpisodeWatched: (Video) -> Unit,
     trailerUrl: String?,
     isTrailerPlaying: Boolean,
-    onTrailerEnded: () -> Unit
+    onTrailerEnded: () -> Unit,
+    restorePlayFocusAfterTrailerBackToken: Int
 ) {
     val isSeries = remember(meta.type, meta.videos) {
         meta.type == ContentType.SERIES || meta.videos.isNotEmpty()
@@ -534,7 +542,8 @@ private fun MetaDetailsContent(
                         onToggleMovieWatched = onToggleMovieWatched,
                         isTrailerPlaying = isTrailerPlaying,
                         playButtonFocusRequester = heroPlayFocusRequester,
-                        restorePlayFocusToken = if (pendingRestoreType == RestoreTarget.HERO) restoreFocusToken else 0,
+                        restorePlayFocusToken = (if (pendingRestoreType == RestoreTarget.HERO) restoreFocusToken else 0) +
+                                restorePlayFocusAfterTrailerBackToken,
                         onPlayFocusRestored = {
                             onPlayButtonFocused()
                             initialHeroFocusRequested = true
@@ -558,7 +567,9 @@ private fun MetaDetailsContent(
                     EpisodesRow(
                         episodes = episodesForSeason,
                         episodeProgressMap = episodeProgressMap,
+                        watchedEpisodes = watchedEpisodes,
                         episodeWatchedPendingKeys = episodeWatchedPendingKeys,
+                        blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                         onEpisodeClick = episodeClick,
                         onToggleEpisodeWatched = onToggleEpisodeWatched,
                         upFocusRequester = selectedSeasonFocusRequester,
