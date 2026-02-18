@@ -113,7 +113,20 @@ class PlayerViewModel @Inject constructor(
         private const val AMBIGUOUS_CINEMA_TRACK_MAX = 24.05f
         private const val FRAME_RATE_CORRECTION_EPSILON = 0.015f
         private const val NTSC_FILM_FPS = 24000f / 1001f
+        private const val ADDON_SUBTITLE_TRACK_ID_PREFIX = "nuvio-addon-sub:"
+        private val PORTUGUESE_BRAZILIAN_TAGS = listOf(
+            "pt-br", "pt_br", "pob", "brazilian", "brazil", "brasil"
+        )
+        private val PORTUGUESE_EUROPEAN_TAGS = listOf(
+            "pt-pt", "pt_pt", "iberian", "european", "portugal", "europeu"
+        )
     }
+
+    private data class PendingAudioSelection(
+        val language: String?,
+        val name: String?,
+        val streamUrl: String
+    )
 
     private val initialStreamUrl: String = savedStateHandle.get<String>("streamUrl") ?: ""
     private val title: String = savedStateHandle.get<String>("title")?.let {
@@ -229,6 +242,8 @@ class PlayerViewModel @Inject constructor(
     private var lastSubtitlePreferredLanguage: String? = null
     private var lastSubtitleSecondaryLanguage: String? = null
     private var pendingAddonSubtitleLanguage: String? = null
+    private var pendingAddonSubtitleTrackId: String? = null
+    private var pendingAudioSelectionAfterSubtitleRefresh: PendingAudioSelection? = null
     private var hasScannedTextTracksOnce: Boolean = false
     private var streamReuseLastLinkEnabled: Boolean = false
     private var streamAutoPlayModeSetting: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL
@@ -316,6 +331,8 @@ class PlayerViewModel @Inject constructor(
         autoSubtitleSelected = false
         hasScannedTextTracksOnce = false
         pendingAddonSubtitleLanguage = null
+        pendingAddonSubtitleTrackId = null
+        pendingAudioSelectionAfterSubtitleRefresh = null
         _uiState.update {
             it.copy(
                 addonSubtitles = emptyList(),
@@ -1369,6 +1386,9 @@ class PlayerViewModel @Inject constructor(
             .filterKeys { !it.equals("Range", ignoreCase = true) }
         currentStreamUrl = url
         currentHeaders = newHeaders
+        pendingAddonSubtitleLanguage = null
+        pendingAddonSubtitleTrackId = null
+        pendingAudioSelectionAfterSubtitleRefresh = null
         hasRetriedCurrentStreamAfter416 = false
         lastSavedPosition = 0L
         resetLoadingOverlayForNewStream()
@@ -1641,6 +1661,9 @@ class PlayerViewModel @Inject constructor(
 
         currentStreamUrl = url
         currentHeaders = newHeaders
+        pendingAddonSubtitleLanguage = null
+        pendingAddonSubtitleTrackId = null
+        pendingAudioSelectionAfterSubtitleRefresh = null
         hasRetriedCurrentStreamAfter416 = false
         currentVideoId = targetVideo?.id ?: _uiState.value.episodeStreamsForVideoId ?: currentVideoId
         currentSeason = targetVideo?.season ?: _uiState.value.episodeStreamsSeason ?: currentSeason
@@ -1944,6 +1967,7 @@ class PlayerViewModel @Inject constructor(
                                 index = subtitleTracks.size,
                                 name = format.label ?: format.language ?: "Subtitle ${subtitleTracks.size + 1}",
                                 language = format.language,
+                                trackId = format.id,
                                 isSelected = isSelected
                             )
                         )
@@ -1960,21 +1984,63 @@ class PlayerViewModel @Inject constructor(
         )
 
         fun matchesLanguage(track: TrackInfo, target: String): Boolean {
-            val lang = track.language?.lowercase() ?: return false
-            return lang == target || lang.startsWith(target) || lang.contains(target)
+            return matchesLanguageCode(track.language, target)
+        }
+
+        val pendingAddonTrackId = pendingAddonSubtitleTrackId
+        if (!pendingAddonTrackId.isNullOrBlank() && subtitleTracks.isNotEmpty()) {
+            val addonTrackIndex = subtitleTracks.indexOfFirst { it.trackId == pendingAddonTrackId }
+            if (addonTrackIndex >= 0) {
+                Log.d(TAG, "Selecting pending addon subtitle track id=$pendingAddonTrackId index=$addonTrackIndex")
+                selectSubtitleTrack(addonTrackIndex)
+                selectedSubtitleIndex = if (_uiState.value.selectedAddonSubtitle != null) -1 else addonTrackIndex
+                pendingAddonSubtitleTrackId = null
+                pendingAddonSubtitleLanguage = null
+            } else {
+                val pendingLang = pendingAddonSubtitleLanguage
+                val hasManualAddonSelection = _uiState.value.selectedAddonSubtitle != null
+                if (hasManualAddonSelection && !pendingLang.isNullOrBlank()) {
+                    val addonFallbackIndex = subtitleTracks.indexOfLast { matchesLanguage(it, pendingLang) }
+                    if (addonFallbackIndex >= 0) {
+                        Log.d(
+                            TAG,
+                            "Addon track id not found; falling back to last language match index=$addonFallbackIndex lang=$pendingLang"
+                        )
+                        selectSubtitleTrack(addonFallbackIndex)
+                        selectedSubtitleIndex = -1
+                        pendingAddonSubtitleTrackId = null
+                        pendingAddonSubtitleLanguage = null
+                    }
+                }
+            }
         }
 
         val pendingLang = pendingAddonSubtitleLanguage
-        if (pendingLang != null && subtitleTracks.isNotEmpty()) {
-            val preferredIndex = subtitleTracks.indexOfFirst { matchesLanguage(it, pendingLang) }
-            val fallbackIndex = if (preferredIndex >= 0) preferredIndex else 0
-
-            selectSubtitleTrack(fallbackIndex)
-            selectedSubtitleIndex = if (_uiState.value.selectedAddonSubtitle != null) -1 else fallbackIndex
+        if (pendingAddonSubtitleTrackId.isNullOrBlank() &&
+            pendingLang != null &&
+            subtitleTracks.isNotEmpty() &&
+            _uiState.value.selectedAddonSubtitle == null
+        ) {
+            val preferredIndex = findBestInternalSubtitleTrackIndex(
+                subtitleTracks = subtitleTracks,
+                targets = listOf(pendingLang)
+            )
+            if (preferredIndex >= 0) {
+                selectSubtitleTrack(preferredIndex)
+                selectedSubtitleIndex = if (_uiState.value.selectedAddonSubtitle != null) -1 else preferredIndex
+            } else {
+                Log.d(
+                    TAG,
+                    "Skipping pending subtitle track switch: no text track matches language=$pendingLang"
+                )
+            }
             pendingAddonSubtitleLanguage = null
         }
 
         maybeApplyRememberedAudioSelection(audioTracks)
+        maybeRestorePendingAudioSelectionAfterSubtitleRefresh(audioTracks)?.let { restoredIndex ->
+            selectedAudioIndex = restoredIndex
+        }
 
         _uiState.update {
             it.copy(
@@ -1993,18 +2059,12 @@ class PlayerViewModel @Inject constructor(
         if (audioTracks.isEmpty()) return
         if (rememberedAudioLanguage.isNullOrBlank() && rememberedAudioName.isNullOrBlank()) return
 
-        fun normalize(value: String?): String? = value
-            ?.lowercase()
-            ?.replace(Regex("\\s+"), " ")
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-
-        val targetLang = normalize(rememberedAudioLanguage)
-        val targetName = normalize(rememberedAudioName)
+        val targetLang = normalizeTrackMatchValue(rememberedAudioLanguage)
+        val targetName = normalizeTrackMatchValue(rememberedAudioName)
 
         val index = audioTracks.indexOfFirst { track ->
-            val trackLang = normalize(track.language)
-            val trackName = normalize(track.name)
+            val trackLang = normalizeTrackMatchValue(track.language)
+            val trackName = normalizeTrackMatchValue(track.name)
             val langMatch = !targetLang.isNullOrBlank() &&
                 !trackLang.isNullOrBlank() &&
                 (trackLang == targetLang || trackLang.startsWith("$targetLang-"))
@@ -2022,6 +2082,105 @@ class PlayerViewModel @Inject constructor(
         hasAppliedRememberedAudioSelection = true
     }
 
+    private fun normalizeTrackMatchValue(value: String?): String? = value
+        ?.lowercase()
+        ?.replace(Regex("\\s+"), " ")
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+
+    private fun captureCurrentAudioSelectionForSubtitleRefresh(player: Player): PendingAudioSelection? {
+        val state = _uiState.value
+        state.audioTracks.getOrNull(state.selectedAudioTrackIndex)?.let { selected ->
+            return PendingAudioSelection(
+                language = selected.language,
+                name = selected.name,
+                streamUrl = currentStreamUrl
+            )
+        }
+
+        player.currentTracks.groups.forEach { trackGroup ->
+            if (trackGroup.type != C.TRACK_TYPE_AUDIO) return@forEach
+            for (i in 0 until trackGroup.length) {
+                if (trackGroup.isTrackSelected(i)) {
+                    val format = trackGroup.getTrackFormat(i)
+                    return PendingAudioSelection(
+                        language = format.language,
+                        name = format.label ?: format.language,
+                        streamUrl = currentStreamUrl
+                    )
+                }
+            }
+        }
+        return null
+    }
+
+    private fun maybeRestorePendingAudioSelectionAfterSubtitleRefresh(
+        audioTracks: List<TrackInfo>
+    ): Int? {
+        val pending = pendingAudioSelectionAfterSubtitleRefresh ?: return null
+        if (pending.streamUrl != currentStreamUrl) {
+            pendingAudioSelectionAfterSubtitleRefresh = null
+            return null
+        }
+        if (audioTracks.isEmpty()) return null
+
+        val targetLang = normalizeTrackMatchValue(pending.language)
+        val targetName = normalizeTrackMatchValue(pending.name)
+        fun languageMatches(trackLanguage: String?): Boolean {
+            val trackLang = normalizeTrackMatchValue(trackLanguage)
+            return !targetLang.isNullOrBlank() &&
+                !trackLang.isNullOrBlank() &&
+                (trackLang == targetLang ||
+                    trackLang.startsWith("$targetLang-") ||
+                    trackLang.startsWith("${targetLang}_"))
+        }
+
+        val exactNameIndex = if (!targetName.isNullOrBlank()) {
+            audioTracks.indexOfFirst { track ->
+                normalizeTrackMatchValue(track.name) == targetName
+            }
+        } else {
+            -1
+        }
+
+        val nameContainsIndex = if (exactNameIndex < 0 && !targetName.isNullOrBlank()) {
+            audioTracks.indexOfFirst { track ->
+                normalizeTrackMatchValue(track.name)?.contains(targetName) == true
+            }
+        } else {
+            -1
+        }
+
+        val languageIndex = if (exactNameIndex < 0 && nameContainsIndex < 0) {
+            audioTracks.indexOfFirst { track -> languageMatches(track.language) }
+        } else {
+            -1
+        }
+
+        val index = when {
+            exactNameIndex >= 0 -> exactNameIndex
+            nameContainsIndex >= 0 -> nameContainsIndex
+            else -> languageIndex
+        }
+
+        pendingAudioSelectionAfterSubtitleRefresh = null
+        if (index < 0) {
+            Log.d(
+                TAG,
+                "Audio restore skipped after subtitle refresh: no match for lang=$targetLang name=$targetName"
+            )
+            return null
+        }
+
+        val restoredTrack = audioTracks[index]
+        Log.d(
+            TAG,
+            "Restoring audio after subtitle refresh index=$index lang=${restoredTrack.language} name=${restoredTrack.name}"
+        )
+        selectAudioTrack(index)
+        return index
+    }
+
     private fun subtitleLanguageTargets(): List<String> {
         val preferred = _uiState.value.subtitleStyle.preferredLanguage.lowercase()
         if (preferred == "none") return emptyList()
@@ -2033,9 +2192,101 @@ class PlayerViewModel @Inject constructor(
         if (language.isNullOrBlank()) return false
         val normalizedLanguage = normalizeLanguageCode(language)
         val normalizedTarget = normalizeLanguageCode(target)
+        if (normalizedTarget == "pt") {
+            return normalizedLanguage == "pt"
+        }
         return normalizedLanguage == normalizedTarget ||
             normalizedLanguage.startsWith("$normalizedTarget-") ||
             normalizedLanguage.startsWith("${normalizedTarget}_")
+    }
+
+    private fun findBestInternalSubtitleTrackIndex(
+        subtitleTracks: List<TrackInfo>,
+        targets: List<String>
+    ): Int {
+        for ((targetPosition, target) in targets.withIndex()) {
+            val normalizedTarget = normalizeLanguageCode(target)
+            val candidateIndexes = subtitleTracks.indices.filter { index ->
+                matchesLanguageCode(subtitleTracks[index].language, target)
+            }
+            if (candidateIndexes.isEmpty()) {
+                if (normalizedTarget == "pt-br") {
+                    val brazilianFromGenericPt = findBrazilianPortugueseInGenericPtTracks(subtitleTracks)
+                    if (brazilianFromGenericPt >= 0) {
+                        Log.d(
+                            TAG,
+                            "AUTO_SUB pick internal pt-br via generic-pt tags index=$brazilianFromGenericPt"
+                        )
+                        return brazilianFromGenericPt
+                    }
+                    // Specific PT-BR rule:
+                    // generic "pt" tracks without brazilian tags are not accepted as PT-BR.
+                    if (targetPosition == 0) {
+                        return -1
+                    }
+                }
+                continue
+            }
+            if (candidateIndexes.size == 1) return candidateIndexes.first()
+
+            if (normalizedTarget == "pt" || normalizedTarget == "pt-br") {
+                val tieBroken = breakPortugueseSubtitleTie(
+                    subtitleTracks = subtitleTracks,
+                    candidateIndexes = candidateIndexes,
+                    normalizedTarget = normalizedTarget
+                )
+                if (tieBroken >= 0) return tieBroken
+            }
+            return candidateIndexes.first()
+        }
+        return -1
+    }
+
+    private fun findBrazilianPortugueseInGenericPtTracks(subtitleTracks: List<TrackInfo>): Int {
+        val genericPtIndexes = subtitleTracks.indices.filter { index ->
+            val trackLanguage = subtitleTracks[index].language ?: return@filter false
+            normalizeLanguageCode(trackLanguage) == "pt"
+        }
+        if (genericPtIndexes.isEmpty()) return -1
+
+        return genericPtIndexes.firstOrNull { index ->
+            subtitleHasAnyTag(subtitleTracks[index], PORTUGUESE_BRAZILIAN_TAGS) &&
+                !subtitleHasAnyTag(subtitleTracks[index], PORTUGUESE_EUROPEAN_TAGS)
+        } ?: genericPtIndexes.firstOrNull { index ->
+            subtitleHasAnyTag(subtitleTracks[index], PORTUGUESE_BRAZILIAN_TAGS)
+        } ?: -1
+    }
+
+    private fun breakPortugueseSubtitleTie(
+        subtitleTracks: List<TrackInfo>,
+        candidateIndexes: List<Int>,
+        normalizedTarget: String
+    ): Int {
+        fun hasBrazilianTags(index: Int): Boolean {
+            return subtitleHasAnyTag(subtitleTracks[index], PORTUGUESE_BRAZILIAN_TAGS)
+        }
+
+        fun hasEuropeanTags(index: Int): Boolean {
+            return subtitleHasAnyTag(subtitleTracks[index], PORTUGUESE_EUROPEAN_TAGS)
+        }
+
+        return if (normalizedTarget == "pt-br") {
+            candidateIndexes.firstOrNull { hasBrazilianTags(it) && !hasEuropeanTags(it) }
+                ?: candidateIndexes.firstOrNull { hasBrazilianTags(it) }
+                ?: candidateIndexes.first()
+        } else {
+            candidateIndexes.firstOrNull { hasEuropeanTags(it) && !hasBrazilianTags(it) }
+                ?: candidateIndexes.firstOrNull { hasEuropeanTags(it) }
+                ?: candidateIndexes.firstOrNull { !hasBrazilianTags(it) }
+                ?: candidateIndexes.first()
+        }
+    }
+
+    private fun subtitleHasAnyTag(track: TrackInfo, tags: List<String>): Boolean {
+        val haystack = listOfNotNull(track.name, track.language, track.trackId)
+            .joinToString(" ")
+            .lowercase(Locale.ROOT)
+        return tags.any { tag -> haystack.contains(tag) }
     }
 
     private fun tryAutoSelectPreferredSubtitleFromAvailableTracks() {
@@ -2055,9 +2306,10 @@ class PlayerViewModel @Inject constructor(
             return
         }
 
-        val internalIndex = state.subtitleTracks.indexOfFirst { track ->
-            targets.any { target -> matchesLanguageCode(track.language, target) }
-        }
+        val internalIndex = findBestInternalSubtitleTrackIndex(
+            subtitleTracks = state.subtitleTracks,
+            targets = targets
+        )
         if (internalIndex >= 0) {
             autoSubtitleSelected = true
             val currentInternal = state.selectedSubtitleTrackIndex
@@ -2558,6 +2810,10 @@ class PlayerViewModel @Inject constructor(
                 _uiState.update { it.copy(showAudioDialog = false) }
             }
             is PlayerEvent.OnSelectSubtitleTrack -> {
+                autoSubtitleSelected = true
+                pendingAddonSubtitleLanguage = null
+                pendingAddonSubtitleTrackId = null
+                pendingAudioSelectionAfterSubtitleRefresh = null
                 selectSubtitleTrack(event.index)
                 _uiState.update { 
                     it.copy(
@@ -2568,6 +2824,10 @@ class PlayerViewModel @Inject constructor(
                 }
             }
             PlayerEvent.OnDisableSubtitles -> {
+                autoSubtitleSelected = true
+                pendingAddonSubtitleLanguage = null
+                pendingAddonSubtitleTrackId = null
+                pendingAudioSelectionAfterSubtitleRefresh = null
                 disableSubtitles()
                 _uiState.update { 
                     it.copy(
@@ -2579,6 +2839,7 @@ class PlayerViewModel @Inject constructor(
                 }
             }
             is PlayerEvent.OnSelectAddonSubtitle -> {
+                autoSubtitleSelected = true
                 selectAddonSubtitle(event.subtitle)
                 _uiState.update { it.copy(showSubtitleDialog = false, showSubtitleStylePanel = false) }
             }
@@ -2918,14 +3179,19 @@ class PlayerViewModel @Inject constructor(
             Log.d(TAG, "Selecting ADDON subtitle lang=${subtitle.lang} id=${subtitle.id}")
 
             val normalizedLang = normalizeLanguageCode(subtitle.lang)
+            val addonTrackId = "$ADDON_SUBTITLE_TRACK_ID_PREFIX${subtitle.id}"
             pendingAddonSubtitleLanguage = normalizedLang
+            pendingAddonSubtitleTrackId = addonTrackId
+            pendingAudioSelectionAfterSubtitleRefresh =
+                captureCurrentAudioSelectionForSubtitleRefresh(player)
 
-            
+             
             val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(
                 android.net.Uri.parse(subtitle.url)
             )
+                .setId(addonTrackId)
                 .setMimeType(getMimeTypeFromUrl(subtitle.url))
-                .setLanguage(subtitle.lang)
+                .setLanguage(normalizedLang)
                 .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                 .build()
 
@@ -2947,7 +3213,7 @@ class PlayerViewModel @Inject constructor(
             player.trackSelectionParameters = player.trackSelectionParameters
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                .setPreferredTextLanguage(normalizedLang)
+                .setPreferredTextLanguage(null)
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .build()
             
@@ -2963,13 +3229,13 @@ class PlayerViewModel @Inject constructor(
     private fun normalizeLanguageCode(lang: String): String {
         val code = lang.lowercase()
         return when (code) {
-            "pt-br", "pt_br", "br", "pob" -> "pt"
+            "pt-br", "pt_br", "br", "pob" -> "pt-br"
+            "pt", "pt-pt", "pt_pt", "por" -> "pt"
             "eng" -> "en"
             "spa" -> "es"
             "fre", "fra" -> "fr"
             "ger", "deu" -> "de"
             "ita" -> "it"
-            "por" -> "pt"
             "rus" -> "ru"
             "jpn" -> "ja"
             "kor" -> "ko"
