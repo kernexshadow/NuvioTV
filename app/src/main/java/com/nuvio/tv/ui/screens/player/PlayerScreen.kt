@@ -22,6 +22,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -41,7 +43,6 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
-import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -67,6 +68,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -98,6 +100,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.core.player.ExternalPlayerLauncher
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.launch
 
@@ -122,6 +125,8 @@ fun PlayerScreen(
             onPlaybackErrorBack()
         } else if (uiState.showPauseOverlay) {
             viewModel.onEvent(PlayerEvent.OnDismissPauseOverlay)
+        } else if (uiState.showSubtitleDelayOverlay) {
+            viewModel.onEvent(PlayerEvent.OnHideSubtitleDelayOverlay)
         } else if (uiState.showSubtitleStylePanel) {
             viewModel.onEvent(PlayerEvent.OnDismissSubtitleStylePanel)
         } else if (uiState.showSourcesPanel) {
@@ -278,13 +283,15 @@ fun PlayerScreen(
         uiState.showEpisodesPanel,
         uiState.showSourcesPanel,
         uiState.showSubtitleStylePanel,
+        uiState.showSubtitleDelayOverlay,
         uiState.showAudioDialog,
         uiState.showSubtitleDialog,
         uiState.showSpeedDialog
     ) {
         if (uiState.showControls && !uiState.showEpisodesPanel && !uiState.showSourcesPanel &&
             !uiState.showAudioDialog && !uiState.showSubtitleDialog &&
-            !uiState.showSubtitleStylePanel && !uiState.showSpeedDialog
+            !uiState.showSubtitleStylePanel && !uiState.showSubtitleDelayOverlay &&
+            !uiState.showSpeedDialog
         ) {
             // Wait for AnimatedVisibility animation to complete before focusing play/pause button
             kotlinx.coroutines.delay(250)
@@ -319,11 +326,63 @@ fun PlayerScreen(
             .background(Color.Black)
             .focusRequester(containerFocusRequester)
             .focusable()
+            .onPreviewKeyEvent { keyEvent ->
+                if (keyEvent.nativeKeyEvent.keyCode != KeyEvent.KEYCODE_CAPTIONS) {
+                    return@onPreviewKeyEvent false
+                }
+
+                if (keyEvent.nativeKeyEvent.action != KeyEvent.ACTION_UP) {
+                    return@onPreviewKeyEvent true
+                }
+
+                if (uiState.showSubtitleDelayOverlay) {
+                    viewModel.onEvent(PlayerEvent.OnHideSubtitleDelayOverlay)
+                } else if (
+                    !uiState.showEpisodesPanel &&
+                    !uiState.showSourcesPanel &&
+                    !uiState.showAudioDialog &&
+                    !uiState.showSubtitleDialog &&
+                    !uiState.showSubtitleStylePanel &&
+                    !uiState.showSpeedDialog
+                ) {
+                    viewModel.onEvent(PlayerEvent.OnShowSubtitleDialog)
+                }
+                true
+            }
             .onKeyEvent { keyEvent ->
+                if (uiState.showSubtitleDelayOverlay) {
+                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                        when (keyEvent.nativeKeyEvent.keyCode) {
+                            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                viewModel.onEvent(PlayerEvent.OnAdjustSubtitleDelay(-SUBTITLE_DELAY_STEP_MS))
+                                return@onKeyEvent true
+                            }
+                            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                viewModel.onEvent(PlayerEvent.OnAdjustSubtitleDelay(SUBTITLE_DELAY_STEP_MS))
+                                return@onKeyEvent true
+                            }
+                            KeyEvent.KEYCODE_DPAD_CENTER,
+                            KeyEvent.KEYCODE_ENTER,
+                            KeyEvent.KEYCODE_DPAD_UP,
+                            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                viewModel.onEvent(PlayerEvent.OnHideSubtitleDelayOverlay)
+                                return@onKeyEvent true
+                            }
+                        }
+                    }
+                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP &&
+                        (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                            keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
+                    ) {
+                        return@onKeyEvent true
+                    }
+                }
+
                 // When a side panel or dialog is open, let it handle all keys
                 val panelOrDialogOpen = uiState.showEpisodesPanel || uiState.showSourcesPanel ||
                         uiState.showAudioDialog || uiState.showSubtitleDialog ||
-                        uiState.showSubtitleStylePanel || uiState.showSpeedDialog
+                        uiState.showSubtitleStylePanel || uiState.showSpeedDialog ||
+                        uiState.showSubtitleDelayOverlay
                 if (panelOrDialogOpen) return@onKeyEvent false
 
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
@@ -567,6 +626,7 @@ fun PlayerScreen(
                 !uiState.showAudioDialog &&
                 !uiState.showSubtitleDialog &&
                 !uiState.showSubtitleStylePanel &&
+                !uiState.showSubtitleDelayOverlay &&
                 !uiState.showSpeedDialog,
             controlsVisible = uiState.showControls,
             isPlayable = uiState.nextEpisode?.hasAired == true,
@@ -608,6 +668,7 @@ fun PlayerScreen(
             visible = uiState.showControls && uiState.error == null &&
                 !uiState.showLoadingOverlay && !uiState.showPauseOverlay &&
                 !uiState.showSubtitleStylePanel &&
+                !uiState.showSubtitleDelayOverlay &&
                 !uiState.showEpisodesPanel &&
                 !uiState.showSourcesPanel &&
                 !uiState.showAudioDialog &&
@@ -677,8 +738,33 @@ fun PlayerScreen(
 
         // Seek-only overlay (progress bar + time) when controls are hidden
         AnimatedVisibility(
+            visible = uiState.showSubtitleDelayOverlay &&
+                !uiState.showControls &&
+                uiState.error == null &&
+                !uiState.showLoadingOverlay &&
+                !uiState.showPauseOverlay &&
+                !uiState.showSubtitleStylePanel &&
+                !uiState.showEpisodesPanel &&
+                !uiState.showSourcesPanel &&
+                !uiState.showAudioDialog &&
+                !uiState.showSubtitleDialog &&
+                !uiState.showSpeedDialog,
+            enter = fadeIn(animationSpec = tween(120)),
+            exit = fadeOut(animationSpec = tween(120)),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 44.dp)
+                .zIndex(2.3f)
+        ) {
+            SubtitleDelayOverlay(
+                subtitleDelayMs = uiState.subtitleDelayMs
+            )
+        }
+
+        AnimatedVisibility(
             visible = uiState.showSeekOverlay && !uiState.showControls && uiState.error == null &&
-                !uiState.showLoadingOverlay && !uiState.showPauseOverlay,
+                !uiState.showLoadingOverlay && !uiState.showPauseOverlay &&
+                !uiState.showSubtitleDelayOverlay,
             enter = fadeIn(animationSpec = tween(150)),
             exit = fadeOut(animationSpec = tween(150)),
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -828,6 +914,7 @@ fun PlayerScreen(
                 onAddonSubtitleSelected = { viewModel.onEvent(PlayerEvent.OnSelectAddonSubtitle(it)) },
                 onDisableSubtitles = { viewModel.onEvent(PlayerEvent.OnDisableSubtitles) },
                 onOpenStylePanel = { viewModel.onEvent(PlayerEvent.OnOpenSubtitleStylePanel) },
+                onOpenDelayOverlay = { viewModel.onEvent(PlayerEvent.OnShowSubtitleDelayOverlay) },
                 onDismiss = { viewModel.onEvent(PlayerEvent.OnDismissDialog) }
             )
         }
@@ -1260,6 +1347,91 @@ private fun StreamSourceIndicator(text: String) {
 }
 
 @Composable
+private fun SubtitleDelayOverlay(subtitleDelayMs: Int) {
+    val fraction = ((subtitleDelayMs - SUBTITLE_DELAY_MIN_MS).toFloat() /
+        (SUBTITLE_DELAY_MAX_MS - SUBTITLE_DELAY_MIN_MS).toFloat()).coerceIn(0f, 1f)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth(0.6f)
+            .clip(RoundedCornerShape(26.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xCC1F3246),
+                        Color(0xCC283655),
+                        Color(0xCC2F2B55)
+                    )
+                )
+            )
+            .padding(horizontal = 26.dp, vertical = 20.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Subtitle offset",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = Color.White
+            )
+            Text(
+                text = formatSubtitleDelay(subtitleDelayMs),
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White.copy(alpha = 0.95f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(24.dp)
+        ) {
+            val thumbWidth = 22.dp
+            val thumbOffset = (maxWidth - thumbWidth) * fraction
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .align(Alignment.CenterStart)
+                    .background(Color.White.copy(alpha = 0.15f))
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(5) { index ->
+                    val tickHeight = if (index == 2) 13.dp else 9.dp
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(tickHeight)
+                            .background(Color.White.copy(alpha = 0.22f))
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .offset(x = thumbOffset)
+                    .align(Alignment.CenterStart)
+                    .width(thumbWidth)
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.White.copy(alpha = 0.95f))
+            )
+        }
+    }
+}
+
+@Composable
 private fun rememberRawSvgPainter(@RawRes iconRes: Int): Painter {
     val context = LocalContext.current
     val request = remember(iconRes, context) {
@@ -1448,4 +1620,8 @@ private fun formatTime(millis: Long): String {
     } else {
         String.format("%d:%02d", minutes, seconds)
     }
+}
+
+private fun formatSubtitleDelay(delayMs: Int): String {
+    return String.format(Locale.US, "%+.3fs", delayMs / 1000f)
 }
