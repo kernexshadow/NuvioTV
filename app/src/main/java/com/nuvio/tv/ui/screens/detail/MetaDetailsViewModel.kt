@@ -74,6 +74,7 @@ class MetaDetailsViewModel @Inject constructor(
     private var trailerAutoplayEnabled = false
 
     private var isPlayButtonFocused = false
+    private var isAppInForeground = true
 
     init {
         observeMetaViewSettings()
@@ -111,6 +112,7 @@ class MetaDetailsViewModel @Inject constructor(
             is MetaDetailsEvent.OnSeasonSelected -> selectSeason(event.season)
             is MetaDetailsEvent.OnEpisodeClick -> { /* Navigate to stream */ }
             MetaDetailsEvent.OnPlayClick -> { /* Start playback */ }
+            is MetaDetailsEvent.OnAppForegroundChanged -> handleAppForegroundChanged(event.isForeground)
             MetaDetailsEvent.OnToggleLibrary -> toggleLibrary()
             MetaDetailsEvent.OnRetry -> loadMeta()
             MetaDetailsEvent.OnBackPress -> { /* Handle in screen */ }
@@ -1272,10 +1274,20 @@ class MetaDetailsViewModel @Inject constructor(
         val state = _uiState.value
         if (state.trailerUrl == null || state.isTrailerPlaying) return
         if (!trailerAutoplayEnabled) return
+        if (!isAppInForeground) return
         if (!isPlayButtonFocused) return
 
         idleTimerJob = viewModelScope.launch {
             delay(trailerDelayMs)
+            val latestState = _uiState.value
+            if (!isAppInForeground ||
+                !trailerAutoplayEnabled ||
+                !isPlayButtonFocused ||
+                latestState.trailerUrl == null ||
+                latestState.isTrailerPlaying
+            ) {
+                return@launch
+            }
             _uiState.update {
                 it.copy(
                     isTrailerPlaying = true,
@@ -1304,6 +1316,15 @@ class MetaDetailsViewModel @Inject constructor(
                     hideLogoDuringTrailer = false
                 )
             }
+        }
+    }
+
+    private fun handleAppForegroundChanged(isForeground: Boolean) {
+        if (isAppInForeground == isForeground) return
+        isAppInForeground = isForeground
+        if (!isForeground) {
+            idleTimerJob?.cancel()
+            return
         }
     }
 

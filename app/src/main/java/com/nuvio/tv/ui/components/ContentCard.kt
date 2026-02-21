@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +50,9 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -94,28 +98,50 @@ fun ContentCard(
     var interactionNonce by remember { mutableIntStateOf(0) }
     var isBackdropExpanded by remember { mutableStateOf(false) }
     var trailerFirstFrameRendered by remember(trailerPreviewUrl) { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isLifecycleResumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
 
     val needsFocusState = focusedPosterBackdropExpandEnabled || focusedPosterBackdropTrailerEnabled
     val lastFocusedRef = remember { booleanArrayOf(false) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> isLifecycleResumed = true
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP,
+                Lifecycle.Event.ON_DESTROY -> isLifecycleResumed = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     if (focusedPosterBackdropExpandEnabled) {
         LaunchedEffect(
             focusedPosterBackdropExpandDelaySeconds,
             isFocused,
             interactionNonce,
-            item.id
+            item.id,
+            isLifecycleResumed
         ) {
             if (!isFocused) {
                 isBackdropExpanded = false
                 return@LaunchedEffect
             }
+            if (!isLifecycleResumed) return@LaunchedEffect
 
             val delaySeconds = focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(1)
 
             isBackdropExpanded = false
             val backdropDelayMs = delaySeconds * 1000L
             delay(backdropDelayMs)
-            if (isFocused && focusedPosterBackdropExpandEnabled) {
+            if (isFocused && focusedPosterBackdropExpandEnabled && isLifecycleResumed) {
                 isBackdropExpanded = true
             }
         }
@@ -125,8 +151,10 @@ fun ContentCard(
         LaunchedEffect(
             item.id,
             isFocused,
-            trailerPreviewUrl
+            trailerPreviewUrl,
+            isLifecycleResumed
         ) {
+            if (!isLifecycleResumed) return@LaunchedEffect
             if (!isFocused) return@LaunchedEffect
             if (trailerPreviewUrl != null) return@LaunchedEffect
             onRequestTrailerPreview(item)
@@ -254,6 +282,7 @@ fun ContentCard(
                 val shouldPlayTrailerPreview = isBackdropExpanded &&
                     focusedPosterBackdropTrailerEnabled &&
                     isFocused &&
+                    isLifecycleResumed &&
                     trailerPreviewUrl != null
 
                 if (focusedPosterBackdropTrailerEnabled) {

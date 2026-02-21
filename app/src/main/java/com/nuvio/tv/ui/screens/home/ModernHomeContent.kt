@@ -76,6 +76,9 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
@@ -180,6 +183,26 @@ fun ModernHomeContent(
         effectiveExpandEnabled ||
             (effectiveAutoplayEnabled &&
                 trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isLifecycleResumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> isLifecycleResumed = true
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP,
+                Lifecycle.Event.ON_DESTROY -> isLifecycleResumed = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     val visibleCatalogRows = remember(uiState.catalogRows) {
         uiState.catalogRows.filter { it.items.isNotEmpty() }
     }
@@ -296,13 +319,16 @@ fun ModernHomeContent(
         expansionInteractionNonce,
         shouldActivateFocusedPosterFlow,
         trailerPlaybackTarget,
-        uiState.focusedPosterBackdropExpandDelaySeconds
+        uiState.focusedPosterBackdropExpandDelaySeconds,
+        isLifecycleResumed
     ) {
+        if (!isLifecycleResumed) return@LaunchedEffect
         expandedCatalogFocusKey = null
         if (!shouldActivateFocusedPosterFlow) return@LaunchedEffect
         val selection = focusedCatalogSelection ?: return@LaunchedEffect
         delay(uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(1) * 1000L)
-        if (shouldActivateFocusedPosterFlow &&
+        if (isLifecycleResumed &&
+            shouldActivateFocusedPosterFlow &&
             focusedCatalogSelection?.focusKey == selection.focusKey
         ) {
             expandedCatalogFocusKey = selection.focusKey
@@ -311,8 +337,12 @@ fun ModernHomeContent(
 
     LaunchedEffect(
         focusedCatalogSelection?.focusKey,
-        effectiveAutoplayEnabled
+        effectiveAutoplayEnabled,
+        isLifecycleResumed
     ) {
+        if (!isLifecycleResumed) {
+            return@LaunchedEffect
+        }
         if (!effectiveAutoplayEnabled) {
             return@LaunchedEffect
         }
@@ -614,6 +644,7 @@ fun ModernHomeContent(
                                         !suppressCardExpansionForHeroTrailer
                                 val playTrailerInExpandedCard =
                                     effectiveAutoplayEnabled &&
+                                        isLifecycleResumed &&
                                         trailerPlaybackTarget ==
                                             FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
                                         isBackdropExpanded
@@ -737,6 +768,7 @@ fun ModernHomeContent(
         }
         val heroTrailerUrl = expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewUrls[it] }
         val shouldPlayHeroTrailer = effectiveAutoplayEnabled &&
+            isLifecycleResumed &&
             trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA &&
             !heroTrailerUrl.isNullOrBlank()
         var heroTrailerFirstFrameRendered by remember(heroTrailerUrl) { mutableStateOf(false) }
