@@ -93,6 +93,77 @@ class PluginManager @Inject constructor(
         return trimmed
     }
 
+    /**
+     * Check if the input looks like a short code rather than a URL.
+     * Short codes are alphanumeric strings without slashes, dots (other than in a domain),
+     * or protocol schemes — e.g. "cspr", "0094", "megarepo".
+     */
+    private fun isShortCode(input: String): Boolean {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) return false
+        // Has a scheme → not a short code
+        if (trimmed.contains("://")) return false
+        // Has path separators or dots → likely a URL or domain
+        if (trimmed.contains("/") || trimmed.contains(".")) return false
+        // Only alphanumeric + hyphens + underscores → short code
+        return trimmed.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+    }
+
+    /**
+     * Resolve a short code by following the redirect from cutt.ly/{code}.
+     * Returns the resolved URL or null if resolution fails.
+     */
+    private fun resolveShortCode(code: String): String? {
+        return try {
+            // Use a client that does NOT follow redirects so we can read the Location header
+            val noRedirectClient = httpClient.newBuilder()
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build()
+
+            val request = Request.Builder()
+                .url("https://cutt.ly/$code")
+                .header("User-Agent", "NuvioTV/1.0")
+                .build()
+
+            noRedirectClient.newCall(request).execute().use { response ->
+                if (response.code in 301..302) {
+                    val location = response.header("Location")
+                    if (!location.isNullOrBlank()) {
+                        Log.d(TAG, "Short code '$code' resolved to: $location")
+                        return sanitizeScheme(location)
+                    }
+                }
+                // Some shorteners return 200 with a meta refresh or JS redirect
+                // Try following redirects as fallback
+                Log.d(TAG, "Short code '$code' returned ${response.code}, trying with redirects")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to resolve short code '$code': ${e.message}")
+            null
+        } ?: try {
+            // Fallback: follow redirects and see where we end up
+            val request = Request.Builder()
+                .url("https://cutt.ly/$code")
+                .header("User-Agent", "NuvioTV/1.0")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                val finalUrl = response.request.url.toString()
+                if (finalUrl != "https://cutt.ly/$code" && response.isSuccessful) {
+                    Log.d(TAG, "Short code '$code' resolved via redirect chain to: $finalUrl")
+                    sanitizeScheme(finalUrl)
+                } else {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Fallback resolve for short code '$code' failed: ${e.message}")
+            null
+        }
+    }
+
     private fun canonicalizeManifestUrl(url: String): String {
         val trimmed = sanitizeScheme(url).trimEnd('/')
         return if (trimmed.endsWith(MANIFEST_SUFFIX, ignoreCase = true)) {
@@ -173,7 +244,18 @@ class PluginManager @Inject constructor(
      */
     suspend fun addRepository(manifestUrl: String): Result<PluginRepository> = withContext(Dispatchers.IO) {
         try {
-            val sanitizedUrl = sanitizeScheme(manifestUrl).trimEnd('/')
+            // Resolve short codes (e.g. "cspr", "0094") via cutt.ly redirect
+            val resolvedUrl = if (isShortCode(manifestUrl)) {
+                Log.d(TAG, "Input looks like a short code: '$manifestUrl'")
+                resolveShortCode(manifestUrl.trim())
+                    ?: return@withContext Result.failure(
+                        Exception("Failed to resolve short code: $manifestUrl")
+                    )
+            } else {
+                sanitizeScheme(manifestUrl).trimEnd('/')
+            }
+
+            val sanitizedUrl = resolvedUrl.trimEnd('/')
             val filename = sanitizedUrl.substringAfterLast("/")
             val isExplicitJsonFile = filename.endsWith(".json", ignoreCase = true)
                     && !filename.equals("manifest.json", ignoreCase = true)

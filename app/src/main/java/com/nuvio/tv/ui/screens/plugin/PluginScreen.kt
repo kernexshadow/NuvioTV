@@ -427,8 +427,9 @@ private fun AddRepositoryInline(
                                 },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Uri,
-                                imeAction = ImeAction.Done
+                                keyboardType = KeyboardType.Text,
+                                imeAction = ImeAction.Done,
+                                autoCorrectEnabled = false
                             ),
                             keyboardActions = KeyboardActions(
                                 onDone = {
@@ -445,7 +446,7 @@ private fun AddRepositoryInline(
                             decorationBox = { innerTextField ->
                                 if (url.isEmpty()) {
                                     Text(
-                                        text = "https://example.com/manifest.json",
+                                        text = "URL or short code",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = NuvioColors.TextTertiary
                                     )
