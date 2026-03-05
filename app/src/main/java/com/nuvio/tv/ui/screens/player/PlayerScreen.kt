@@ -408,24 +408,35 @@ fun PlayerScreen(
                                 false
                             }
                         }
-                        KeyEvent.KEYCODE_DPAD_LEFT,
                         KeyEvent.KEYCODE_DPAD_RIGHT -> {
                             if (!uiState.showControls) {
                                 val repeatCount = keyEvent.nativeKeyEvent.repeatCount
-                                val stepMs = when {
-                                    repeatCount >= 8 -> 30_000L
-                                    repeatCount >= 3 -> 20_000L
+                                val deltaMs = when {
+                                    repeatCount >= 30 -> 120_000L
+                                    repeatCount >= 15 -> 60_000L
+                                    repeatCount >= 8  -> 30_000L
+                                    repeatCount >= 3  -> 15_000L
                                     else -> 10_000L
-                                }
-                                val deltaMs = if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                                    -stepMs
-                                } else {
-                                    stepMs
                                 }
                                 viewModel.onEvent(PlayerEvent.OnPreviewSeekBy(deltaMs))
                                 true
                             } else {
-                                // Let focus system handle navigation when controls are visible
+                                false
+                            }
+                        }
+                        KeyEvent.KEYCODE_DPAD_LEFT -> {
+                            if (!uiState.showControls) {
+                                val repeatCount = keyEvent.nativeKeyEvent.repeatCount
+                                val deltaMs = when {
+                                    repeatCount >= 30 -> -120_000L
+                                    repeatCount >= 15 -> -60_000L
+                                    repeatCount >= 8  -> -30_000L
+                                    repeatCount >= 3  -> -15_000L
+                                    else -> -10_000L
+                                }
+                                viewModel.onEvent(PlayerEvent.OnPreviewSeekBy(deltaMs))
+                                true
+                            } else {
                                 false
                             }
                         }
@@ -483,7 +494,9 @@ fun PlayerScreen(
                         }
                         else -> false
                     }
-                } else false
+                } else {
+                    false
+                }
             }
     ) {
         // Video Player
@@ -1457,6 +1470,15 @@ private fun ProgressBar(
             }
             .focusable()
             .onPreviewKeyEvent { keyEvent ->
+                val repeatCount = keyEvent.nativeKeyEvent.repeatCount
+                val deltaMs = when {
+                    repeatCount >= 30 -> 120_000L
+                    repeatCount >= 15 -> 60_000L
+                    repeatCount >= 8  -> 30_000L
+                    repeatCount >= 3  -> 15_000L
+                    else -> 10_000L
+                }
+
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
                     when (keyEvent.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_DPAD_LEFT,
@@ -1468,37 +1490,22 @@ private fun ProgressBar(
                     return@onPreviewKeyEvent false
                 }
 
-                // testing additional key handling for DPAD_LEFT and DPAD_RIGHT to allow seek in focus (check)
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                     when (keyEvent.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_DPAD_DOWN -> {
-                            if (downFocusRequester != null) {
-                                try {
-                                    downFocusRequester.requestFocus()
-                                } catch (_: Exception) {
-                                }
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        KeyEvent.KEYCODE_DPAD_UP -> {
-                            if (upFocusRequester != null) {
-                                try {
-                                    upFocusRequester.requestFocus()
-                                } catch (_: Exception) {
-                                }
-                                true
-                            } else {
-                                false
-                            }
-                        }
                         KeyEvent.KEYCODE_DPAD_LEFT -> {
-                            onSeekPreview(-10_000L)
+                            onSeekPreview(-deltaMs) 
                             true
                         }
                         KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                            onSeekPreview(10_000L)
+                            onSeekPreview(deltaMs) 
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_DOWN -> {
+                            downFocusRequester?.requestFocus()
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_UP -> {
+                            upFocusRequester?.requestFocus()
                             true
                         }
                         else -> false
