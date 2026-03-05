@@ -75,6 +75,7 @@ class MetaDetailsViewModel @Inject constructor(
     private var idleTimerJob: Job? = null
     private var trailerFetchJob: Job? = null
     private var moreLikeThisJob: Job? = null
+    private var reviewsJob: Job? = null
     private var collectionJob: Job? = null
     private var episodeRatingsJob: Job? = null
     private var nextToWatchJob: Job? = null
@@ -337,6 +338,9 @@ class MetaDetailsViewModel @Inject constructor(
                     mdbListRatings = null,
                     showMdbListImdb = false,
                     moreLikeThis = emptyList(),
+                    reviews = emptyList(),
+                    isReviewsLoading = false,
+                    reviewsError = null,
                     collection = emptyList(),
                     collectionName = null
                 )
@@ -448,6 +452,7 @@ class MetaDetailsViewModel @Inject constructor(
     private suspend fun applyMetaWithEnrichment(meta: Meta) {
         // Start recommendations fetch early so it can run in parallel with enrichment.
         loadMoreLikeThisAsync(meta)
+        loadReviewsAsync(meta)
         val enriched = enrichMeta(meta)
         applyMeta(enriched)
         loadEpisodeRatingsAsync(enriched)
@@ -502,6 +507,81 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun shouldLoadMoreLikeThis(settings: TmdbSettings): Boolean {
         return settings.enabled && settings.useMoreLikeThis
+    }
+
+    private fun shouldLoadReviews(settings: TmdbSettings): Boolean {
+        return settings.enabled
+    }
+
+    private fun loadReviewsAsync(meta: Meta) {
+        reviewsJob?.cancel()
+        reviewsJob = viewModelScope.launch {
+            val settings = tmdbSettingsDataStore.settings.first()
+            if (!shouldLoadReviews(settings)) {
+                _uiState.update {
+                    it.copy(
+                        reviews = emptyList(),
+                        isReviewsLoading = false,
+                        reviewsError = null
+                    )
+                }
+                return@launch
+            }
+
+            _uiState.update { state ->
+                if (state.meta == null || state.meta.id == meta.id) {
+                    state.copy(
+                        reviews = emptyList(),
+                        isReviewsLoading = true,
+                        reviewsError = null
+                    )
+                } else {
+                    state
+                }
+            }
+
+            val tmdbContentType = resolveTmdbContentType(meta)
+            val tmdbLookupType = tmdbContentType.toApiString()
+            val tmdbId = tmdbService.ensureTmdbId(meta.id, tmdbLookupType)
+                ?: tmdbService.ensureTmdbId(itemId, itemType)
+            if (tmdbId.isNullOrBlank()) {
+                _uiState.update { state ->
+                    if (state.meta == null || state.meta.id == meta.id) {
+                        state.copy(
+                            reviews = emptyList(),
+                            isReviewsLoading = false,
+                            reviewsError = null
+                        )
+                    } else {
+                        state
+                    }
+                }
+                return@launch
+            }
+
+            val reviews = runCatching {
+                tmdbMetadataService.fetchReviews(
+                    tmdbId = tmdbId,
+                    contentType = tmdbContentType,
+                    language = settings.language
+                )
+            }.getOrElse {
+                Log.w(TAG, "Failed to load reviews for ${meta.id}: ${it.message}")
+                emptyList()
+            }
+
+            _uiState.update { state ->
+                if (state.meta == null || state.meta.id == meta.id) {
+                    state.copy(
+                        reviews = reviews,
+                        isReviewsLoading = false,
+                        reviewsError = if (reviews.isEmpty()) "Reviews are unavailable for this title." else null
+                    )
+                } else {
+                    state
+                }
+            }
+        }
     }
 
     private fun loadCollectionAsync(collectionId: Int, collectionName: String?, settings: TmdbSettings) {
