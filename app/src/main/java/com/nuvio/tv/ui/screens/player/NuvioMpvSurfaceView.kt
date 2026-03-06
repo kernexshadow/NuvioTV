@@ -16,6 +16,7 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
 
     private var initialized = false
     private var hasQueuedInitialMedia = false
+    private var lastMediaRequestKey: String? = null
 
     fun ensureInitialized() {
         if (initialized) return
@@ -29,6 +30,10 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
 
     fun setMedia(url: String, headers: Map<String, String>) {
         ensureInitialized()
+        val requestKey = buildMediaRequestKey(url = url, headers = headers)
+        if (hasQueuedInitialMedia && requestKey == lastMediaRequestKey) {
+            return
+        }
         applyHeaders(headers)
         if (hasQueuedInitialMedia) {
             mpv.command("loadfile", url, "replace")
@@ -36,6 +41,7 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
             playFile(url)
             hasQueuedInitialMedia = true
         }
+        lastMediaRequestKey = requestKey
         runCatching {
             // Let mpv choose the default streams for every new media load.
             mpv.setPropertyString("aid", "auto")
@@ -229,6 +235,11 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
             return MpvTrackSnapshot(emptyList(), emptyList())
         }
 
+        val selectedAudioTrackId = mpv.getPropertyString("aid")?.toIntOrNull()
+            ?: mpv.getPropertyInt("current-tracks/audio/id")
+        val selectedSubtitleTrackId = mpv.getPropertyString("sid")?.toIntOrNull()
+            ?: mpv.getPropertyInt("current-tracks/sub/id")
+
         val audioTracks = mutableListOf<MpvTrack>()
         val subtitleTracks = mutableListOf<MpvTrack>()
 
@@ -244,13 +255,18 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
             val codec = mpv.getPropertyString("track-list/$i/codec")
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
-            val selected = mpv.getPropertyBoolean("track-list/$i/selected") == true
+            val selectedByFlag = mpv.getPropertyBoolean("track-list/$i/selected") == true
             val external = mpv.getPropertyBoolean("track-list/$i/external") == true
             val channelCount = mpv.getPropertyInt("track-list/$i/demux-channel-count")
                 ?: mpv.getPropertyInt("track-list/$i/audio-channels")
                 ?: mpv.getPropertyInt("track-list/$i/channels")
             val forced = (mpv.getPropertyBoolean("track-list/$i/forced") == true) || listOfNotNull(title, language).any {
                 it.contains("forced", ignoreCase = true)
+            }
+            val selected = when (type) {
+                "audio" -> (selectedAudioTrackId != null && selectedAudioTrackId == id) || selectedByFlag
+                "sub" -> (selectedSubtitleTrackId != null && selectedSubtitleTrackId == id) || selectedByFlag
+                else -> selectedByFlag
             }
 
             when (type) {
@@ -296,6 +312,7 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
             .onFailure { Log.w(TAG, "Failed to destroy libmpv view cleanly: ${it.message}") }
         initialized = false
         hasQueuedInitialMedia = false
+        lastMediaRequestKey = null
     }
 
     override fun initOptions() {
@@ -328,8 +345,17 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
     private fun applyHeaders(headers: Map<String, String>) {
         val raw = headers.entries
             .filter { it.key.isNotBlank() && it.value.isNotBlank() }
+            .sortedWith(compareBy({ it.key.lowercase(Locale.ROOT) }, { it.value }))
             .joinToString(separator = ",") { "${it.key}: ${it.value}" }
         mpv.setPropertyString("http-header-fields", raw)
+    }
+
+    private fun buildMediaRequestKey(url: String, headers: Map<String, String>): String {
+        val normalizedHeaders = headers.entries
+            .filter { it.key.isNotBlank() && it.value.isNotBlank() }
+            .sortedWith(compareBy({ it.key.lowercase(Locale.ROOT) }, { it.value }))
+            .joinToString(separator = "|") { "${it.key.trim()}:${it.value.trim()}" }
+        return "$url#$normalizedHeaders"
     }
 
     private fun toMpvColor(color: Int): String {

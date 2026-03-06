@@ -13,6 +13,7 @@ internal fun PlayerRuntimeController.attachMpvView(view: NuvioMpvSurfaceView?) {
     if (view == null) return
     if (!isUsingMpvEngine()) return
     if (currentStreamUrl.isBlank()) return
+    if (mpvInitializationInProgress) return
 
     runCatching {
         view.setMedia(currentStreamUrl, currentHeaders)
@@ -195,14 +196,26 @@ internal fun PlayerRuntimeController.updateMpvAvailableTracks() {
 
     val selectedAudioIndex = audioTracks.indexOfFirst { it.isSelected }
     val selectedSubtitleIndex = internalSubtitleTracks.indexOfFirst { it.isSelected }
-    val selectedExternalSubtitle = snapshot.subtitleTracks.any { it.isExternal && it.isSelected }
+    val selectedExternalSubtitleTrack = snapshot.subtitleTracks.firstOrNull { it.isExternal && it.isSelected }
+    val selectedExternalSubtitle = selectedExternalSubtitleTrack != null
 
     hasScannedTextTracksOnce = true
     maybeApplyRememberedAudioSelection(audioTracks)
     maybeRestorePendingAudioSelectionAfterSubtitleRefresh(audioTracks)
 
     _uiState.update { state ->
-        val addonSelection = if (!selectedExternalSubtitle) null else state.selectedAddonSubtitle
+        val selectedAddonFromMpvTrack = selectedExternalSubtitleTrack?.let { track ->
+            state.addonSubtitles.firstOrNull { subtitle ->
+                buildAddonSubtitleTrackId(subtitle).equals(track.name, ignoreCase = true)
+            }
+        }
+
+        val addonSelection = when {
+            selectedAddonFromMpvTrack != null -> selectedAddonFromMpvTrack
+            selectedExternalSubtitle -> null
+            selectedSubtitleIndex >= 0 -> null
+            else -> state.selectedAddonSubtitle
+        }
         val normalizedSelectedSubtitleIndex = if (selectedExternalSubtitle) {
             -1
         } else {
