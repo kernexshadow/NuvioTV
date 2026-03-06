@@ -22,18 +22,28 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                 if (view != null) {
                     val pos = view.currentPositionMs().coerceAtLeast(0L)
                     val playerDuration = view.durationMs().coerceAtLeast(0L)
+                    val playingNow = view.isPlayingNow()
+                    val cacheBuffering = view.isPausedForCacheNow() || view.isCoreIdleNow()
+                    var firstFrameReady = hasRenderedFirstFrame
+                    if (!firstFrameReady) {
+                        firstFrameReady = pos > 0L || (playingNow && !cacheBuffering && playerDuration > 0L)
+                        if (firstFrameReady) {
+                            hasRenderedFirstFrame = true
+                        }
+                    }
                     if (playerDuration > lastKnownDuration) {
                         lastKnownDuration = playerDuration
                     }
                     val displayPosition = pendingPreviewSeekPosition ?: pos
                     val ended = playerDuration > 0L && pos >= (playerDuration - 500L)
                     val wasEnded = _uiState.value.playbackEnded
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { state ->
+                        state.copy(
                             currentPosition = displayPosition,
                             duration = playerDuration,
-                            isPlaying = view.isPlayingNow(),
-                            isBuffering = false,
+                            isPlaying = playingNow,
+                            isBuffering = !firstFrameReady || cacheBuffering,
+                            showLoadingOverlay = if (state.loadingOverlayEnabled) !firstFrameReady else false,
                             playbackEnded = ended
                         )
                     }

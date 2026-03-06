@@ -31,12 +31,12 @@ internal fun PlayerRuntimeController.attachMpvView(view: NuvioMpvSurfaceView?) {
             _uiState.update { it.copy(pendingSeekPosition = null) }
             pendingResumeProgress = null
         }
-        hasRenderedFirstFrame = true
+        hasRenderedFirstFrame = false
         _uiState.update {
             it.copy(
-                isBuffering = false,
-                isPlaying = true,
-                showLoadingOverlay = false,
+                isBuffering = true,
+                isPlaying = view.isPlayingNow(),
+                showLoadingOverlay = it.loadingOverlayEnabled,
                 error = null
             )
         }
@@ -104,12 +104,12 @@ internal fun PlayerRuntimeController.initializeMpvPlayer(url: String, headers: M
             pendingResumeProgress = null
         }
 
-        hasRenderedFirstFrame = true
+        hasRenderedFirstFrame = false
         _uiState.update {
             it.copy(
-                isBuffering = false,
-                isPlaying = true,
-                showLoadingOverlay = false,
+                isBuffering = true,
+                isPlaying = view.isPlayingNow(),
+                showLoadingOverlay = it.loadingOverlayEnabled,
                 error = null,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
