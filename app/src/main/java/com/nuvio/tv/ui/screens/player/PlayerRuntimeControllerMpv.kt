@@ -22,6 +22,7 @@ internal fun PlayerRuntimeController.attachMpvView(view: NuvioMpvSurfaceView?) {
             secondary = _uiState.value.subtitleStyle.secondaryPreferredLanguage
         )
         view.applySubtitleStyle(_uiState.value.subtitleStyle)
+        view.setSubtitleDelayMs(_uiState.value.subtitleDelayMs)
         view.setPaused(false)
         val pendingSeek = _uiState.value.pendingSeekPosition
             ?: pendingResumeProgress?.position
@@ -93,6 +94,7 @@ internal fun PlayerRuntimeController.initializeMpvPlayer(url: String, headers: M
             secondary = _uiState.value.subtitleStyle.secondaryPreferredLanguage
         )
         view.applySubtitleStyle(_uiState.value.subtitleStyle)
+        view.setSubtitleDelayMs(_uiState.value.subtitleDelayMs)
         view.setPaused(false)
         val pendingSeek = _uiState.value.pendingSeekPosition
             ?: pendingResumeProgress?.position
@@ -255,7 +257,11 @@ internal fun PlayerRuntimeController.isPlaybackCurrentlyPlaying(): Boolean {
 
 internal fun PlayerRuntimeController.seekPlaybackTo(positionMs: Long) {
     if (isUsingMpvEngine()) {
-        mpvView?.seekToMs(positionMs)
+        mpvView?.let { view ->
+            view.seekToMs(positionMs)
+            // Keep subtitle delay sticky during FF/RW seeks.
+            view.setSubtitleDelayMs(_uiState.value.subtitleDelayMs)
+        }
     } else {
         _exoPlayer?.seekTo(positionMs)
     }

@@ -349,6 +349,9 @@ internal fun PlayerRuntimeController.adjustSubtitleDelay(deltaMs: Int) {
     )
 
     subtitleDelayUs.set(newDelayMs.toLong() * 1000L)
+    if (isUsingMpvEngine()) {
+        mpvView?.setSubtitleDelayMs(newDelayMs)
+    }
     _uiState.update {
         it.copy(
             subtitleDelayMs = newDelayMs,

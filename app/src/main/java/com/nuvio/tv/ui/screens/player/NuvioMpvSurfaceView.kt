@@ -91,6 +91,15 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         mpv.setPropertyDouble("speed", speed.toDouble())
     }
 
+    fun setSubtitleDelayMs(delayMs: Int) {
+        if (!initialized) return
+        runCatching {
+            mpv.setPropertyDouble("sub-delay", delayMs / 1000.0)
+        }.onFailure {
+            Log.w(TAG, "Failed to set subtitle delay on mpv: ${it.message}")
+        }
+    }
+
     fun applySubtitleStyle(style: SubtitleStyleSettings) {
         if (!initialized) return
         runCatching {
