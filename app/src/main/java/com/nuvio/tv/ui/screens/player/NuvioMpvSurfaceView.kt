@@ -6,6 +6,7 @@ import android.util.Log
 import com.nuvio.tv.data.local.SubtitleStyleSettings
 import `is`.xyz.mpv.BaseMPVView
 import `is`.xyz.mpv.Utils
+import java.util.Locale
 import kotlin.math.roundToLong
 
 class NuvioMpvSurfaceView @JvmOverloads constructor(
@@ -96,16 +97,23 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
             val scale = (style.size / 100.0).coerceIn(0.5, 3.0)
             val normalizedOffset = ((style.verticalOffset + 20).coerceIn(0, 70)) / 70.0
             val subPos = (95.0 - (normalizedOffset * 25.0)).coerceIn(65.0, 100.0)
-            val borderSize = if (style.outlineEnabled) {
+            val outlineSize = if (style.outlineEnabled) {
                 style.outlineWidth.coerceIn(1, 6).toDouble()
             } else {
                 0.0
             }
+            val backgroundAlpha = (style.backgroundColor ushr 24) and 0xFF
+            val borderStyle = if (backgroundAlpha > 0) "opaque-box" else "outline-and-shadow"
 
             mpv.setPropertyDouble("sub-scale", scale)
             mpv.setPropertyBoolean("sub-bold", style.bold)
-            mpv.setPropertyDouble("sub-border-size", borderSize)
+            mpv.setPropertyDouble("sub-outline-size", outlineSize)
             mpv.setPropertyDouble("sub-pos", subPos)
+            mpv.setPropertyDouble("sub-shadow-offset", 0.0)
+            mpv.setPropertyString("sub-border-style", borderStyle)
+            mpv.setPropertyString("sub-color", toMpvColor(style.textColor))
+            mpv.setPropertyString("sub-back-color", toMpvColor(style.backgroundColor))
+            mpv.setPropertyString("sub-outline-color", toMpvColor(style.outlineColor))
         }.onFailure {
             Log.w(TAG, "Failed to apply subtitle style on mpv: ${it.message}")
         }
@@ -269,6 +277,8 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         setVo("gpu")
         mpv.setOptionString("gpu-context", "android")
         mpv.setOptionString("opengl-es", "yes")
+        // Keep style controls consistent with Exo by overriding embedded ASS styling.
+        mpv.setOptionString("sub-ass-override", "force")
         mpv.setOptionString("hwdec", "mediacodec,mediacodec-copy")
         mpv.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
         mpv.setOptionString("ao", "audiotrack,opensles")
@@ -294,6 +304,10 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
             .filter { it.key.isNotBlank() && it.value.isNotBlank() }
             .joinToString(separator = ",") { "${it.key}: ${it.value}" }
         mpv.setPropertyString("http-header-fields", raw)
+    }
+
+    private fun toMpvColor(color: Int): String {
+        return String.format(Locale.US, "#%08X", color)
     }
 
     companion object {
