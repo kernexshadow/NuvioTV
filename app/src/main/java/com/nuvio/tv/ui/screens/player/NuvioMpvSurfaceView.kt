@@ -127,7 +127,9 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         if (!initialized) return
         runCatching {
             val scale = (style.size / 100.0).coerceIn(0.5, 3.0)
-            val normalizedOffset = ((style.verticalOffset + 20).coerceIn(0, 70)) / 70.0
+            // Keep the user-facing offset unchanged while lowering the MPV baseline.
+            val effectiveVerticalOffset = style.verticalOffset - MPV_SUBTITLE_VERTICAL_OFFSET_BASELINE_SHIFT
+            val normalizedOffset = ((effectiveVerticalOffset + 20).coerceIn(0, 70)) / 70.0
             val subPos = (95.0 - (normalizedOffset * 25.0)).coerceIn(65.0, 100.0)
             val outlineSize = if (style.outlineEnabled) {
                 style.outlineWidth.coerceIn(1, 6).toDouble()
@@ -364,6 +366,7 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "NuvioMpvSurfaceView"
+        private const val MPV_SUBTITLE_VERTICAL_OFFSET_BASELINE_SHIFT = 24
     }
 }
 
