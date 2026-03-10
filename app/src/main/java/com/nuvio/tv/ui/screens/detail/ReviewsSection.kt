@@ -60,7 +60,8 @@ fun ReviewsSection(
     error: String?,
     modifier: Modifier = Modifier,
     title: String = "Reviews",
-    upFocusRequester: FocusRequester? = null
+    upFocusRequester: FocusRequester? = null,
+    onReviewFocused: ((Int) -> Unit)? = null
 ) {
     val hasTitle = title.isNotBlank()
 
@@ -118,10 +119,11 @@ fun ReviewsSection(
                 ) {
                     itemsIndexed(
                         items = reviews,
-                        key = { index, item -> "${item.id}|$index" }
+                        key = { _, item -> "${item.source}:${item.id}" }
                     ) { index, review ->
-                        var isCardFocused by remember(review.id) { mutableStateOf(false) }
-                        var isScrollPaused by rememberSaveable(review.id) { mutableStateOf(false) }
+                        val reviewKey = "${review.source}:${review.id}"
+                        var isCardFocused by remember(reviewKey) { mutableStateOf(false) }
+                        var isScrollPaused by rememberSaveable(reviewKey) { mutableStateOf(false) }
                         val cardModifier = Modifier
                             .width(440.dp)
                             .heightIn(min = 220.dp)
@@ -141,6 +143,9 @@ fun ReviewsSection(
                             )
                             .onFocusChanged { state ->
                                 isCardFocused = state.isFocused || state.hasFocus
+                                if (state.isFocused) {
+                                    onReviewFocused?.invoke(index)
+                                }
                             }
 
                         Card(
@@ -185,6 +190,12 @@ fun ReviewsSection(
                                         }
                                     }
 
+                                    if (review.hasSpoiler) {
+                                        Box(modifier = Modifier.padding(start = 8.dp)) {
+                                            ReviewSpoilerBadge()
+                                        }
+                                    }
+
                                     Box(modifier = Modifier.padding(start = 8.dp)) {
                                         ReviewSourceBadge(source = review.source)
                                     }
@@ -215,12 +226,30 @@ fun ReviewsSection(
 }
 
 @Composable
+private fun ReviewSpoilerBadge() {
+    Box(
+        modifier = Modifier
+            .background(
+                color = Color(0xFF4A1919),
+                shape = RoundedCornerShape(999.dp)
+            )
+            .padding(horizontal = 10.dp, vertical = 3.dp)
+    ) {
+        Text(
+            text = "SPOILER",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFFFF9A9A)
+        )
+    }
+}
+
+@Composable
 private fun ReviewSourceBadge(source: MetaReviewSource) {
     val (label, contentColor, backgroundColor) = when (source) {
         MetaReviewSource.TMDB -> Triple(
             "TMDB",
-            Color(0xFF01D277),
-            Color(0xFF0A2B20)
+            Color(0xFF7FCBFF),
+            Color(0xFF163247)
         )
         MetaReviewSource.TRAKT -> Triple(
             "TRAKT",
@@ -300,7 +329,7 @@ private fun AutoScrollingReviewText(
         val distancePx = (scrollState.maxValue - scrollState.value).coerceAtLeast(0)
         if (distancePx <= 0) return@LaunchedEffect
 
-        val pixelsPerSecond = 24f
+        val pixelsPerSecond = 28.8f
         val durationMs = ((distancePx / pixelsPerSecond) * 1_000f)
             .roundToInt()
             .coerceAtLeast(800)

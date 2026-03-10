@@ -75,4 +75,5 @@ sealed class MetaDetailsEvent {
     data object OnPickerSave : MetaDetailsEvent()
     data object OnPickerDismiss : MetaDetailsEvent()
     data object OnClearMessage : MetaDetailsEvent()
+    data class OnReviewItemFocused(val index: Int) : MetaDetailsEvent()
 }
