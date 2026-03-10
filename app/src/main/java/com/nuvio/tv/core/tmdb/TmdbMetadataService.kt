@@ -462,7 +462,7 @@ class TmdbMetadataService @Inject constructor(
         tmdbId: String,
         contentType: ContentType,
         language: String = "en",
-        maxItems: Int = 8
+        maxItems: Int = 20
     ): List<MetaReview> = withContext(Dispatchers.IO) {
         val normalizedLanguage = normalizeTmdbLanguage(language)
         val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage:reviews:$maxItems"
