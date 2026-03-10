@@ -14,6 +14,8 @@ import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.repository.ParentalGuideRepository
 import com.nuvio.tv.data.repository.SkipIntroRepository
 import com.nuvio.tv.data.repository.SkipInterval
+import com.nuvio.tv.data.repository.EpisodeMappingEntry
+import com.nuvio.tv.data.repository.TraktEpisodeMappingService
 import com.nuvio.tv.data.repository.TraktScrobbleItem
 import com.nuvio.tv.data.repository.TraktScrobbleService
 import com.nuvio.tv.domain.model.Video
@@ -41,6 +43,7 @@ class PlayerRuntimeController(
     internal val subtitleRepository: com.nuvio.tv.domain.repository.SubtitleRepository,
     internal val parentalGuideRepository: ParentalGuideRepository,
     internal val traktScrobbleService: TraktScrobbleService,
+    internal val traktEpisodeMappingService: TraktEpisodeMappingService,
     internal val skipIntroRepository: SkipIntroRepository,
     internal val playerSettingsDataStore: PlayerSettingsDataStore,
     internal val streamLinkCacheDataStore: StreamLinkCacheDataStore,
@@ -116,6 +119,13 @@ class PlayerRuntimeController(
     internal var currentFilename: String? = navigationArgs.filename
         ?: initialStreamUrl.substringBefore('?').substringAfterLast('/', "")
             .takeIf { it.isNotBlank() && it.contains('.') }
+    internal var currentAddonName: String? = navigationArgs.addonName
+    internal var currentAddonLogo: String? = navigationArgs.addonLogo
+    internal var currentStreamDescription: String? = navigationArgs.streamDescription
+    internal var currentVideoCodec: String? = null
+    internal var currentVideoWidth: Int? = null
+    internal var currentVideoHeight: Int? = null
+    internal var currentVideoBitrate: Int? = null
     internal var currentStreamUrl: String = initialStreamUrl
     internal var currentHeaders: Map<String, String> =
         PlayerMediaSourceFactory.sanitizeHeaders(PlayerMediaSourceFactory.parseHeaders(headersJson))
@@ -158,8 +168,6 @@ class PlayerRuntimeController(
     internal var hideControlsJob: Job? = null
     internal var hideSeekOverlayJob: Job? = null
     internal var watchProgressSaveJob: Job? = null
-    internal var episodeWatchProgressJob: Job? = null
-    internal var watchedEpisodesJob: Job? = null
     internal var seekProgressSyncJob: Job? = null
     internal var frameRateProbeJob: Job? = null
     internal var frameRateProbeToken: Long = 0L
@@ -224,9 +232,12 @@ class PlayerRuntimeController(
     internal var pendingResumeProgress: WatchProgress? = null
     internal var hasRetriedCurrentStreamAfter416: Boolean = false
     internal var currentScrobbleItem: TraktScrobbleItem? = null
+    internal var currentTraktEpisodeMapping: EpisodeMappingEntry? = null
+    internal var currentTraktEpisodeMappingKey: String? = null
     internal var hasSentScrobbleStartForCurrentItem: Boolean = false
     internal var hasRequestedScrobbleStartForCurrentItem: Boolean = false
     internal var scrobbleStartRequestGeneration: Long = 0L
+    internal var playbackPreparationJob: Job? = null
     internal var hasSentCompletionScrobbleForCurrentItem: Boolean = false
     internal var requestedUseLibassByUser: Boolean = false
     internal var libassPipelineOverrideForCurrentStream: Boolean? = null
@@ -243,7 +254,6 @@ class PlayerRuntimeController(
     }
 
     init {
-        refreshScrobbleItem()
         if (!navigationArgs.startFromBeginning) {
             loadSavedProgressFor(currentSeason, currentEpisode)
         }

@@ -29,6 +29,10 @@ internal fun PlayerRuntimeController.buildSubtitleFetchRequest(): SubtitleFetchR
 
 internal suspend fun PlayerRuntimeController.fetchAddonSubtitlesNow(): List<Subtitle> {
     val request = buildSubtitleFetchRequest() ?: return emptyList()
+    val installedAddonOrder = addonRepository.getInstalledAddons().firstOrNull()
+        ?.map { it.displayName }
+        .orEmpty()
+    _uiState.update { it.copy(installedSubtitleAddonOrder = installedAddonOrder) }
 
     // Compute hash lazily for providers that support OpenSubtitles-style matching.
     if (currentVideoHash == null && currentStreamUrl.isNotBlank()) {
@@ -130,17 +134,12 @@ internal fun PlayerRuntimeController.observeEpisodeWatchProgress() {
     val type = contentType ?: return
     if (type.lowercase() != "series") return
     val baseId = id.split(":").firstOrNull() ?: id
-    episodeWatchProgressJob?.cancel()
-    episodeWatchProgressJob = scope.launch {
-        watchProgressRepository.getAllEpisodeProgress(
-            contentId = baseId,
-            addonVideos = metaVideos
-        ).collectLatest { progressMap ->
+    scope.launch {
+        watchProgressRepository.getAllEpisodeProgress(baseId).collectLatest { progressMap ->
             _uiState.update { it.copy(episodeWatchProgressMap = progressMap) }
         }
     }
-    if (watchedEpisodesJob != null) return
-    watchedEpisodesJob = scope.launch {
+    scope.launch {
         watchedItemsPreferences.getWatchedEpisodesForContent(baseId).collectLatest { watchedSet ->
             _uiState.update { it.copy(watchedEpisodeKeys = watchedSet) }
         }
@@ -161,7 +160,6 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
 
                 state.copy(
                     subtitleStyle = settings.subtitleStyle,
-                    subtitleOrganizationMode = settings.subtitleOrganizationMode,
                     loadingOverlayEnabled = settings.loadingOverlayEnabled,
                     showLoadingOverlay = shouldShowOverlay,
                     pauseOverlayEnabled = settings.pauseOverlayEnabled,
@@ -237,12 +235,7 @@ internal fun PlayerRuntimeController.loadSavedProgressFor(season: Int?, episode:
     scope.launch {
         pendingResumeProgress = null
         val progress = if (season != null && episode != null) {
-            watchProgressRepository.getEpisodeProgress(
-                contentId = contentId,
-                season = season,
-                episode = episode,
-                addonVideos = metaVideos
-            ).firstOrNull()
+            watchProgressRepository.getEpisodeProgress(contentId, season, episode).firstOrNull()
         } else {
             watchProgressRepository.getProgress(contentId).firstOrNull()
         }

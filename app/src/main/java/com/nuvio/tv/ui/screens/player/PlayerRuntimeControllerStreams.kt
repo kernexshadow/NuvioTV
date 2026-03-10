@@ -21,8 +21,8 @@ internal fun PlayerRuntimeController.showEpisodesPanel() {
         it.copy(
             showEpisodesPanel = true,
             showControls = true,
-            showAudioDialog = false,
-            showSubtitleDialog = false,
+            showAudioOverlay = false,
+            showSubtitleOverlay = false,
             showSubtitleStylePanel = false,
             showSpeedDialog = false,
             showMoreDialog = false
@@ -43,8 +43,8 @@ internal fun PlayerRuntimeController.showSourcesPanel() {
         it.copy(
             showSourcesPanel = true,
             showControls = true,
-            showAudioDialog = false,
-            showSubtitleDialog = false,
+            showAudioOverlay = false,
+            showSubtitleOverlay = false,
             showSubtitleStylePanel = false,
             showSpeedDialog = false,
             showMoreDialog = false,
@@ -290,6 +290,13 @@ internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
     currentVideoHash = stream.behaviorHints?.videoHash
     currentVideoSize = stream.behaviorHints?.videoSize
     currentFilename = stream.behaviorHints?.filename ?: navigationArgs.filename
+    currentAddonName = stream.addonName
+    currentAddonLogo = stream.addonLogo
+    currentStreamDescription = stream.description
+    currentVideoCodec = null
+    currentVideoWidth = null
+    currentVideoHeight = null
+    currentVideoBitrate = null
     hasRetriedCurrentStreamAfter416 = false
     lastSavedPosition = 0L
 
@@ -311,9 +318,11 @@ internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
     showStreamSourceIndicator(stream)
     resetNextEpisodeCardState(clearEpisode = false)
 
-    initializePlayer(url, newHeaders)
-
-    loadSavedProgressFor(currentSeason, currentEpisode)
+    preparePlaybackBeforeStart(
+        url = url,
+        headers = newHeaders,
+        loadSavedProgress = true
+    )
 }
 
 internal fun PlayerRuntimeController.dismissEpisodesPanel() {
@@ -547,8 +556,6 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
     val targetVideo = forcedTargetVideo
         ?: _uiState.value.episodes.firstOrNull { it.id == _uiState.value.episodeStreamsForVideoId }
 
-    // Reset transient playback flags before stopping, so stop callbacks never
-    // persist stale positions into the newly selected episode.
     resetLoadingOverlayForNewStream()
     releasePlayer(flushPlaybackState = false)
 
@@ -558,6 +565,13 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
     currentVideoHash = stream.behaviorHints?.videoHash
     currentVideoSize = stream.behaviorHints?.videoSize
     currentFilename = stream.behaviorHints?.filename ?: navigationArgs.filename
+    currentAddonName = stream.addonName
+    currentAddonLogo = stream.addonLogo
+    currentStreamDescription = stream.description
+    currentVideoCodec = null
+    currentVideoWidth = null
+    currentVideoHeight = null
+    currentVideoBitrate = null
     pendingSameSeriesTrackSelectionRestore =
         sameSeriesTrackSelectionPreference?.takeIf { contentType?.lowercase() in listOf("series", "tv") }
     hasRetriedCurrentStreamAfter416 = false
@@ -565,7 +579,8 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
     currentSeason = targetVideo?.season ?: _uiState.value.episodeStreamsSeason ?: currentSeason
     currentEpisode = targetVideo?.episode ?: _uiState.value.episodeStreamsEpisode ?: currentEpisode
     currentEpisodeTitle = targetVideo?.title ?: _uiState.value.episodeStreamsTitle ?: currentEpisodeTitle
-    refreshScrobbleItem()
+    currentTraktEpisodeMapping = null
+    currentTraktEpisodeMappingKey = null
     lastSavedPosition = 0L
 
     _uiState.update {
@@ -613,9 +628,11 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
     fetchParentalGuide(contentId, contentType, currentSeason, currentEpisode)
     fetchSkipIntervals(contentId, currentSeason, currentEpisode)
 
-    initializePlayer(url, newHeaders)
-
-    loadSavedProgressFor(currentSeason, currentEpisode)
+    preparePlaybackBeforeStart(
+        url = url,
+        headers = newHeaders,
+        loadSavedProgress = true
+    )
 }
 
 internal fun PlayerRuntimeController.showEpisodeStreamPicker(video: Video, forceRefresh: Boolean = true) {
@@ -625,8 +642,8 @@ internal fun PlayerRuntimeController.showEpisodeStreamPicker(video: Video, force
             showEpisodeStreams = true,
             showSourcesPanel = false,
             showControls = true,
-            showAudioDialog = false,
-            showSubtitleDialog = false,
+            showAudioOverlay = false,
+            showSubtitleOverlay = false,
             showSubtitleStylePanel = false,
             showSpeedDialog = false,
             showMoreDialog = false,
@@ -777,7 +794,7 @@ internal fun PlayerRuntimeController.playNextEpisode() {
                     innerJob.join()
                 }
             } else {
-                timeoutElapsed = true  // instant: select on first Success
+                timeoutElapsed = true
                 innerJob.join()
             }
 
