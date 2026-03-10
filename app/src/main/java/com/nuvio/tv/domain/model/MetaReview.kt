@@ -7,6 +7,11 @@ enum class MetaReviewSource {
     TRAKT
 }
 
+enum class MetaReviewType {
+    REVIEW,
+    SHOUT
+}
+
 @Immutable
 data class MetaReview(
     val id: String,
@@ -16,5 +21,7 @@ data class MetaReview(
     val createdAt: String? = null,
     val updatedAt: String? = null,
     val url: String? = null,
-    val source: MetaReviewSource = MetaReviewSource.TMDB
+    val source: MetaReviewSource = MetaReviewSource.TMDB,
+    val type: MetaReviewType = MetaReviewType.REVIEW,
+    val hasSpoiler: Boolean = false
 )

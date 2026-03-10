@@ -372,6 +372,9 @@ fun MetaDetailsScreen(
                     reviews = uiState.reviews,
                     isReviewsLoading = uiState.isReviewsLoading,
                     reviewsError = uiState.reviewsError,
+                    onReviewFocused = { index ->
+                        viewModel.onEvent(MetaDetailsEvent.OnReviewItemFocused(index))
+                    },
                     collection = uiState.collection,
                     collectionName = uiState.collectionName,
                     episodeImdbRatings = uiState.episodeImdbRatings,
@@ -608,6 +611,7 @@ private fun MetaDetailsContent(
     reviews: List<MetaReview>,
     isReviewsLoading: Boolean,
     reviewsError: String?,
+    onReviewFocused: (Int) -> Unit,
     collection: List<MetaPreview>,
     collectionName: String?,
     episodeImdbRatings: Map<Pair<Int, Int>, Double>,
@@ -1356,7 +1360,8 @@ private fun MetaDetailsContent(
                                         reviewsTabFocusRequester
                                     } else {
                                         seasonDownFocusRequester ?: selectedSeasonFocusRequester
-                                    }
+                                    },
+                                    onReviewFocused = onReviewFocused
                                 )
                             }
                             
