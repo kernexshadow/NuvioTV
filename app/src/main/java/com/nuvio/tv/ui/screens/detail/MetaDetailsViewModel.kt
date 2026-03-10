@@ -510,7 +510,7 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun shouldLoadReviews(settings: TmdbSettings): Boolean {
-        return settings.enabled
+        return settings.enabled && settings.useReviews
     }
 
     private fun loadReviewsAsync(meta: Meta) {
