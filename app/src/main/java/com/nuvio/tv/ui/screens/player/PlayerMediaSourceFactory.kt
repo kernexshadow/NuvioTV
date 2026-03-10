@@ -2,18 +2,27 @@ package com.nuvio.tv.ui.screens.player
 
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
-import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
-import okhttp3.ConnectionPool
-import okhttp3.OkHttpClient
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.text.SubtitleParser
 import java.net.URLDecoder
-import java.util.concurrent.TimeUnit
 
 internal class PlayerMediaSourceFactory {
-    private var okHttpClient: OkHttpClient? = null
+    private var customExtractorsFactory: ExtractorsFactory? = null
+    private var customSubtitleParserFactory: SubtitleParser.Factory? = null
+
+    fun configureSubtitleParsing(
+        extractorsFactory: ExtractorsFactory?,
+        subtitleParserFactory: SubtitleParser.Factory?
+    ) {
+        customExtractorsFactory = extractorsFactory
+        customSubtitleParserFactory = subtitleParserFactory
+    }
 
     fun createMediaSource(
         url: String,
@@ -21,7 +30,10 @@ internal class PlayerMediaSourceFactory {
         subtitleConfigurations: List<MediaItem.SubtitleConfiguration> = emptyList()
     ): MediaSource {
         val sanitizedHeaders = sanitizeHeaders(headers)
-        val okHttpFactory = OkHttpDataSource.Factory(getOrCreateOkHttpClient()).apply {
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory().apply {
+            setConnectTimeoutMs(8000)
+            setReadTimeoutMs(8000)
+            setAllowCrossProtocolRedirects(true)
             setDefaultRequestProperties(sanitizedHeaders)
             setUserAgent(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -48,7 +60,13 @@ internal class PlayerMediaSourceFactory {
         }
 
         val mediaItem = mediaItemBuilder.build()
-        val defaultFactory = DefaultMediaSourceFactory(okHttpFactory)
+        val extractorsFactory = customExtractorsFactory ?: DefaultExtractorsFactory()
+        val defaultFactory = DefaultMediaSourceFactory(httpDataSourceFactory, extractorsFactory).apply {
+            customSubtitleParserFactory?.let { parserFactory ->
+                setSubtitleParserFactory(parserFactory)
+            }
+        }
+        val forceDefaultFactory = customExtractorsFactory != null || customSubtitleParserFactory != null
 
         // Sidecar subtitles are more reliable through DefaultMediaSourceFactory.
         if (subtitleConfigurations.isNotEmpty()) {
@@ -56,36 +74,16 @@ internal class PlayerMediaSourceFactory {
         }
 
         return when {
-            isHls -> HlsMediaSource.Factory(okHttpFactory)
+            isHls && !forceDefaultFactory -> HlsMediaSource.Factory(httpDataSourceFactory)
                 .setAllowChunklessPreparation(true)
                 .createMediaSource(mediaItem)
-            isDash -> DashMediaSource.Factory(okHttpFactory)
+            isDash && !forceDefaultFactory -> DashMediaSource.Factory(httpDataSourceFactory)
                 .createMediaSource(mediaItem)
             else -> defaultFactory.createMediaSource(mediaItem)
         }
     }
 
-    fun shutdown() {
-        okHttpClient?.let { client ->
-            Thread {
-                client.connectionPool.evictAll()
-                client.dispatcher.executorService.shutdown()
-            }.start()
-            okHttpClient = null
-        }
-    }
-
-    private fun getOrCreateOkHttpClient(): OkHttpClient {
-        return okHttpClient ?: OkHttpClient.Builder()
-            .connectTimeout(8000, TimeUnit.MILLISECONDS)
-            .readTimeout(8000, TimeUnit.MILLISECONDS)
-            .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
-            .retryOnConnectionFailure(true)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .build()
-            .also { okHttpClient = it }
-    }
+    fun shutdown() = Unit
 
     companion object {
         fun sanitizeHeaders(headers: Map<String, String>?): Map<String, String> {

@@ -51,7 +51,18 @@ data class MetaDetailsUiState(
     val mdbListRatings: MDBListRatings? = null,
     val showMdbListImdb: Boolean = false,
     val userMessage: String? = null,
-    val userMessageIsError: Boolean = false
+    val userMessageIsError: Boolean = false,
+    val episodeMismatchInfo: EpisodeMismatchInfo? = null
+)
+
+data class EpisodeMismatchInfo(
+    val addonSeason: Int,
+    val addonEpisode: Int,
+    val traktSeason: Int,
+    val traktEpisode: Int,
+    val traktEpisodeTitle: String?,
+    val matchMethod: String,
+    val originalProgress: WatchProgress
 )
 
 sealed class MetaDetailsEvent {
@@ -75,4 +86,6 @@ sealed class MetaDetailsEvent {
     data object OnPickerSave : MetaDetailsEvent()
     data object OnPickerDismiss : MetaDetailsEvent()
     data object OnClearMessage : MetaDetailsEvent()
+    data object OnConfirmEpisodeMismatch : MetaDetailsEvent()
+    data object OnDismissEpisodeMismatch : MetaDetailsEvent()
 }

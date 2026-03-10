@@ -31,6 +31,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.data.local.AVAILABLE_SUBTITLE_LANGUAGES
+import com.nuvio.tv.data.local.displayName
 import com.nuvio.tv.data.local.LibassRenderType
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.AddonSubtitleStartupMode
@@ -102,7 +103,7 @@ internal fun LazyListScope.subtitleSettingsItems(
         } else {
             AVAILABLE_SUBTITLE_LANGUAGES.find {
                 it.code == playerSettings.subtitleStyle.preferredLanguage
-            }?.name ?: "English"
+            }?.displayName ?: "English"
         }
 
         NavigationSettingsItem(
@@ -118,7 +119,7 @@ internal fun LazyListScope.subtitleSettingsItems(
     item(key = "subtitle_secondary_language") {
         val secondaryLanguageName = playerSettings.subtitleStyle.secondaryPreferredLanguage?.let { code ->
             if (code == SUBTITLE_LANGUAGE_FORCED) stringResource(R.string.sub_forced_lang)
-            else AVAILABLE_SUBTITLE_LANGUAGES.find { it.code == code }?.name
+            else AVAILABLE_SUBTITLE_LANGUAGES.find { it.code == code }?.displayName
         } ?: stringResource(R.string.sub_not_set)
 
         NavigationSettingsItem(
@@ -253,19 +254,19 @@ internal fun LazyListScope.subtitleSettingsItems(
         )
     }
 
-    item(key = "subtitle_libass_disabled") {
+    item(key = "subtitle_libass") {
         ToggleSettingsItem(
             icon = Icons.Default.Subtitles,
             title = stringResource(R.string.sub_libass),
             subtitle = stringResource(R.string.sub_libass_sub),
-            isChecked = false,
-            onCheckedChange = {},
+            isChecked = playerSettings.useLibass,
+            onCheckedChange = onSetUseLibass,
             onFocused = onItemFocused,
-            enabled = false
+            enabled = enabled
         )
     }
 
-    if (false) { // Libass temporarily disabled for maintenance
+    if (playerSettings.useLibass) {
         item(key = "subtitle_libass_render_header") {
             Text(
                 text = stringResource(R.string.sub_libass_mode),

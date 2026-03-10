@@ -166,6 +166,8 @@ internal fun PlayerRuntimeController.buildScrobbleItem(): TraktScrobbleItem? {
             showTitle = contentName ?: title,
             showYear = parsedYear,
             showIds = ids,
+            rawContentId = rawContentId,
+            rawVideoId = currentVideoId,
             season = currentSeason ?: return null,
             number = currentEpisode ?: return null,
             episodeTitle = currentEpisodeTitle
@@ -174,7 +176,9 @@ internal fun PlayerRuntimeController.buildScrobbleItem(): TraktScrobbleItem? {
         TraktScrobbleItem.Movie(
             title = contentName ?: title,
             year = parsedYear,
-            ids = ids
+            ids = ids,
+            rawContentId = rawContentId,
+            rawVideoId = currentVideoId
         )
     }
     return item
@@ -316,6 +320,13 @@ internal fun PlayerRuntimeController.adjustSubtitleDelay(deltaMs: Int) {
             showSubtitleDelayOverlay = true
         )
     }
+
+    _exoPlayer?.let { player ->
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .build()
+    }
+    
     scheduleHideSubtitleDelayOverlay()
 }
 
@@ -450,6 +461,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             }
         }
         is PlayerEvent.OnSelectAudioTrack -> {
+            rememberSameSeriesAudioSelection(event.index)
             selectAudioTrack(event.index)
             _uiState.update { it.copy(showAudioDialog = false, showSubtitleDelayOverlay = false) }
         }
@@ -458,6 +470,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             pendingAddonSubtitleLanguage = null
             pendingAddonSubtitleTrackId = null
             pendingAudioSelectionAfterSubtitleRefresh = null
+            rememberSameSeriesInternalSubtitleSelection(event.index)
             selectSubtitleTrack(event.index)
             _uiState.update { 
                 it.copy(
@@ -473,6 +486,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             pendingAddonSubtitleLanguage = null
             pendingAddonSubtitleTrackId = null
             pendingAudioSelectionAfterSubtitleRefresh = null
+            rememberSameSeriesSubtitleDisabled()
             disableSubtitles()
             _uiState.update { 
                 it.copy(
@@ -486,6 +500,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         is PlayerEvent.OnSelectAddonSubtitle -> {
             autoSubtitleSelected = true
+            rememberSameSeriesAddonSubtitleSelection(event.subtitle)
             selectAddonSubtitle(event.subtitle)
             _uiState.update {
                 it.copy(
@@ -741,14 +756,14 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             val newMode = PlayerDisplayModeUtils.nextResizeMode(currentMode)
             val modeText = PlayerDisplayModeUtils.resizeModeLabel(newMode, context)
             Log.d("PlayerViewModel", "Aspect ratio toggled: $currentMode -> $newMode")
-            _uiState.update { 
+            _uiState.update {
                 it.copy(
                     resizeMode = newMode,
                     showAspectRatioIndicator = true,
                     aspectRatioIndicatorText = modeText
-                ) 
+                )
             }
-            // Auto-hide indicator after 1.5 seconds
+            scope.launch { playerSettingsDataStore.setResizeMode(newMode) }
             hideAspectRatioIndicatorJob?.cancel()
             hideAspectRatioIndicatorJob = scope.launch {
                 delay(1500)

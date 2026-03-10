@@ -68,6 +68,29 @@ class PlayerRuntimeController(
         val streamUrl: String
     )
 
+    internal data class RememberedTrackSelection(
+        val language: String?,
+        val name: String?,
+        val trackId: String? = null
+    )
+
+    internal sealed class RememberedSubtitleSelection {
+        data object Disabled : RememberedSubtitleSelection()
+        data class Internal(
+            val track: RememberedTrackSelection
+        ) : RememberedSubtitleSelection()
+        data class Addon(
+            val id: String,
+            val url: String,
+            val language: String
+        ) : RememberedSubtitleSelection()
+    }
+
+    internal data class EpisodeTrackSelectionPreference(
+        val audio: RememberedTrackSelection? = null,
+        val subtitle: RememberedSubtitleSelection? = null
+    )
+
     internal val navigationArgs = PlayerNavigationArgs.from(savedStateHandle)
     internal val initialStreamUrl: String = navigationArgs.streamUrl
     internal val title: String = navigationArgs.title
@@ -135,6 +158,8 @@ class PlayerRuntimeController(
     internal var hideControlsJob: Job? = null
     internal var hideSeekOverlayJob: Job? = null
     internal var watchProgressSaveJob: Job? = null
+    internal var episodeWatchProgressJob: Job? = null
+    internal var watchedEpisodesJob: Job? = null
     internal var seekProgressSyncJob: Job? = null
     internal var frameRateProbeJob: Job? = null
     internal var frameRateProbeToken: Long = 0L
@@ -172,6 +197,8 @@ class PlayerRuntimeController(
     internal var pendingAddonSubtitleLanguage: String? = null
     internal var pendingAddonSubtitleTrackId: String? = null
     internal var pendingAudioSelectionAfterSubtitleRefresh: PendingAudioSelection? = null
+    internal var sameSeriesTrackSelectionPreference: EpisodeTrackSelectionPreference? = null
+    internal var pendingSameSeriesTrackSelectionRestore: EpisodeTrackSelectionPreference? = null
     internal var attachedAddonSubtitleKeys: Set<String> = emptySet()
     internal var hasScannedTextTracksOnce: Boolean = false
     internal var streamReuseLastLinkEnabled: Boolean = false
@@ -201,6 +228,12 @@ class PlayerRuntimeController(
     internal var hasRequestedScrobbleStartForCurrentItem: Boolean = false
     internal var scrobbleStartRequestGeneration: Long = 0L
     internal var hasSentCompletionScrobbleForCurrentItem: Boolean = false
+    internal var requestedUseLibassByUser: Boolean = false
+    internal var libassPipelineOverrideForCurrentStream: Boolean? = null
+    internal var activePlayerUsesLibass: Boolean = false
+    internal var libassPipelineSwitchInFlight: Boolean = false
+    internal var hasDetectedAssSsaTrackForCurrentStream: Boolean = false
+    internal var libassPipelineDecisionStreamUrl: String? = null
     internal var episodeStreamsJob: Job? = null
     internal var episodeStreamsCacheRequestKey: String? = null
     internal val streamCacheKey: String? by lazy {

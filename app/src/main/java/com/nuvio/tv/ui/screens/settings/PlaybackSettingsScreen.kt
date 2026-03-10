@@ -89,6 +89,7 @@ import androidx.tv.material3.Switch
 import androidx.tv.material3.SwitchDefaults
 import androidx.tv.material3.Text
 import com.nuvio.tv.data.local.AVAILABLE_SUBTITLE_LANGUAGES
+import com.nuvio.tv.data.local.displayName
 import com.nuvio.tv.data.local.AudioLanguageOption
 import com.nuvio.tv.data.local.LibassRenderType
 import com.nuvio.tv.data.local.PlayerPreference
@@ -229,6 +230,9 @@ fun PlaybackSettingsContent(
                 },
                 onSetNextEpisodeThresholdMinutesBeforeEnd = { minutes ->
                     coroutineScope.launch { viewModel.setNextEpisodeThresholdMinutesBeforeEnd(minutes) }
+                },
+                onSetStreamAutoPlayTimeoutSeconds = { seconds ->
+                    coroutineScope.launch { viewModel.setStreamAutoPlayTimeoutSeconds(seconds) }
                 },
                 onSetReuseLastLinkEnabled = { enabled -> coroutineScope.launch { viewModel.setStreamReuseLastLinkEnabled(enabled) } },
                 onSetLoadingOverlayEnabled = { enabled -> coroutineScope.launch { viewModel.setLoadingOverlayEnabled(enabled) } },
@@ -925,6 +929,7 @@ internal fun LanguageSelectionDialog(
     onDismiss: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
+    val sortedLanguages = remember { AVAILABLE_SUBTITLE_LANGUAGES.sortedBy { it.displayName.lowercase() } }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -976,12 +981,12 @@ internal fun LanguageSelectionDialog(
                 }
 
                 items(
-                    count = AVAILABLE_SUBTITLE_LANGUAGES.size,
-                    key = { index -> AVAILABLE_SUBTITLE_LANGUAGES[index].code }
+                    count = sortedLanguages.size,
+                    key = { index -> sortedLanguages[index].code }
                 ) { index ->
-                    val language = AVAILABLE_SUBTITLE_LANGUAGES[index]
+                    val language = sortedLanguages[index]
                     LanguageOptionItem(
-                        name = language.name,
+                        name = language.displayName,
                         code = language.code,
                         isSelected = selectedLanguage == language.code,
                         onClick = { onLanguageSelected(language.code) },

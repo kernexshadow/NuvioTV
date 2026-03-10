@@ -1,6 +1,7 @@
 package com.nuvio.tv.domain.repository
 
 import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.domain.model.Video
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -26,12 +27,26 @@ interface WatchProgressRepository {
     /**
      * Get watch progress for a specific episode
      */
-    fun getEpisodeProgress(contentId: String, season: Int, episode: Int): Flow<WatchProgress?>
+    fun getEpisodeProgress(
+        contentId: String,
+        season: Int,
+        episode: Int,
+        addonVideos: List<Video> = emptyList()
+    ): Flow<WatchProgress?>
     
     /**
      * Get all episode progress for a series as a map of (season, episode) to progress
      */
-    fun getAllEpisodeProgress(contentId: String): Flow<Map<Pair<Int, Int>, WatchProgress>>
+    fun getAllEpisodeProgress(
+        contentId: String,
+        addonVideos: List<Video> = emptyList()
+    ): Flow<Map<Pair<Int, Int>, WatchProgress>>
+
+    
+    suspend fun getAllEpisodeProgressSnapshot(
+        contentId: String,
+        addonVideos: List<Video> = emptyList()
+    ): Map<Pair<Int, Int>, WatchProgress>
 
     /**
      * Returns whether the item is marked as watched/completed.
@@ -39,6 +54,8 @@ interface WatchProgressRepository {
      */
     fun isWatched(contentId: String, season: Int? = null, episode: Int? = null): Flow<Boolean>
     
+    fun observeWatchedMovieIds(): Flow<Set<String>>
+
     /**
      * Save or update watch progress
      */
@@ -58,6 +75,16 @@ interface WatchProgressRepository {
      * Mark content as completed
      */
     suspend fun markAsCompleted(progress: WatchProgress)
+
+    /**
+     * Mark an episode as completed using corrected Trakt season/episode numbers
+     * (for when addon numbering doesn't match Trakt's structure)
+     */
+    suspend fun markAsCompletedWithCorrectedEpisode(
+        progress: WatchProgress,
+        correctedSeason: Int,
+        correctedEpisode: Int
+    )
     
     /**
      * Clear all watch progress
