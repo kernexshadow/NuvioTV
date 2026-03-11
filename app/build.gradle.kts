@@ -29,7 +29,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.nuvio.tv"
+        applicationId = "com.nuvio.tv.mine"
         minSdk = 24
         targetSdk = 36
         versionCode = 36
