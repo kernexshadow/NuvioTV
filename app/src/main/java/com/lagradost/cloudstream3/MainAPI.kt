@@ -181,7 +181,7 @@ fun imdbUrlToIdNullable(url: String?): String? {
     return regex.find(url)?.value
 }
 
-// ── SubtitleFile helper ──
+// ── SubtitleFile helpers ──
 
 fun MainAPI.newSubtitleFile(
     lang: String,
@@ -189,6 +189,14 @@ fun MainAPI.newSubtitleFile(
     type: String? = null,
     headers: Map<String, String>? = null
 ): SubtitleFile = SubtitleFile(lang = lang, url = fixUrl(url), type = type, headers = headers)
+
+/** Top-level newSubtitleFile (used by extractors that don't have a MainAPI context). */
+fun newSubtitleFile(
+    lang: String,
+    url: String,
+    type: String? = null,
+    headers: Map<String, String>? = null
+): SubtitleFile = SubtitleFile(lang = lang, url = url, type = type, headers = headers)
 
 // ── MainAPI class ──
 

@@ -516,7 +516,20 @@ class PluginManager @Inject constructor(
         }
         
         Log.d(TAG, "Executing ${enabledScraperList.size} scrapers for $mediaType:$tmdbId")
-        
+
+        // Preload all extractors from EXTERNAL_DEX repos before any scraper runs
+        val dexScraperIds = enabledScraperList
+            .filter { it.type == RepositoryType.EXTERNAL_DEX }
+            .map { it.id }
+        if (dexScraperIds.isNotEmpty()) {
+            // Also load ALL dex scrapers from the same repos (not just enabled ones)
+            // since extractors can live in any .cs3 file
+            val allDexIds = dataStore.scrapers.first()
+                .filter { it.type == RepositoryType.EXTERNAL_DEX }
+                .map { it.id }
+            externalExtensionLoader.ensureExtractorsLoaded(allDexIds)
+        }
+
         val results = enabledScraperList.map { scraper ->
             async {
                 executeScraperWithSingleFlight(scraper, tmdbId, mediaType, season, episode)
@@ -546,7 +559,16 @@ class PluginManager @Inject constructor(
         }
         
         Log.d(TAG, "Streaming execution of ${enabledList.size} scrapers for $mediaType:$tmdbId")
-        
+
+        // Preload all extractors from EXTERNAL_DEX repos before any scraper runs
+        val dexScraperIds = enabledList.filter { it.type == RepositoryType.EXTERNAL_DEX }.map { it.id }
+        if (dexScraperIds.isNotEmpty()) {
+            val allDexIds = dataStore.scrapers.first()
+                .filter { it.type == RepositoryType.EXTERNAL_DEX }
+                .map { it.id }
+            externalExtensionLoader.ensureExtractorsLoaded(allDexIds)
+        }
+
         // Launch all scrapers concurrently within the channelFlow scope
         enabledList.forEach { scraper ->
             launch {
@@ -692,21 +714,48 @@ class PluginManager @Inject constructor(
     }
     
     /**
-     * Test a scraper with sample data
+     * Test a scraper with sample data, returning results along with diagnostic steps.
      */
-    suspend fun testScraper(scraperId: String): Result<List<LocalScraperResult>> {
+    suspend fun testScraper(scraperId: String): Result<Pair<List<LocalScraperResult>, TestDiagnostics>> {
+        val diagnostics = TestDiagnostics()
         val scraper = dataStore.scrapers.first().find { it.id == scraperId }
-            ?: return Result.failure(Exception("Scraper not found"))
-        
+        if (scraper == null) {
+            diagnostics.addStep("Scraper '$scraperId' not found in datastore")
+            return Result.failure(Exception("Scraper not found"))
+        }
+
+        diagnostics.addStep("Scraper: ${scraper.name} (type=${scraper.type})")
+
         // Use a popular movie for testing (The Matrix - 603)
         val testTmdbId = "603"
         val testMediaType = if (scraper.supportsType("movie")) "movie" else "series"
-        
+        diagnostics.addStep("Test: TMDB $testTmdbId ($testMediaType)")
+
+        // Preload extractors from ALL .cs3 files in the same repo(s)
+        if (scraper.type == RepositoryType.EXTERNAL_DEX) {
+            val allDexIds = dataStore.scrapers.first()
+                .filter { it.type == RepositoryType.EXTERNAL_DEX }
+                .map { it.id }
+            externalExtensionLoader.ensureExtractorsLoaded(allDexIds, diagnostics)
+        }
+
         return try {
-            val results = executeScraper(scraper, testTmdbId, testMediaType, 1, 1)
-            Result.success(results)
+            val results = when (scraper.type) {
+                RepositoryType.EXTERNAL_DEX -> {
+                    externalExtensionRunner.executeWithDiagnostics(
+                        scraper.id, testTmdbId, testMediaType, 1, 1, diagnostics
+                    )
+                }
+                RepositoryType.NUVIO_JS -> {
+                    diagnostics.addStep("Executing JS scraper...")
+                    executeScraper(scraper, testTmdbId, testMediaType, 1, 1)
+                }
+            }
+            diagnostics.addStep("Result: ${results.size} streams")
+            Result.success(results to diagnostics)
         } catch (e: Exception) {
-            Result.failure(e)
+            diagnostics.addStep("Exception: ${e.javaClass.simpleName}: ${e.message}")
+            Result.success(emptyList<LocalScraperResult>() to diagnostics)
         }
     }
     

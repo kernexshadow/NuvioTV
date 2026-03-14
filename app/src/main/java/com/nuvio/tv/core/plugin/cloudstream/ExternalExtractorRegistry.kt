@@ -20,8 +20,8 @@ class ExternalExtractorRegistry @Inject constructor() {
     private val missingExtractorDomains = mutableSetOf<String>()
 
     fun registerExtractor(extractor: ExtractorApi) {
-        // Avoid duplicates by name
-        extractors.removeAll { it.name == extractor.name }
+        // Avoid duplicates by mainUrl (not name, since many share names like "DoodStream")
+        if (extractors.any { it.mainUrl == extractor.mainUrl }) return
         extractors.add(extractor)
         Log.d(TAG, "Registered extractor: ${extractor.name} (${extractor.mainUrl})")
     }
@@ -71,9 +71,13 @@ class ExternalExtractorRegistry @Inject constructor() {
 
     /**
      * Install this registry as the global loadExtractor function.
+     * Sets the internal delegate that the real `loadExtractor()` suspend function calls.
      */
     fun installGlobal() {
-        com.lagradost.cloudstream3.utils.loadExtractor = { url, referer, subtitleCallback, callback ->
+        // Register built-in extractors (Filemoon, StreamWish, DoodStream, etc.)
+        com.lagradost.cloudstream3.extractors.BuiltInExtractorRegistry.ensureRegistered(this)
+
+        com.lagradost.cloudstream3.utils._loadExtractorDelegate = { url, referer, subtitleCallback, callback ->
             loadExtractor(url, referer, subtitleCallback, callback)
         }
     }

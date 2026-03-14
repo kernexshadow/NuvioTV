@@ -82,9 +82,9 @@ fun LoadResponse.addDate(date: Long?) {
 
 fun LoadResponse.addEpisodes(dubStatus: DubStatus, episodes: List<Episode>?) {
     if (this is AnimeLoadResponse && episodes != null) {
-        val mutableEps = this.episodes.toMutableMap()
-        mutableEps[dubStatus.name] = episodes
-        // We can't reassign `episodes` since it's a val, but the mutableMap handles it
+        this.episodes = this.episodes.toMutableMap().also {
+            it[dubStatus.name] = episodes
+        }
     }
 }
 

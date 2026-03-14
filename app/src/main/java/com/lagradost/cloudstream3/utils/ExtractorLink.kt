@@ -68,3 +68,37 @@ fun newExtractorLink(
     headers = headers,
     extractorData = extractorData
 )
+
+/** Builder-pattern overload used by CloudStream3 extractors. */
+class ExtractorLinkBuilder(
+    val source: String,
+    val name: String,
+    val url: String,
+    val type: ExtractorLinkType?
+) {
+    var referer: String = ""
+    var quality: Int = Qualities.Unknown.value
+    var headers: Map<String, String> = emptyMap()
+    var extractorData: String? = null
+}
+
+fun newExtractorLink(
+    source: String,
+    name: String,
+    url: String,
+    type: ExtractorLinkType? = null,
+    initializer: ExtractorLinkBuilder.() -> Unit
+): ExtractorLink {
+    val builder = ExtractorLinkBuilder(source, name, url, type)
+    builder.initializer()
+    return ExtractorLink(
+        source = source,
+        name = name,
+        url = url,
+        referer = builder.referer,
+        quality = builder.quality,
+        type = builder.type ?: ExtractorLinkType.VIDEO,
+        headers = builder.headers,
+        extractorData = builder.extractorData
+    )
+}

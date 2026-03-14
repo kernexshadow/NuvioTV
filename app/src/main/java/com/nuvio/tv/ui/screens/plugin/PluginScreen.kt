@@ -251,6 +251,7 @@ fun PluginScreenContent(
                         onTest = { viewModel.onEvent(PluginUiEvent.TestScraper(scraper.id)) },
                         isTesting = uiState.isTesting && uiState.testScraperId == scraper.id,
                         testResults = if (uiState.testScraperId == scraper.id) uiState.testResults else null,
+                        testDiagnostics = if (uiState.testScraperId == scraper.id) uiState.testDiagnostics else null,
                         isReadOnly = viewModel.isReadOnly
                     )
                 }
@@ -984,12 +985,13 @@ private fun ScraperCard(
     onTest: () -> Unit,
     isTesting: Boolean,
     testResults: List<LocalScraperResult>?,
+    testDiagnostics: com.nuvio.tv.core.plugin.TestDiagnostics? = null,
     isReadOnly: Boolean = false
 ) {
     var showResults by remember { mutableStateOf(false) }
 
-    LaunchedEffect(testResults) {
-        showResults = testResults != null
+    LaunchedEffect(testResults, testDiagnostics) {
+        showResults = testResults != null || testDiagnostics != null
     }
 
     // Use Box instead of focusable Surface to allow child focus
@@ -1080,13 +1082,41 @@ private fun ScraperCard(
                 }
             }
 
-            // Test results
-            AnimatedVisibility(visible = showResults && testResults != null) {
+            // Test results with diagnostics
+            AnimatedVisibility(visible = showResults && (testResults != null || testDiagnostics != null)) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 12.dp)
                 ) {
+                    // Diagnostic steps — focusable so D-pad scrolls it into view
+                    if (testDiagnostics != null && testDiagnostics.steps.isNotEmpty()) {
+                        Surface(
+                            onClick = {},
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = NuvioColors.Surface,
+                                focusedContainerColor = NuvioColors.Surface,
+                                contentColor = NuvioColors.TextSecondary,
+                                focusedContentColor = NuvioColors.TextSecondary
+                            ),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+                            border = ClickableSurfaceDefaults.border(
+                                focusedBorder = Border(
+                                    BorderStroke(2.dp, NuvioColors.Primary),
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = testDiagnostics.steps.joinToString("\n"),
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
                     Text(
                         text = stringResource(R.string.plugin_test_results, testResults?.size ?: 0),
                         style = MaterialTheme.typography.bodySmall,

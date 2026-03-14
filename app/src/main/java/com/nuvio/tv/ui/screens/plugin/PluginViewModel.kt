@@ -85,7 +85,7 @@ class PluginViewModel @Inject constructor(
             is PluginUiEvent.ToggleAllScrapersForRepo -> toggleAllScrapersForRepo(event.repoId, event.enabled)
             is PluginUiEvent.TestScraper -> testScraper(event.scraperId)
             is PluginUiEvent.SetPluginsEnabled -> setPluginsEnabled(event.enabled)
-            PluginUiEvent.ClearTestResults -> _uiState.update { it.copy(testResults = null, testScraperId = null) }
+            PluginUiEvent.ClearTestResults -> _uiState.update { it.copy(testResults = null, testDiagnostics = null, testScraperId = null) }
             PluginUiEvent.ClearError -> _uiState.update { it.copy(errorMessage = null) }
             PluginUiEvent.ClearSuccess -> _uiState.update { it.copy(successMessage = null) }
             PluginUiEvent.StartQrMode -> startQrMode()
@@ -178,16 +178,17 @@ class PluginViewModel @Inject constructor(
 
     private fun testScraper(scraperId: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isTesting = true, testScraperId = scraperId, testResults = null) }
+            _uiState.update { it.copy(isTesting = true, testScraperId = scraperId, testResults = null, testDiagnostics = null) }
 
             val result = pluginManager.testScraper(scraperId)
 
             result.fold(
-                onSuccess = { results ->
+                onSuccess = { (results, diagnostics) ->
                     _uiState.update {
                         it.copy(
                             isTesting = false,
                             testResults = results,
+                            testDiagnostics = diagnostics,
                             successMessage = if (results.isEmpty()) "No results found" else "Found ${results.size} streams"
                         )
                     }
@@ -197,6 +198,7 @@ class PluginViewModel @Inject constructor(
                         it.copy(
                             isTesting = false,
                             testResults = emptyList(),
+                            testDiagnostics = null,
                             errorMessage = "Test failed: ${e.message}"
                         )
                     }

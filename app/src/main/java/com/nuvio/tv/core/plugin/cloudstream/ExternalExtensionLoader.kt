@@ -6,6 +6,7 @@ import com.lagradost.cloudstream3.AcraApplication
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
+import com.nuvio.tv.core.plugin.TestDiagnostics
 import dalvik.system.DexClassLoader
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -134,6 +135,9 @@ class ExternalExtensionLoader @Inject constructor(
     /** Cache of loaded class loaders by scraper ID */
     private val classLoaderCache = ConcurrentHashMap<String, DexClassLoader>()
 
+    /** Tracks which scraper IDs have already been scanned for extractors */
+    private val extractorPreloadedIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
     private val extensionsDir: File
         get() = File(context.filesDir, "cs_extensions").also { it.mkdirs() }
 
@@ -215,22 +219,25 @@ class ExternalExtensionLoader @Inject constructor(
             }
 
             // Call load() to trigger registerMainAPI() calls.
+            // Prefer Activity context since many extensions guard registration with activity?.let { ... }
             // Wrapped in try-catch so partially-registered APIs survive if a later
             // registerMainAPI() call fails (e.g. StreamPlay succeeds but StreamPlayAnime crashes).
+            val activity = AcraApplication.getActivity()
             try {
-                plugin.load(context)
-            } catch (e: ClassCastException) {
-                // Extension expects Activity context — retry with null Activity
-                Log.d(TAG, "plugin.load(Context) got ClassCastException, retrying with null Activity")
-                try {
-                    plugin.load(null as android.app.Activity?)
-                } catch (e2: Exception) {
-                    Log.w(TAG, "plugin.load(null Activity) also threw (${plugin.registeredMainAPIs.size} APIs so far): ${e2.message}", e2)
+                if (activity != null) {
+                    plugin.load(activity as android.app.Activity?)
+                } else {
+                    plugin.load(context)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "plugin.load() threw (partial load, ${plugin.registeredMainAPIs.size} APIs so far): ${e.message}", e)
             } catch (e: Error) {
-                Log.w(TAG, "plugin.load() linkage error (partial load, ${plugin.registeredMainAPIs.size} APIs so far): ${e.message}", e)
+                val missingClass = extractMissingClassName(e)
+                if (missingClass != null) {
+                    Log.w(TAG, "plugin.load() MISSING CLASS: $missingClass (${plugin.registeredMainAPIs.size} APIs so far)", e)
+                } else {
+                    Log.w(TAG, "plugin.load() linkage error (partial load, ${plugin.registeredMainAPIs.size} APIs so far): ${e.message}", e)
+                }
             }
 
             // Ensure global stubs are initialized for extensions
@@ -241,8 +248,67 @@ class ExternalExtensionLoader @Inject constructor(
             extractorRegistry.registerAll(plugin.registeredExtractorAPIs)
 
             // Inject our network layer into each MainAPI
-            val apis = plugin.registeredMainAPIs
+            var apis = plugin.registeredMainAPIs
             Log.d(TAG, "After load(): ${apis.size} MainAPIs, ${plugin.registeredExtractorAPIs.size} extractors")
+
+            // FALLBACK: If load() registered 0 APIs or 0 extractors, scan DEX directly.
+            // This works around extensions that guard registerMainAPI()/registerExtractorAPI()
+            // behind activity?.let { ... } or other conditions.
+            if (apis.isEmpty() || plugin.registeredExtractorAPIs.isEmpty()) {
+                Log.d(TAG, "Fallback: scanning DEX for MainAPI/ExtractorApi subclasses in $scraperId")
+                val fallbackApis = mutableListOf<MainAPI>()
+                val fallbackExtractors = mutableListOf<com.lagradost.cloudstream3.utils.ExtractorApi>()
+                try {
+                    @Suppress("DEPRECATION")
+                    val inspectDex = dalvik.system.DexFile(dexFile)
+                    val allClasses = inspectDex.entries().toList()
+                    inspectDex.close()
+
+                    val candidates = allClasses.filter { className ->
+                        !className.contains('$') &&
+                        !className.contains("Plugin") &&
+                        !className.contains("Fragment") &&
+                        className.startsWith("com.") &&
+                        !className.startsWith("com.lagradost.cloudstream3.")
+                    }
+
+                    for (className in candidates) {
+                        try {
+                            val clazz = classLoader.loadClass(className)
+                            if (apis.isEmpty() && MainAPI::class.java.isAssignableFrom(clazz)) {
+                                val instance = clazz.getDeclaredConstructor().newInstance() as MainAPI
+                                instance._networkInterceptor = networkInterceptor
+                                fallbackApis.add(instance)
+                                Log.d(TAG, "Fallback found MainAPI: ${instance.name} ($className)")
+                            } else if (com.lagradost.cloudstream3.utils.ExtractorApi::class.java.isAssignableFrom(clazz)
+                                && !java.lang.reflect.Modifier.isAbstract(clazz.modifiers)) {
+                                val instance = clazz.getDeclaredConstructor().newInstance() as com.lagradost.cloudstream3.utils.ExtractorApi
+                                fallbackExtractors.add(instance)
+                                Log.d(TAG, "Fallback found ExtractorApi: ${instance.name} (${instance.mainUrl})")
+                            }
+                        } catch (e: Error) {
+                            val missing = extractMissingClassName(e)
+                            if (missing != null) {
+                                Log.w(TAG, "Fallback skip $className: MISSING $missing")
+                            }
+                        } catch (_: Exception) {
+                            // Skip classes that can't be instantiated
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Fallback DEX scan failed: ${e.message}")
+                }
+
+                if (fallbackApis.isNotEmpty()) {
+                    Log.d(TAG, "Fallback found ${fallbackApis.size} MainAPIs")
+                    apis = fallbackApis
+                }
+                if (fallbackExtractors.isNotEmpty()) {
+                    Log.d(TAG, "Fallback found ${fallbackExtractors.size} ExtractorApis")
+                    extractorRegistry.registerAll(fallbackExtractors)
+                }
+            }
+
             apis.forEach { api ->
                 api._networkInterceptor = networkInterceptor
                 apiCache["$scraperId:${api.name}"] = api
@@ -260,7 +326,12 @@ class ExternalExtensionLoader @Inject constructor(
             emptyList()
         } catch (e: Error) {
             // Catch NoClassDefFoundError and other linkage errors gracefully
-            Log.e(TAG, "Failed to load extension $scraperId (linkage error): ${e.message}", e)
+            val missingClass = extractMissingClassName(e)
+            if (missingClass != null) {
+                Log.e(TAG, "Failed to load extension $scraperId: MISSING CLASS: $missingClass (${e.javaClass.simpleName})", e)
+            } else {
+                Log.e(TAG, "Failed to load extension $scraperId (linkage error): ${e.message}", e)
+            }
             emptyList()
         }
     }
@@ -276,11 +347,255 @@ class ExternalExtensionLoader @Inject constructor(
     }
 
     /**
+     * Load extension with diagnostic output. Used by the test UI to show exactly
+     * where DEX loading fails.
+     */
+    fun loadExtensionWithDiagnostics(scraperId: String, diagnostics: TestDiagnostics): List<MainAPI> {
+        apiCache[scraperId]?.let {
+            diagnostics.addStep("MainAPI cached: ${it.name}")
+            return listOf(it)
+        }
+
+        val dexFile = File(extensionsDir, "${safeFileName(scraperId)}.cs3")
+        if (!dexFile.exists()) {
+            diagnostics.addStep("DEX file NOT FOUND: ${dexFile.name}")
+            return emptyList()
+        }
+        diagnostics.addStep("DEX: ${dexFile.length()} bytes")
+
+        return try {
+            val classLoader = DexClassLoader(
+                dexFile.absolutePath,
+                codeCacheDir.absolutePath,
+                null,
+                context.classLoader
+            )
+            classLoaderCache[scraperId] = classLoader
+
+            // Enumerate all classes for fallback and diagnostics
+            val allClasses: List<String>
+            try {
+                @Suppress("DEPRECATION")
+                val inspectDex = dalvik.system.DexFile(dexFile)
+                allClasses = inspectDex.entries().toList()
+                inspectDex.close()
+            } catch (e: Exception) {
+                diagnostics.addStep("DEX inspection failed: ${e.message?.take(100)}")
+                return emptyList()
+            }
+
+            // Check if DEX shadows our Plugin class
+            val shadowsPlugin = allClasses.any { it == "com.lagradost.cloudstream3.plugins.Plugin" }
+            if (shadowsPlugin) {
+                diagnostics.addStep("WARNING: DEX contains its own Plugin class!")
+            }
+
+            val plugin = findAndLoadPlugin(classLoader, dexFile)
+            if (plugin == null) {
+                diagnostics.addStep("No @CloudstreamPlugin found in DEX")
+                return emptyList()
+            }
+
+            // Check class identity
+            val sameClass = plugin.javaClass.superclass == Plugin::class.java
+            diagnostics.addStep("Plugin: ${plugin.javaClass.simpleName}, sameBaseClass=$sameClass, isWrapper=${plugin is ReflectivePluginWrapper}")
+
+            // Ensure global stubs are ready before load()
+            AcraApplication.context = context
+            extractorRegistry.installGlobal()
+
+            // Call load()
+            val activity = AcraApplication.getActivity()
+            try {
+                if (activity != null) {
+                    plugin.load(activity as android.app.Activity?)
+                } else {
+                    plugin.load(context)
+                }
+                diagnostics.addStep("load(${if (activity != null) "Activity" else "Context"}): OK, ${plugin.registeredMainAPIs.size} APIs")
+            } catch (e: Exception) {
+                diagnostics.addStep("load() FAILED: ${e.javaClass.simpleName}: ${e.message?.take(120)}")
+            } catch (e: Error) {
+                val missing = extractMissingClassName(e)
+                diagnostics.addStep("load() ERROR: ${missing ?: e.message?.take(120)}")
+            }
+
+            extractorRegistry.registerAll(plugin.registeredExtractorAPIs)
+
+            var apis = plugin.registeredMainAPIs
+
+            // FALLBACK: If load() registered 0 APIs or 0 extractors, scan DEX directly.
+            if (apis.isEmpty() || plugin.registeredExtractorAPIs.isEmpty()) {
+                diagnostics.addStep("Fallback: scanning DEX for MainAPI + ExtractorApi subclasses...")
+                val fallbackApis = mutableListOf<MainAPI>()
+                val fallbackExtractors = mutableListOf<com.lagradost.cloudstream3.utils.ExtractorApi>()
+                val candidates = allClasses.filter { className ->
+                    !className.contains('$') &&
+                    !className.contains("Plugin") &&
+                    !className.contains("Fragment") &&
+                    className.startsWith("com.") &&
+                    !className.startsWith("com.lagradost.cloudstream3.")
+                }
+
+                for (className in candidates) {
+                    try {
+                        val clazz = classLoader.loadClass(className)
+                        if (apis.isEmpty() && MainAPI::class.java.isAssignableFrom(clazz)) {
+                            val instance = clazz.getDeclaredConstructor().newInstance() as MainAPI
+                            instance._networkInterceptor = networkInterceptor
+                            fallbackApis.add(instance)
+                            diagnostics.addStep("Found API: ${instance.name} (${clazz.simpleName})")
+                        } else if (com.lagradost.cloudstream3.utils.ExtractorApi::class.java.isAssignableFrom(clazz)
+                            && !java.lang.reflect.Modifier.isAbstract(clazz.modifiers)) {
+                            val instance = clazz.getDeclaredConstructor().newInstance() as com.lagradost.cloudstream3.utils.ExtractorApi
+                            fallbackExtractors.add(instance)
+                            diagnostics.addStep("Found Extractor: ${instance.name} (${instance.mainUrl})")
+                        }
+                    } catch (e: Error) {
+                        val missing = extractMissingClassName(e)
+                        if (missing != null) {
+                            diagnostics.addStep("${className.substringAfterLast('.')}: MISSING $missing")
+                        }
+                    } catch (e: Exception) {
+                        val cause = e.cause ?: e
+                        if (cause is Error) {
+                            val missing = extractMissingClassName(cause as Error)
+                            if (missing != null) {
+                                diagnostics.addStep("${className.substringAfterLast('.')}: MISSING $missing")
+                            }
+                        }
+                    }
+                }
+
+                if (fallbackApis.isNotEmpty()) {
+                    diagnostics.addStep("Fallback found ${fallbackApis.size} APIs")
+                    apis = fallbackApis
+                }
+                if (fallbackExtractors.isNotEmpty()) {
+                    diagnostics.addStep("Fallback found ${fallbackExtractors.size} extractors")
+                    extractorRegistry.registerAll(fallbackExtractors)
+                }
+            }
+
+            // Cache results
+            apis.forEach { api ->
+                api._networkInterceptor = networkInterceptor
+                apiCache["$scraperId:${api.name}"] = api
+            }
+            if (apis.isNotEmpty()) {
+                apiCache[scraperId] = apis.first()
+            }
+
+            apis
+        } catch (e: Exception) {
+            diagnostics.addStep("FAILED: ${e.javaClass.simpleName}: ${e.message?.take(200)}")
+            emptyList()
+        } catch (e: Error) {
+            val missing = extractMissingClassName(e)
+            diagnostics.addStep("FAILED: ${missing ?: e.message?.take(200)}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Eagerly load all ExtractorApi subclasses from the given .cs3 files.
+     * This mirrors real CloudStream3 behavior where all extensions are loaded at startup,
+     * making all extractors globally available for loadExtractor() calls.
+     *
+     * @param scraperIds List of scraper IDs whose .cs3 files should be scanned
+     * @param diagnostics Optional diagnostics for test UI output
+     */
+    fun ensureExtractorsLoaded(scraperIds: List<String>, diagnostics: TestDiagnostics? = null) {
+        val idsToLoad = scraperIds.filter { it !in extractorPreloadedIds }
+        if (idsToLoad.isEmpty()) {
+            diagnostics?.addStep("Extractors: all ${scraperIds.size} already preloaded")
+            return
+        }
+
+        // Ensure global stubs are initialized
+        AcraApplication.context = context
+        extractorRegistry.installGlobal()
+
+        var totalExtractors = 0
+        var totalScanned = 0
+
+        for (scraperId in idsToLoad) {
+            extractorPreloadedIds.add(scraperId)
+
+            val dexFile = File(extensionsDir, "${safeFileName(scraperId)}.cs3")
+            if (!dexFile.exists()) continue
+
+            totalScanned++
+            try {
+                val classLoader = classLoaderCache.getOrPut(scraperId) {
+                    DexClassLoader(
+                        dexFile.absolutePath,
+                        codeCacheDir.absolutePath,
+                        null,
+                        context.classLoader
+                    )
+                }
+
+                // First try plugin.load() path to get extractors registered via registerExtractorAPI()
+                val plugin = findAndLoadPlugin(classLoader, dexFile)
+                if (plugin != null) {
+                    val activity = AcraApplication.getActivity()
+                    try {
+                        if (activity != null) {
+                            plugin.load(activity as android.app.Activity?)
+                        } else {
+                            plugin.load(context)
+                        }
+                    } catch (_: Exception) {
+                    } catch (_: Error) {
+                    }
+                    if (plugin.registeredExtractorAPIs.isNotEmpty()) {
+                        extractorRegistry.registerAll(plugin.registeredExtractorAPIs)
+                        totalExtractors += plugin.registeredExtractorAPIs.size
+                        continue // plugin.load() registered extractors, no need for fallback scan
+                    }
+                }
+
+                // Fallback: scan DEX entries for ExtractorApi subclasses
+                @Suppress("DEPRECATION")
+                val inspectDex = dalvik.system.DexFile(dexFile)
+                val allClasses = inspectDex.entries().toList()
+                inspectDex.close()
+
+                for (className in allClasses) {
+                    if (className.contains('$')) continue
+                    try {
+                        val clazz = classLoader.loadClass(className)
+                        if (com.lagradost.cloudstream3.utils.ExtractorApi::class.java.isAssignableFrom(clazz)
+                            && !java.lang.reflect.Modifier.isAbstract(clazz.modifiers)
+                        ) {
+                            val instance = clazz.getDeclaredConstructor().newInstance()
+                                    as com.lagradost.cloudstream3.utils.ExtractorApi
+                            extractorRegistry.registerExtractor(instance)
+                            totalExtractors++
+                        }
+                    } catch (_: Exception) {
+                    } catch (_: Error) {
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "ensureExtractorsLoaded: failed for $scraperId: ${e.message}")
+            } catch (e: Error) {
+                Log.w(TAG, "ensureExtractorsLoaded: linkage error for $scraperId: ${e.message}")
+            }
+        }
+
+        Log.d(TAG, "ensureExtractorsLoaded: scanned $totalScanned .cs3 files, registered $totalExtractors extractors")
+        diagnostics?.addStep("Preloaded $totalExtractors extractors from $totalScanned .cs3 files")
+    }
+
+    /**
      * Delete a downloaded extension and evict its caches.
      */
     fun deleteExtension(scraperId: String) {
         apiCache.keys.filter { it.startsWith(scraperId) }.forEach { apiCache.remove(it) }
         classLoaderCache.remove(scraperId)
+        extractorPreloadedIds.remove(scraperId)
         File(extensionsDir, "${safeFileName(scraperId)}.cs3").delete()
         Log.d(TAG, "Deleted extension $scraperId")
     }
@@ -291,6 +606,18 @@ class ExternalExtensionLoader @Inject constructor(
     fun evictCache(scraperId: String) {
         apiCache.keys.filter { it.startsWith(scraperId) }.forEach { apiCache.remove(it) }
         classLoaderCache.remove(scraperId)
+        extractorPreloadedIds.remove(scraperId)
+    }
+
+    /**
+     * Extract the missing class name from a linkage error for diagnostic purposes.
+     */
+    private fun extractMissingClassName(e: Error): String? {
+        val msg = e.message ?: return null
+        // NoClassDefFoundError: "com/lagradost/cloudstream3/SomeClass"
+        // or "Failed resolution of: Lcom/lagradost/cloudstream3/SomeClass;"
+        val match = Regex("""(?:L?)([\w/.]+)(?:;)?""").find(msg)
+        return match?.groupValues?.get(1)?.replace('/', '.')
     }
 
     /**

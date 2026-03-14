@@ -2,6 +2,7 @@ package com.lagradost.cloudstream3.plugins
 
 import android.app.Activity
 import android.content.Context
+import android.util.Log
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.utils.ExtractorApi
 
@@ -27,10 +28,12 @@ open class Plugin {
     open fun load(activity: Activity?) {}
 
     fun registerMainAPI(element: MainAPI) {
+        Log.d("CS3Plugin", "registerMainAPI called: ${element.name} (${element.javaClass.name})")
         _registeredMainAPIs.add(element)
     }
 
     fun registerExtractorAPI(element: ExtractorApi) {
+        Log.d("CS3Plugin", "registerExtractorAPI called: ${element.name} (${element.javaClass.name})")
         _registeredExtractorAPIs.add(element)
     }
 

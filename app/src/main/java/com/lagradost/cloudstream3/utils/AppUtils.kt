@@ -33,7 +33,8 @@ object AppUtils {
     }
 }
 
-fun getQualityFromName(name: String): Int {
+fun getQualityFromName(name: String?): Int {
+    if (name == null) return Qualities.Unknown.value
     val lower = name.lowercase()
     return when {
         lower.contains("2160") || lower.contains("4k") || lower.contains("uhd") -> Qualities.P2160.value

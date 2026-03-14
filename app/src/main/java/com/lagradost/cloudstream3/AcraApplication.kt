@@ -2,7 +2,9 @@
 
 package com.lagradost.cloudstream3
 
+import android.app.Activity
 import android.content.Context
+import java.lang.ref.WeakReference
 
 /**
  * Stub for CloudStream's AcraApplication.
@@ -14,6 +16,21 @@ open class AcraApplication {
         /** Application context stub. Extensions use this for PackageManager etc. */
         @JvmStatic
         var context: Context? = null
+
+        /**
+         * Weak reference to the current Activity. CloudStream extensions
+         * often require a non-null Activity in their load() method to
+         * register MainAPIs. Set from MainActivity.onCreate().
+         */
+        private var activityRef: WeakReference<Activity>? = null
+
+        @JvmStatic
+        fun getActivity(): Activity? = activityRef?.get()
+
+        @JvmStatic
+        fun setActivity(activity: Activity?) {
+            activityRef = if (activity != null) WeakReference(activity) else null
+        }
 
         /** Retrieve a stored value. No-op — always returns the default. */
         @JvmStatic
