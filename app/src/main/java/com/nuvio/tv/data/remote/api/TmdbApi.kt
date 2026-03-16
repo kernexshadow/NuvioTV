@@ -362,6 +362,8 @@ data class TmdbRecommendationResult(
 
 @JsonClass(generateAdapter = true)
 data class TmdbReviewsResponse(
+    @Json(name = "page") val page: Int? = null,
+    @Json(name = "total_pages") val totalPages: Int? = null,
     @Json(name = "results") val results: List<TmdbReviewResult>? = null
 )
 

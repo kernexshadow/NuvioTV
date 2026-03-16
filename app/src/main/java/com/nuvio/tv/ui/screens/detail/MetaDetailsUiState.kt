@@ -76,6 +76,4 @@ sealed class MetaDetailsEvent {
     data object OnPickerDismiss : MetaDetailsEvent()
     data object OnClearMessage : MetaDetailsEvent()
     data class OnReviewItemFocused(val index: Int) : MetaDetailsEvent()
-    data object OnConfirmEpisodeMismatch : MetaDetailsEvent()
-    data object OnDismissEpisodeMismatch : MetaDetailsEvent()
 }

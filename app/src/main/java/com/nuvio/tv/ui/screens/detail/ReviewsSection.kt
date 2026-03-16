@@ -124,6 +124,9 @@ fun ReviewsSection(
                         val reviewKey = "${review.source}:${review.id}"
                         var isCardFocused by remember(reviewKey) { mutableStateOf(false) }
                         var isScrollPaused by rememberSaveable(reviewKey) { mutableStateOf(false) }
+                        var isSpoilerRevealed by rememberSaveable(reviewKey, review.hasSpoiler) {
+                            mutableStateOf(!review.hasSpoiler)
+                        }
                         val cardModifier = Modifier
                             .width(440.dp)
                             .heightIn(min = 220.dp)
@@ -150,7 +153,12 @@ fun ReviewsSection(
 
                         Card(
                             onClick = {
-                                isScrollPaused = !isScrollPaused
+                                if (review.hasSpoiler && !isSpoilerRevealed) {
+                                    isSpoilerRevealed = true
+                                    isScrollPaused = false
+                                } else {
+                                    isScrollPaused = !isScrollPaused
+                                }
                             },
                             modifier = cardModifier,
                             shape = CardDefaults.shape(shape = RoundedCornerShape(14.dp)),
@@ -211,11 +219,15 @@ fun ReviewsSection(
                                     )
                                 }
 
-                                AutoScrollingReviewText(
-                                    text = review.content,
-                                    isFocused = isCardFocused,
-                                    isPaused = isScrollPaused
-                                )
+                                if (review.hasSpoiler && !isSpoilerRevealed) {
+                                    HiddenSpoilerReviewText()
+                                } else {
+                                    AutoScrollingReviewText(
+                                        text = review.content,
+                                        isFocused = isCardFocused,
+                                        isPaused = isScrollPaused
+                                    )
+                                }
                             }
                         }
                     }
@@ -295,6 +307,34 @@ private fun ReviewRatingBadge(rating: Double) {
             style = MaterialTheme.typography.labelSmall,
             color = contentColor
         )
+    }
+}
+
+@Composable
+private fun HiddenSpoilerReviewText() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(128.dp)
+            .background(
+                color = Color.Black.copy(alpha = 0.84f),
+                shape = RoundedCornerShape(10.dp)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = stringResource(R.string.reviews_spoiler_hidden),
+                style = MaterialTheme.typography.labelLarge,
+                color = NuvioColors.TextPrimary
+            )
+            Text(
+                text = stringResource(R.string.reviews_spoiler_reveal_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = NuvioColors.TextTertiary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
     }
 }
 

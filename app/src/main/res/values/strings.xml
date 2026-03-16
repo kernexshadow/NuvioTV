@@ -1005,6 +1005,9 @@
     <string name="ratings_season_summary">Season %1$d - %2$d episodes</string>
     <string name="reviews_loading">Loading reviews...</string>
     <string name="reviews_unavailable">Reviews are unavailable.</string>
+    <string name="reviews_unavailable_for_title">Reviews are unavailable for this title.</string>
+    <string name="reviews_spoiler_hidden">Spoilers hidden</string>
+    <string name="reviews_spoiler_reveal_hint">Press to reveal</string>
 
     <!-- SearchDiscoverSection -->
     <string name="discover_title">Discover</string>
