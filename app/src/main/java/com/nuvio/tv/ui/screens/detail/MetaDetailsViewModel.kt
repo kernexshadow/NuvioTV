@@ -131,6 +131,7 @@ class MetaDetailsViewModel @Inject constructor(
     private var hasMoreTmdbReviews = false
     private var nextTmdbReviewsPage = 1
     private var traktReviewsCache: MutableList<MetaReview> = mutableListOf()
+    private var displayedReviewsCache: MutableList<MetaReview> = mutableListOf()
     private var traktReviewQuery: TraktReviewQuery? = null
     private var hasMoreTraktReviews = false
     private var nextTraktReviewsPage = 1
@@ -685,14 +686,15 @@ class MetaDetailsViewModel @Inject constructor(
                 tmdbReviews = tmdbReviewsCache,
                 traktReviews = traktReviewsCache
             )
+            displayedReviewsCache = mergedReviews.toMutableList()
             val reviewsUnavailableMessage = context.getString(R.string.reviews_unavailable_for_title)
 
             _uiState.update { state ->
                 if (state.meta == null || state.meta.id == meta.id) {
                     state.copy(
-                        reviews = mergedReviews,
+                        reviews = displayedReviewsCache.toList(),
                         isReviewsLoading = false,
-                        reviewsError = if (mergedReviews.isEmpty()) reviewsUnavailableMessage else null
+                        reviewsError = if (displayedReviewsCache.isEmpty()) reviewsUnavailableMessage else null
                     )
                 } else {
                     state
@@ -757,16 +759,17 @@ class MetaDetailsViewModel @Inject constructor(
                     nextTraktReviewsPage = traktPageToLoad + 1
                 }
 
-                val mergedReviews = mergeReviews(
-                    tmdbReviews = tmdbReviewsCache,
-                    traktReviews = traktReviewsCache
+                val nextVisibleBatch = mergeReviews(
+                    tmdbReviews = tmdbPageResult?.reviews.orEmpty(),
+                    traktReviews = traktPageResult?.reviews.orEmpty()
                 )
+                appendUniqueReviews(displayedReviewsCache, nextVisibleBatch)
                 val reviewsUnavailableMessage = context.getString(R.string.reviews_unavailable_for_title)
                 _uiState.update { state ->
                     if (state.meta == null || state.meta.id == expectedMetaId) {
                         state.copy(
-                            reviews = mergedReviews,
-                            reviewsError = if (mergedReviews.isEmpty()) reviewsUnavailableMessage else null
+                            reviews = displayedReviewsCache.toList(),
+                            reviewsError = if (displayedReviewsCache.isEmpty()) reviewsUnavailableMessage else null
                         )
                     } else {
                         state
@@ -786,32 +789,57 @@ class MetaDetailsViewModel @Inject constructor(
         page: Int
     ): com.nuvio.tv.core.tmdb.TmdbReviewsPage? {
         val logicalPage = page.coerceAtLeast(1)
-        val apiPage = ((logicalPage - 1) / 2) + 1
-        val offsetInApiPage = if (logicalPage % 2 == 0) REVIEWS_PAGE_SIZE else 0
+        var remainingSkip = (logicalPage - 1) * REVIEWS_PAGE_SIZE
+        val collected = mutableListOf<MetaReview>()
+        var apiPage = 1
+        var hasMore = false
 
-        val apiPageResult = runCatching {
-            tmdbMetadataService.fetchReviewsPage(
-                tmdbId = query.tmdbId,
-                contentType = query.contentType,
-                language = query.language,
-                page = apiPage
-            )
-        }.getOrElse {
-            Log.w(
-                TAG,
-                "Failed to load TMDB reviews for $metaIdForLogs with tmdbId=${query.tmdbId} page=$logicalPage: ${it.message}"
-            )
-            return null
+        while (true) {
+            val apiPageResult = runCatching {
+                tmdbMetadataService.fetchReviewsPage(
+                    tmdbId = query.tmdbId,
+                    contentType = query.contentType,
+                    language = query.language,
+                    page = apiPage
+                )
+            }.getOrElse {
+                Log.w(
+                    TAG,
+                    "Failed to load TMDB reviews for $metaIdForLogs with tmdbId=${query.tmdbId} page=$logicalPage apiPage=$apiPage: ${it.message}"
+                )
+                return null
+            }
+
+            val pageReviews = apiPageResult.reviews
+            if (remainingSkip >= pageReviews.size) {
+                remainingSkip -= pageReviews.size
+                if (!apiPageResult.hasMore) {
+                    hasMore = false
+                    break
+                }
+                apiPage += 1
+                continue
+            }
+
+            val startIndex = remainingSkip
+            remainingSkip = 0
+            val availableFromStart = pageReviews.drop(startIndex)
+            val taken = availableFromStart.take(REVIEWS_PAGE_SIZE - collected.size)
+            collected += taken
+
+            val consumedCount = startIndex + taken.size
+            hasMore = pageReviews.size > consumedCount || apiPageResult.hasMore
+
+            if (collected.size >= REVIEWS_PAGE_SIZE || !apiPageResult.hasMore) {
+                break
+            }
+
+            apiPage += 1
         }
 
-        val chunk = apiPageResult.reviews
-            .drop(offsetInApiPage)
-            .take(REVIEWS_PAGE_SIZE)
-        val hasMoreInCurrentApiPage = apiPageResult.reviews.size > offsetInApiPage + REVIEWS_PAGE_SIZE
-
         return com.nuvio.tv.core.tmdb.TmdbReviewsPage(
-            reviews = chunk,
-            hasMore = hasMoreInCurrentApiPage || apiPageResult.hasMore
+            reviews = collected,
+            hasMore = hasMore
         )
     }
 
@@ -940,6 +968,7 @@ class MetaDetailsViewModel @Inject constructor(
         hasMoreTmdbReviews = false
         nextTmdbReviewsPage = 1
         traktReviewsCache = mutableListOf()
+        displayedReviewsCache = mutableListOf()
         traktReviewQuery = null
         hasMoreTraktReviews = false
         nextTraktReviewsPage = 1

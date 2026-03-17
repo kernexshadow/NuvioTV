@@ -550,7 +550,7 @@
     <string name="tmdb_expand_reviews_title">Expand Reviews</string>
     <string name="tmdb_expand_reviews_subtitle">Review card expansion options</string>
     <string name="tmdb_reviews_enable_title">Enable Reviews</string>
-    <string name="tmdb_reviews_enable_subtitle">Enable TMDB/Trakt reviews.</string>
+    <string name="tmdb_reviews_enable_subtitle">Enable TMDB/Trakt reviews. (Trakt reviews requires Trakt login).</string>
     <string name="tmdb_reviews_section_open">Open</string>
     <string name="tmdb_reviews_section_closed">Closed</string>
     <string name="tmdb_reviews_expand_cards_title">Expand cards</string>
