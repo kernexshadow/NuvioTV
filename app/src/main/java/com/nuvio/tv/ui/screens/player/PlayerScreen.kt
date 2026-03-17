@@ -496,13 +496,11 @@ fun PlayerScreen(
                     PlayerView(context).apply {
                         this.player = player
                         useController = false
-                        keepScreenOn = false
+                        keepScreenOn = true
                         setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                     }
                 },
                 update = { playerView ->
-                    // Keep device awake only while playback is active (or buffering), not when paused.
-                    playerView.keepScreenOn = uiState.isPlaying || uiState.isBuffering
                     Log.d("PlayerScreen", "Applying resizeMode: $resizeMode")
                     playerView.resizeMode = resizeMode
                     playerView.subtitleView?.apply {
