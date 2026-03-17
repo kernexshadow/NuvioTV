@@ -82,6 +82,7 @@ fun ReviewsSection(
     error: String?,
     modifier: Modifier = Modifier,
     title: String = "Reviews",
+    isSeriesContent: Boolean = false,
     enableExpandableCards: Boolean = false,
     upFocusRequester: FocusRequester? = null,
     onReviewFocused: ((Int) -> Unit)? = null,
@@ -210,6 +211,9 @@ fun ReviewsSection(
                 val activeCardExtraHeight = (activeAnimatedTextHeight - baseTextHeight).coerceAtLeast(0.dp)
                 val activeExpandedCardHeight = baseCardHeight + activeCardExtraHeight
                 val activeCardExtraHeightPx = with(density) { activeCardExtraHeight.roundToPx() }
+                val expansionUpWeight = if (isSeriesContent) 1f else 1.14f
+                val expansionDownWeight = if (isSeriesContent) 1.6f else 1f
+                val expansionOffsetDivisor = expansionUpWeight + expansionDownWeight
 
                 SideEffect {
                     onExpandedReviewOverlayChanged(
@@ -222,7 +226,7 @@ fun ReviewsSection(
                                 isPaused = activeIsPaused,
                                 reviewKey = overlayKey,
                                 x = activePopupAnchor.x,
-                                y = activePopupAnchor.y - ((activeCardExtraHeightPx * 1.14f) / 2.14f).roundToInt(),
+                                y = activePopupAnchor.y - ((activeCardExtraHeightPx * expansionUpWeight) / expansionOffsetDivisor).roundToInt(),
                                 width = cardWidth,
                                 height = activeExpandedCardHeight,
                                 alpha = activePopupTransitionAlpha,

@@ -1366,6 +1366,7 @@ private fun MetaDetailsContent(
                                     reviews = reviews,
                                     isLoading = isReviewsLoading,
                                     error = reviewsError,
+                                    isSeriesContent = isTvShow,
                                     enableExpandableCards = expandReviewCards,
                                     title = if (hasPeopleTabs) "" else strTabReviews,
                                     upFocusRequester = if (hasPeopleTabs) {
