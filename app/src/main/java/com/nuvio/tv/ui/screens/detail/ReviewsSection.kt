@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.detail
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.animateDpAsState
@@ -162,6 +163,7 @@ fun ReviewsSection(
                     reviews.firstOrNull { "${it.source}:${it.id}" == activePopupReviewKey }
                 }
                 val activePopupAnchor = activePopupReviewKey?.let { popupAnchors[it] }
+                val activeIsPaused = activePopupReviewKey?.let { scrollPauseStates[it] } ?: false
                 val activeSpoilerRevealed = activePopupReview?.let { review ->
                     spoilerRevealStates[activePopupReviewKey] ?: !review.hasSpoiler
                 } ?: true
@@ -212,16 +214,22 @@ fun ReviewsSection(
                 SideEffect {
                     onExpandedReviewOverlayChanged(
                         if (shouldRenderPopupOverlay && activePopupReview != null && activePopupAnchor != null) {
+                            val overlayKey = activePopupReviewKey ?: return@SideEffect
                             ReviewOverlayState(
                                 review = activePopupReview,
                                 isSpoilerRevealed = activeSpoilerRevealed,
                                 viewportHeight = activeAnimatedTextHeight,
-                                isPaused = scrollPauseStates[activePopupReviewKey] ?: false,
+                                isPaused = activeIsPaused,
+                                reviewKey = overlayKey,
                                 x = activePopupAnchor.x,
                                 y = activePopupAnchor.y - ((activeCardExtraHeightPx * 1.14f) / 2.14f).roundToInt(),
                                 width = cardWidth,
                                 height = activeExpandedCardHeight,
-                                alpha = activePopupTransitionAlpha
+                                alpha = activePopupTransitionAlpha,
+                                onTogglePause = {
+                                    val current = scrollPauseStates[overlayKey] ?: false
+                                    scrollPauseStates[overlayKey] = !current
+                                }
                             )
                         } else {
                             null
@@ -242,12 +250,24 @@ fun ReviewsSection(
                             .graphicsLayer { clip = false }
                             .onPreviewKeyEvent { keyEvent ->
                                 val nativeEvent = keyEvent.nativeKeyEvent
-                                if (nativeEvent.action == AndroidKeyEvent.ACTION_DOWN &&
-                                    (nativeEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT ||
-                                        nativeEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT)
-                                ) {
-                                    activePopupReviewKey = null
-                                    settledPopupReviewKey = null
+                                if (nativeEvent.action == AndroidKeyEvent.ACTION_DOWN) {
+                                    when (nativeEvent.keyCode) {
+                                        AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+                                        AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                            activePopupReviewKey = null
+                                            settledPopupReviewKey = null
+                                        }
+                                        AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                                        AndroidKeyEvent.KEYCODE_ENTER,
+                                        AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                                            val overlayKey = activePopupReviewKey
+                                            if (shouldRenderPopupOverlay && overlayKey != null) {
+                                                val isPaused = scrollPauseStates[overlayKey] ?: false
+                                                scrollPauseStates[overlayKey] = !isPaused
+                                                return@onPreviewKeyEvent true
+                                            }
+                                        }
+                                    }
                                 }
                                 false
                             }
@@ -267,6 +287,12 @@ fun ReviewsSection(
                             }
                             var isSpoilerRevealed by rememberSaveable(reviewKey, review.hasSpoiler) {
                                 mutableStateOf(spoilerRevealStates[reviewKey] ?: !review.hasSpoiler)
+                            }
+                            LaunchedEffect(scrollPauseStates[reviewKey]) {
+                                val mappedPaused = scrollPauseStates[reviewKey] ?: false
+                                if (mappedPaused != isScrollPaused) {
+                                    isScrollPaused = mappedPaused
+                                }
                             }
                             val textMeasureWidthPx = remember(cardWidth, cardHorizontalPadding, density) {
                                 with(density) { (cardWidth - cardHorizontalPadding * 2).roundToPx() }
@@ -365,6 +391,7 @@ fun ReviewsSection(
                                         } else {
                                             isScrollPaused = !isScrollPaused
                                         }
+                                        scrollPauseStates[reviewKey] = isScrollPaused
                                     },
                                     modifier = cardModifier,
                                     shape = CardDefaults.shape(shape = RoundedCornerShape(14.dp)),
@@ -402,11 +429,13 @@ data class ReviewOverlayState(
     val isSpoilerRevealed: Boolean,
     val viewportHeight: androidx.compose.ui.unit.Dp,
     val isPaused: Boolean,
+    val reviewKey: String,
     val x: Int,
     val y: Int,
     val width: androidx.compose.ui.unit.Dp,
     val height: androidx.compose.ui.unit.Dp,
-    val alpha: Float
+    val alpha: Float,
+    val onTogglePause: () -> Unit
 )
 
 private data class ReviewPopupAnchor(
@@ -426,7 +455,7 @@ fun ExpandedReviewOverlay(
             .graphicsLayer { clip = false }
     ) {
         Card(
-            onClick = {},
+            onClick = overlayState.onTogglePause,
             modifier = Modifier
                 .offset { IntOffset(overlayState.x, overlayState.y) }
                 .width(overlayState.width)
@@ -644,8 +673,15 @@ private fun AutoScrollingReviewText(
 
     LaunchedEffect(isFocused, text) {
         if (!isFocused) {
+            scrollState.stopScroll()
             scrollState.scrollTo(0)
             shouldDelayOnStart = true
+        }
+    }
+
+    LaunchedEffect(isPaused) {
+        if (isPaused) {
+            scrollState.stopScroll()
         }
     }
 

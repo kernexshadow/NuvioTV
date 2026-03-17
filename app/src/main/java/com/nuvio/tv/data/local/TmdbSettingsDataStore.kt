@@ -51,7 +51,7 @@ class TmdbSettingsDataStore @Inject constructor(
                 useEpisodes = prefs[useEpisodesKey] ?: true,
                 useMoreLikeThis = prefs[useMoreLikeThisKey] ?: true,
                 useReviews = prefs[useReviewsKey] ?: true,
-                expandReviewCards = prefs[expandReviewCardsKey] ?: false,
+                expandReviewCards = prefs[expandReviewCardsKey] ?: true,
                 useCollections = prefs[useCollectionsKey] ?: true
             )
         }

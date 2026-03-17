@@ -73,7 +73,7 @@ data class TmdbSettingsUiState(
     val useEpisodes: Boolean = true,
     val useMoreLikeThis: Boolean = true,
     val useReviews: Boolean = true,
-    val expandReviewCards: Boolean = false,
+    val expandReviewCards: Boolean = true,
     val useCollections: Boolean = true
 ) {
     fun fromSettings(settings: TmdbSettings): TmdbSettingsUiState = copy(
