@@ -100,12 +100,14 @@ class CollectionsDataStore @Inject constructor(
         }
     }
 
+    @androidx.annotation.Keep
     private data class SerializableCollection(
         val id: String,
         val title: String,
         val folders: List<SerializableFolder> = emptyList()
     )
 
+    @androidx.annotation.Keep
     private data class SerializableFolder(
         val id: String,
         val title: String,
@@ -116,6 +118,7 @@ class CollectionsDataStore @Inject constructor(
         val catalogSources: List<SerializableCatalogSource> = emptyList()
     )
 
+    @androidx.annotation.Keep
     private data class SerializableCatalogSource(
         val addonId: String,
         val type: String,
