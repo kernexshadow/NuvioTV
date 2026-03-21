@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -53,7 +54,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.Icon
+import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.ui.components.CollectionRowSection
 import com.nuvio.tv.ui.components.GridContentCard
 import com.nuvio.tv.ui.components.GridContinueWatchingSection
 import com.nuvio.tv.ui.components.HeroCarousel
@@ -75,6 +78,7 @@ fun GridHomeContent(
     onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit = {},
     showContinueWatchingManualPlayOption: Boolean = false,
     onNavigateToCatalogSeeAll: (String, String, String) -> Unit,
+    onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
     onRemoveContinueWatching: (String, Int?, Int?, Boolean) -> Unit,
     isCatalogItemWatched: (MetaPreview) -> Boolean = { false },
     onCatalogItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
@@ -199,7 +203,31 @@ fun GridHomeContent(
             var firstGridFocusableAssigned = false
             val contentOccurrencesByCatalogAndId = mutableMapOf<String, Int>()
 
+            // Build a map of catalog keys to the collections that should precede them
+            val collectionRows = uiState.homeRows.filterIsInstance<HomeRow.CollectionRow>()
+            val insertedCollectionIds = mutableSetOf<String>()
+            var firstSectionSeen = false
+
             gridItems.forEach { gridItem ->
+                // Insert collection rows before the first SectionDivider
+                if (gridItem is GridItem.SectionDivider && !firstSectionSeen) {
+                    firstSectionSeen = true
+                    collectionRows.forEach { collectionHomeRow ->
+                        if (insertedCollectionIds.add(collectionHomeRow.collection.id)) {
+                            item(
+                                key = "collection_${collectionHomeRow.collection.id}",
+                                span = { GridItemSpan(maxLineSpan) },
+                                contentType = "collection_row"
+                            ) {
+                                CollectionRowSection(
+                                    collection = collectionHomeRow.collection,
+                                    onFolderClick = onNavigateToFolderDetail,
+                                    modifier = Modifier.offset(x = (-48).dp)
+                                )
+                            }
+                        }
+                    }
+                }
                 when (gridItem) {
                     is GridItem.Hero -> {
                         item(
@@ -422,6 +450,7 @@ fun GridHomeContent(
                     )
                 }
             }
+
         } // end LazyVerticalGrid
         } // end BoxWithConstraints
 

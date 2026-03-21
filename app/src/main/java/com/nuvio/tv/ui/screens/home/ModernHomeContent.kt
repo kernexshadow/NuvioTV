@@ -93,8 +93,10 @@ import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.ui.components.CollectionRowSection
 import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.ContinueWatchingOptionsDialog
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
@@ -109,6 +111,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 private const val KEY_REPEAT_THROTTLE_MS = 80L
 private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 130L
 private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 170L
+
+private sealed class ModernDisplayRow {
+    data class Carousel(val row: HeroCarouselRow) : ModernDisplayRow()
+    data class CollectionDisplay(val collection: Collection) : ModernDisplayRow()
+}
 
 @Composable
 fun ModernHomeContent(
@@ -127,6 +134,7 @@ fun ModernHomeContent(
     onRemoveContinueWatching: (String, Int?, Int?, Boolean) -> Unit,
     isCatalogItemWatched: (MetaPreview) -> Boolean = { false },
     onCatalogItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
+    onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
     onItemFocus: (MetaPreview) -> Unit = {},
     onPreloadAdjacentItem: (MetaPreview) -> Unit = {},
     onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>) -> Unit
@@ -153,8 +161,18 @@ fun ModernHomeContent(
         effectiveExpandEnabled ||
             (effectiveAutoplayEnabled &&
                 trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA)
-    val visibleCatalogRows = remember(uiState.catalogRows) {
-        uiState.catalogRows.filter { it.items.isNotEmpty() }
+    val visibleHomeRows = remember(uiState.homeRows, uiState.catalogRows) {
+        if (uiState.homeRows.isNotEmpty()) {
+            uiState.homeRows
+        } else {
+            uiState.catalogRows.filter { it.items.isNotEmpty() }.map { HomeRow.Catalog(it) }
+        }
+    }
+    val visibleCatalogRows = remember(visibleHomeRows) {
+        visibleHomeRows.filterIsInstance<HomeRow.Catalog>().map { it.row }
+    }
+    val collectionRows = remember(visibleHomeRows) {
+        visibleHomeRows.filterIsInstance<HomeRow.CollectionRow>()
     }
     val strContinueWatching = stringResource(R.string.continue_watching)
     val strAirsDate = stringResource(R.string.cw_airs_date)
@@ -289,7 +307,44 @@ fun ModernHomeContent(
         }
     }
 
-    if (carouselRows.isEmpty()) return
+    // Build a display list that interleaves carousel rows and collection rows
+    // in the order they appear in visibleHomeRows.
+    val modernDisplayRows: List<ModernDisplayRow> = remember(carouselRows, collectionRows, visibleHomeRows) {
+        if (collectionRows.isEmpty()) {
+            // Fast path: no collection rows, just wrap carousel rows
+            carouselRows.map { ModernDisplayRow.Carousel(it) }
+        } else {
+            // Map catalog row keys to their HeroCarouselRow for lookup
+            val carouselBySourceKey = LinkedHashMap<String, HeroCarouselRow>()
+            // The continue_watching row is always first in carouselRows if present
+            val continueWatchingRow = carouselRows.firstOrNull { it.key == "continue_watching" }
+            carouselRows.forEach { row ->
+                carouselBySourceKey[row.key] = row
+            }
+            buildList {
+                // Insert continue watching first if present
+                if (continueWatchingRow != null) {
+                    add(ModernDisplayRow.Carousel(continueWatchingRow))
+                }
+                visibleHomeRows.forEach { homeRow ->
+                    when (homeRow) {
+                        is HomeRow.Catalog -> {
+                            val key = catalogRowKey(homeRow.row)
+                            val carousel = carouselBySourceKey[key]
+                            if (carousel != null) {
+                                add(ModernDisplayRow.Carousel(carousel))
+                            }
+                        }
+                        is HomeRow.CollectionRow -> {
+                            add(ModernDisplayRow.CollectionDisplay(homeRow.collection))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (carouselRows.isEmpty() && collectionRows.isEmpty()) return
     val carouselLookups = remember(carouselRows) {
         val rowIndexByKey = LinkedHashMap<String, Int>(carouselRows.size)
         val rowByKey = LinkedHashMap<String, HeroCarouselRow>(carouselRows.size)
@@ -782,95 +837,117 @@ fun ModernHomeContent(
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 itemsIndexed(
-                    items = carouselRows,
-                    key = { _, row -> row.key },
-                    contentType = { _, _ -> "modern_home_row" }
-                ) { _, row ->
-                    val stableOnContinueWatchingOptions = remember(Unit) {
-                        { item: ContinueWatchingItem -> optionsItem = item }
-                    }
-                    val stableOnRowItemFocused = remember(Unit) {
-                        { rowKey: String, index: Int, isContinueWatchingRow: Boolean ->
-                            val rowBecameActive = focusHolder.activeRowKey != rowKey
-                            val itemChanged = focusHolder.activeItemIndex != index
-                            if (rowBecameActive || itemChanged) {
-                                val now = System.currentTimeMillis()
-                                val timeSinceLastHeroNav = now - lastHeroNavigationAtMsRef.get()
-                                heroFocusSettleDelayMsRef.set(
-                                    if (lastHeroNavigationAtMsRef.get() != 0L &&
-                                        timeSinceLastHeroNav in 1 until MODERN_HERO_RAPID_NAV_THRESHOLD_MS
-                                    ) MODERN_HERO_RAPID_NAV_SETTLE_MS
-                                    else MODERN_HERO_FOCUS_DEBOUNCE_MS
-                                )
-                                lastHeroNavigationAtMsRef.set(now)
-                                focusHolder.activeRowKey = rowKey
-                                focusHolder.activeItemIndex = index
-                                activeRowKey = rowKey
-                                activeItemIndex = index
-                            }
-                            if (focusedItemByRow[rowKey] != index) {
-                                focusedItemByRow[rowKey] = index
-                            }
-                            if (isContinueWatchingRow) {
-                                if (lastFocusedContinueWatchingIndexRef.get() != index) {
-                                    lastFocusedContinueWatchingIndexRef.set(index)
-                                }
-                                if (focusedCatalogSelection != null) {
-                                    focusedCatalogSelection = null
-                                }
-                            }
+                    items = modernDisplayRows,
+                    key = { _, displayRow ->
+                        when (displayRow) {
+                            is ModernDisplayRow.Carousel -> displayRow.row.key
+                            is ModernDisplayRow.CollectionDisplay -> "collection_${displayRow.collection.id}"
+                        }
+                    },
+                    contentType = { _, displayRow ->
+                        when (displayRow) {
+                            is ModernDisplayRow.Carousel -> "modern_home_row"
+                            is ModernDisplayRow.CollectionDisplay -> "collection_row"
                         }
                     }
-                    ModernRowSection(
-                        row = row,
-                        rowTitleBottom = rowTitleBottom,
-                        defaultBringIntoViewSpec = defaultBringIntoViewSpec,
-                        focusStateCatalogRowScrollIndex = remember(focusState.catalogRowScrollStates, row.key) {
-                            focusState.catalogRowScrollStates[row.key] ?: 0
-                        },
-                        uiCaches = uiCaches,
-                        pendingRowFocusKey = pendingRowFocusKey,
-                        pendingRowFocusIndex = pendingRowFocusIndex,
-                        pendingRowFocusNonce = pendingRowFocusNonce,
-                        onPendingRowFocusCleared = remember(Unit) {
-                            {
-                                pendingRowFocusKey = null
-                                pendingRowFocusIndex = null
+                ) { _, displayRow ->
+                    when (displayRow) {
+                        is ModernDisplayRow.Carousel -> {
+                            val row = displayRow.row
+                            val stableOnContinueWatchingOptions = remember(Unit) {
+                                { item: ContinueWatchingItem -> optionsItem = item }
                             }
-                        },
-                        onRowItemFocused = stableOnRowItemFocused,
-                        useLandscapePosters = useLandscapePosters,
-                        showLabels = uiState.posterLabelsEnabled,
-                        posterCardCornerRadius = posterCardCornerRadius,
-                        focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
-                        effectiveExpandEnabled = effectiveExpandEnabled,
-                        effectiveAutoplayEnabled = effectiveAutoplayEnabled,
-                        trailerPlaybackTarget = trailerPlaybackTarget,
-                        expandedCatalogFocusKey = expandedCatalogFocusKey,
-                        expandedTrailerPreviewUrl = expandedCatalogTrailerUrl,
-                        expandedTrailerPreviewAudioUrl = expandedCatalogTrailerAudioUrl,
-                        modernCatalogCardWidth = modernCatalogCardWidth,
-                        modernCatalogCardHeight = modernCatalogCardHeight,
-                        continueWatchingCardWidth = continueWatchingCardWidth,
-                        continueWatchingCardHeight = continueWatchingCardHeight,
-                        onContinueWatchingClick = onContinueWatchingClick,
-                        onContinueWatchingOptions = stableOnContinueWatchingOptions,
-                        isCatalogItemWatched = isCatalogItemWatched,
-                        onCatalogItemLongPress = onCatalogItemLongPress,
-                        onItemFocus = onItemFocus,
-                        onPreloadAdjacentItem = onPreloadAdjacentItem,
-                        onCatalogSelectionFocused = remember(Unit) {
-                            { selection: FocusedCatalogSelection ->
-                                if (focusedCatalogSelection != selection) {
-                                    focusedCatalogSelection = selection
+                            val stableOnRowItemFocused = remember(Unit) {
+                                { rowKey: String, index: Int, isContinueWatchingRow: Boolean ->
+                                    val rowBecameActive = focusHolder.activeRowKey != rowKey
+                                    val itemChanged = focusHolder.activeItemIndex != index
+                                    if (rowBecameActive || itemChanged) {
+                                        val now = System.currentTimeMillis()
+                                        val timeSinceLastHeroNav = now - lastHeroNavigationAtMsRef.get()
+                                        heroFocusSettleDelayMsRef.set(
+                                            if (lastHeroNavigationAtMsRef.get() != 0L &&
+                                                timeSinceLastHeroNav in 1 until MODERN_HERO_RAPID_NAV_THRESHOLD_MS
+                                            ) MODERN_HERO_RAPID_NAV_SETTLE_MS
+                                            else MODERN_HERO_FOCUS_DEBOUNCE_MS
+                                        )
+                                        lastHeroNavigationAtMsRef.set(now)
+                                        focusHolder.activeRowKey = rowKey
+                                        focusHolder.activeItemIndex = index
+                                        activeRowKey = rowKey
+                                        activeItemIndex = index
+                                    }
+                                    if (focusedItemByRow[rowKey] != index) {
+                                        focusedItemByRow[rowKey] = index
+                                    }
+                                    if (isContinueWatchingRow) {
+                                        if (lastFocusedContinueWatchingIndexRef.get() != index) {
+                                            lastFocusedContinueWatchingIndexRef.set(index)
+                                        }
+                                        if (focusedCatalogSelection != null) {
+                                            focusedCatalogSelection = null
+                                        }
+                                    }
                                 }
                             }
-                        },
-                        onNavigateToDetail = onNavigateToDetail,
-                        onLoadMoreCatalog = onLoadMoreCatalog,
-                        onBackdropInteraction = remember(Unit) { { expansionInteractionNonce++ } },
-                        onExpandedCatalogFocusKeyChange = remember(Unit) { { expandedCatalogFocusKey = it } }
-                    )
+                            ModernRowSection(
+                                row = row,
+                                rowTitleBottom = rowTitleBottom,
+                                defaultBringIntoViewSpec = defaultBringIntoViewSpec,
+                                focusStateCatalogRowScrollIndex = remember(focusState.catalogRowScrollStates, row.key) {
+                                    focusState.catalogRowScrollStates[row.key] ?: 0
+                                },
+                                uiCaches = uiCaches,
+                                pendingRowFocusKey = pendingRowFocusKey,
+                                pendingRowFocusIndex = pendingRowFocusIndex,
+                                pendingRowFocusNonce = pendingRowFocusNonce,
+                                onPendingRowFocusCleared = remember(Unit) {
+                                    {
+                                        pendingRowFocusKey = null
+                                        pendingRowFocusIndex = null
+                                    }
+                                },
+                                onRowItemFocused = stableOnRowItemFocused,
+                                useLandscapePosters = useLandscapePosters,
+                                showLabels = uiState.posterLabelsEnabled,
+                                posterCardCornerRadius = posterCardCornerRadius,
+                                focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
+                                effectiveExpandEnabled = effectiveExpandEnabled,
+                                effectiveAutoplayEnabled = effectiveAutoplayEnabled,
+                                trailerPlaybackTarget = trailerPlaybackTarget,
+                                expandedCatalogFocusKey = expandedCatalogFocusKey,
+                                expandedTrailerPreviewUrl = expandedCatalogTrailerUrl,
+                                expandedTrailerPreviewAudioUrl = expandedCatalogTrailerAudioUrl,
+                                modernCatalogCardWidth = modernCatalogCardWidth,
+                                modernCatalogCardHeight = modernCatalogCardHeight,
+                                continueWatchingCardWidth = continueWatchingCardWidth,
+                                continueWatchingCardHeight = continueWatchingCardHeight,
+                                onContinueWatchingClick = onContinueWatchingClick,
+                                onContinueWatchingOptions = stableOnContinueWatchingOptions,
+                                isCatalogItemWatched = isCatalogItemWatched,
+                                onCatalogItemLongPress = onCatalogItemLongPress,
+                                onItemFocus = onItemFocus,
+                                onPreloadAdjacentItem = onPreloadAdjacentItem,
+                                onCatalogSelectionFocused = remember(Unit) {
+                                    { selection: FocusedCatalogSelection ->
+                                        if (focusedCatalogSelection != selection) {
+                                            focusedCatalogSelection = selection
+                                        }
+                                    }
+                                },
+                                onNavigateToDetail = onNavigateToDetail,
+                                onLoadMoreCatalog = onLoadMoreCatalog,
+                                onBackdropInteraction = remember(Unit) { { expansionInteractionNonce++ } },
+                                onExpandedCatalogFocusKeyChange = remember(Unit) { { expandedCatalogFocusKey = it } }
+                            )
+                        }
+
+                        is ModernDisplayRow.CollectionDisplay -> {
+                            CollectionRowSection(
+                                collection = displayRow.collection,
+                                onFolderClick = onNavigateToFolderDetail
+                            )
+                        }
+                    }
                 }
             }
         }

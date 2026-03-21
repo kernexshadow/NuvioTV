@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.home
 import androidx.compose.runtime.Immutable
 import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LibraryListTab
@@ -48,7 +49,8 @@ data class HomeUiState(
     val posterListPickerError: String? = null,
     val gridItems: List<GridItem> = emptyList(),
     val hideUnreleasedContent: Boolean = false,
-    val startupAuthNotice: StartupAuthNotice? = null
+    val startupAuthNotice: StartupAuthNotice? = null,
+    val homeRows: List<HomeRow> = emptyList()
 )
 
 @Immutable
@@ -89,6 +91,15 @@ data class NextUpInfo(
     val genres: List<String> = emptyList(),
     val releaseInfo: String? = null
 )
+
+@Immutable
+sealed class HomeRow {
+    @Immutable
+    data class Catalog(val row: CatalogRow) : HomeRow()
+
+    @Immutable
+    data class CollectionRow(val collection: Collection) : HomeRow()
+}
 
 @Immutable
 sealed class GridItem {

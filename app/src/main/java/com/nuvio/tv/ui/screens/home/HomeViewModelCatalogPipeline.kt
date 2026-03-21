@@ -6,6 +6,7 @@ import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.skipStep
 import com.nuvio.tv.domain.model.supportsExtra
@@ -27,6 +28,18 @@ private data class CatalogUpdateResult(
     val gridItems: List<GridItem>,
     val fullRows: List<CatalogRow>
 )
+
+internal fun HomeViewModel.observeCollectionsPipeline() {
+    viewModelScope.launch {
+        collectionsDataStore.collections
+            .distinctUntilChanged()
+            .collectLatest { collections ->
+                collectionsCache = collections
+                rebuildCatalogOrder(addonsCache)
+                scheduleUpdateCatalogRows()
+            }
+    }
+}
 
 internal fun HomeViewModel.loadHomeCatalogOrderPreferencePipeline() {
     viewModelScope.launch {
@@ -282,6 +295,7 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
 internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     val orderedKeys = catalogOrder.toList()
     val catalogSnapshot = catalogsMap.toMap()
+    val collectionsSnapshot = collectionsCache.associateBy { "collection_${it.id}" }
     val heroCatalogKeys = currentHeroCatalogKeys
     val currentLayout = _uiState.value.homeLayout
     val currentGridItems = _uiState.value.gridItems
@@ -433,11 +447,28 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
 
     heroItemOrder = baseHeroItems.map { it.id }
 
+    val computedHomeRows = buildList {
+        for (key in orderedKeys) {
+            val collectionEntry = collectionsSnapshot[key]
+            if (collectionEntry != null) {
+                add(HomeRow.CollectionRow(collectionEntry))
+            } else {
+                val catalogRow = displayRows.find { row ->
+                    "${row.addonId}_${row.apiType}_${row.catalogId}" == key
+                }
+                if (catalogRow != null && catalogRow.items.isNotEmpty()) {
+                    add(HomeRow.Catalog(catalogRow))
+                }
+            }
+        }
+    }
+
     _uiState.update { state ->
         state.copy(
             catalogRows = if (state.catalogRows == displayRows) state.catalogRows else displayRows,
             heroItems = if (state.heroItems == baseHeroItems) state.heroItems else baseHeroItems,
             gridItems = if (state.gridItems == nextGridItems) state.gridItems else nextGridItems,
+            homeRows = if (state.homeRows == computedHomeRows) state.homeRows else computedHomeRows,
             isLoading = false
         )
     }
