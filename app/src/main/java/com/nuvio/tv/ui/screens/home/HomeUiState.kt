@@ -49,6 +49,7 @@ data class HomeUiState(
     val posterListPickerError: String? = null,
     val gridItems: List<GridItem> = emptyList(),
     val hideUnreleasedContent: Boolean = false,
+    val showFullReleaseDate: Boolean = true,
     val startupAuthNotice: StartupAuthNotice? = null,
     val homeRows: List<HomeRow> = emptyList()
 )
@@ -89,7 +90,9 @@ data class NextUpInfo(
     val lastWatched: Long,
     val imdbRating: Float? = null,
     val genres: List<String> = emptyList(),
-    val releaseInfo: String? = null
+    val releaseInfo: String? = null,
+    val seedSeason: Int? = null,
+    val seedEpisode: Int? = null
 )
 
 @Immutable

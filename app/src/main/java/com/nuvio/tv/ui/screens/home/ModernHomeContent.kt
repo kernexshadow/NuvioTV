@@ -143,6 +143,7 @@ fun ModernHomeContent(
     val isSidebarExpanded = LocalSidebarExpanded.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val useLandscapePosters = uiState.modernLandscapePostersEnabled
+    val showFullReleaseDate = uiState.showFullReleaseDate
     val showCatalogTypeSuffixInModern = uiState.catalogTypeSuffixEnabled
     val isLandscapeModern = useLandscapePosters
     val expandControlAvailable = !isLandscapeModern
@@ -271,7 +272,8 @@ fun ModernHomeContent(
                             val cachedItem = rowItemCache[cacheKey]
                             if (cachedItem != null &&
                                 cachedItem.source == item &&
-                                cachedItem.useLandscapePosters == useLandscapePosters
+                                cachedItem.useLandscapePosters == useLandscapePosters &&
+                                cachedItem.showFullReleaseDate == showFullReleaseDate
                             ) {
                                 cachedItem.carouselItem
                             } else {
@@ -281,11 +283,13 @@ fun ModernHomeContent(
                                     useLandscapePosters = useLandscapePosters,
                                     occurrence = occurrence,
                                     strTypeMovie = strTypeMovie,
-                                    strTypeSeries = strTypeSeries
+                                    strTypeSeries = strTypeSeries,
+                                    showFullReleaseDate = showFullReleaseDate
                                 )
                                 rowItemCache[cacheKey] = CachedCarouselItem(
                                     source = item,
                                     useLandscapePosters = useLandscapePosters,
+                                    showFullReleaseDate = showFullReleaseDate,
                                     carouselItem = built
                                 )
                                 built
