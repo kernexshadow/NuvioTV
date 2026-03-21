@@ -221,6 +221,19 @@ fun LayoutSettingsContent(
                             },
                             onFocused = { focusedSection = LayoutSettingsSection.HOME_LAYOUT }
                         )
+                        CompactToggleRow(
+                            title = stringResource(R.string.layout_wait_for_continue_watching_focus),
+                            subtitle = stringResource(R.string.layout_wait_for_continue_watching_focus_sub),
+                            checked = uiState.waitForContinueWatchingFocusEnabled,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent.SetWaitForContinueWatchingFocusEnabled(
+                                        !uiState.waitForContinueWatchingFocusEnabled
+                                    )
+                                )
+                            },
+                            onFocused = { focusedSection = LayoutSettingsSection.HOME_LAYOUT }
+                        )
                     }
 
                     if (uiState.heroSectionEnabled && uiState.availableCatalogs.isNotEmpty() && uiState.selectedLayout != HomeLayout.MODERN) {

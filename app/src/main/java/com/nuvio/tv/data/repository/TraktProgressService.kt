@@ -149,6 +149,7 @@ class TraktProgressService @Inject constructor(
     private val watchedShowSeedsState = MutableStateFlow<List<WatchProgress>>(emptyList())
     private val episodeProgressState = MutableStateFlow<Map<String, EpisodeProgressCacheEntry>>(emptyMap())
     private val hasLoadedRemoteProgress = MutableStateFlow(false)
+    private val watchedShowSeedsLoadedState = MutableStateFlow(false)
     private val cacheMutex = Mutex()
     private val metadataMutex = Mutex()
     private val watchedMoviesMutex = Mutex()
@@ -350,6 +351,10 @@ class TraktProgressService @Inject constructor(
 
     fun observeRemoteProgressLoaded(): Flow<Boolean> {
         return hasLoadedRemoteProgress
+    }
+
+    fun observeWatchedShowSeedsLoaded(): Flow<Boolean> {
+        return watchedShowSeedsLoadedState
     }
 
     fun observeWatchedShowSeeds(): Flow<List<WatchProgress>> {
@@ -953,6 +958,7 @@ class TraktProgressService @Inject constructor(
             watchedShowSeedsState.value = watchedShowSeeds
             watchedShowSeedsUpdatedAtMs = System.currentTimeMillis()
             hasLoadedWatchedShowSeeds = true
+            watchedShowSeedsLoadedState.value = true
             watchedShowSeedsStale = false
             trace("watched-shows cache refreshed: size=${watchedShowSeeds.size}")
             watchedShowSeeds
@@ -1071,6 +1077,7 @@ class TraktProgressService @Inject constructor(
         }
         watchedShowSeedsUpdatedAtMs = now
         hasLoadedWatchedShowSeeds = true
+        watchedShowSeedsLoadedState.value = true
         watchedShowSeedsStale = true
         trace("watched-shows optimistic update: contentId=$contentId s=$season e=$episode")
     }
@@ -1088,6 +1095,7 @@ class TraktProgressService @Inject constructor(
         watchedShowSeedsState.value = snapshot.seeds
         watchedShowSeedsUpdatedAtMs = snapshot.updatedAtMs
         hasLoadedWatchedShowSeeds = snapshot.hasLoaded
+        watchedShowSeedsLoadedState.value = snapshot.hasLoaded
         watchedShowSeedsStale = snapshot.stale
     }
 

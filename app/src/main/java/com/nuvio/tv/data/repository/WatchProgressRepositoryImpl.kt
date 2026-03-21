@@ -359,6 +359,27 @@ class WatchProgressRepositoryImpl @Inject constructor(
             .distinctUntilChanged()
     }
 
+    override fun observeUsingTraktProgress(): Flow<Boolean> {
+        return useTraktProgressFlow()
+    }
+
+    override fun observeContinueWatchingResolved(): Flow<Boolean> {
+        return useTraktProgressFlow()
+            .flatMapLatest { useTraktProgress ->
+                if (useTraktProgress) {
+                    combine(
+                        traktProgressService.observeRemoteProgressLoaded(),
+                        traktProgressService.observeWatchedShowSeedsLoaded()
+                    ) { remoteProgressLoaded, watchedShowSeedsLoaded ->
+                        remoteProgressLoaded && watchedShowSeedsLoaded
+                    }
+                } else {
+                    flowOf(true)
+                }
+            }
+            .distinctUntilChanged()
+    }
+
     private fun isOptimisticNextUpSeedCandidate(
         progress: WatchProgress,
         nowMs: Long

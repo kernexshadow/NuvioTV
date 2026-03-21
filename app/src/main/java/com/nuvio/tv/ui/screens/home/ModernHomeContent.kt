@@ -109,6 +109,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 private const val KEY_REPEAT_THROTTLE_MS = 80L
 private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 130L
 private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 170L
+private const val MODERN_CONTINUE_WATCHING_STARTUP_WAIT_TIMEOUT_MS = 4_000L
 
 @Composable
 fun ModernHomeContent(
@@ -330,6 +331,12 @@ fun ModernHomeContent(
     val activeRowKeys = carouselLookups.activeRowKeys
     val activeItemKeysByRow = carouselLookups.activeItemKeysByRow
     val activeCatalogItemIds = carouselLookups.activeCatalogItemIds
+    val continueWatchingRow = remember(carouselRows) {
+        carouselRows.firstOrNull { it.key == "continue_watching" }
+    }
+    val firstCatalogRow = remember(carouselRows) {
+        carouselRows.firstOrNull { it.key != "continue_watching" } ?: carouselRows.firstOrNull()
+    }
     val verticalRowListState = rememberLazyListState(
         initialFirstVisibleItemIndex = focusState.verticalScrollIndex,
         initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset
@@ -376,6 +383,25 @@ fun ModernHomeContent(
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
     var expandedCatalogFocusKey by remember { mutableStateOf<String?>(null) }
     var expansionInteractionNonce by remember { mutableIntStateOf(0) }
+    val shouldWaitForTraktContinueWatchingStartupFocus =
+        !focusState.hasSavedFocus &&
+            uiState.waitForContinueWatchingFocusEnabled &&
+            uiState.continueWatchingUsesTraktSource &&
+            uiState.continueWatchingItems.isEmpty() &&
+            !uiState.continueWatchingStartupReady
+    val canStartTraktContinueWatchingStartupTimeout = shouldWaitForTraktContinueWatchingStartupFocus &&
+        firstCatalogRow != null
+    var continueWatchingStartupWaitTimedOut by remember { mutableStateOf(false) }
+
+    LaunchedEffect(canStartTraktContinueWatchingStartupTimeout) {
+        if (!canStartTraktContinueWatchingStartupTimeout) {
+            continueWatchingStartupWaitTimedOut = false
+            return@LaunchedEffect
+        }
+        continueWatchingStartupWaitTimedOut = false
+        delay(MODERN_CONTINUE_WATCHING_STARTUP_WAIT_TIMEOUT_MS)
+        continueWatchingStartupWaitTimedOut = true
+    }
 
     LaunchedEffect(
         focusedCatalogSelection?.focusKey,
@@ -427,7 +453,18 @@ fun ModernHomeContent(
         lastRequestedTrailerFocusKey = selection.focusKey
     }
 
-    LaunchedEffect(carouselRows, focusState.hasSavedFocus, focusState.focusedRowIndex, focusState.focusedItemIndex) {
+    LaunchedEffect(
+        carouselRows,
+        focusState.hasSavedFocus,
+        focusState.focusedRowIndex,
+        focusState.focusedItemIndex,
+        uiState.waitForContinueWatchingFocusEnabled,
+        uiState.continueWatchingUsesTraktSource,
+        uiState.continueWatchingStartupReady,
+        uiState.continueWatchingResolved,
+        uiState.continueWatchingItems.isNotEmpty(),
+        continueWatchingStartupWaitTimedOut
+    ) {
         focusedItemByRow.keys.retainAll(activeRowKeys)
         itemFocusRequesters.keys.retainAll(activeRowKeys)
         rowListStates.keys.retainAll(activeRowKeys)
@@ -474,9 +511,17 @@ fun ModernHomeContent(
             return@LaunchedEffect
         }
 
+        if (shouldWaitForTraktContinueWatchingStartupFocus &&
+            (firstCatalogRow == null || !continueWatchingStartupWaitTimedOut) &&
+            focusHolder.activeRowKey == null
+        ) {
+            return@LaunchedEffect
+        }
+
         val hadActiveRow = focusHolder.activeRowKey != null
         val existingActive = focusHolder.activeRowKey?.let { key -> carouselRows.firstOrNull { it.key == key } }
-        val resolvedActive = existingActive ?: carouselRows.first()
+        val preferredStartupRow = continueWatchingRow ?: firstCatalogRow ?: carouselRows.first()
+        val resolvedActive = existingActive ?: preferredStartupRow
         val resolvedIndex = focusedItemByRow[resolvedActive.key]
             ?.coerceIn(0, (resolvedActive.items.size - 1).coerceAtLeast(0))
             ?: 0
@@ -491,6 +536,41 @@ fun ModernHomeContent(
             pendingRowFocusKey = resolvedActive.key
             pendingRowFocusIndex = resolvedIndex
             pendingRowFocusNonce++
+        }
+    }
+
+    LaunchedEffect(
+        pendingRowFocusKey,
+        pendingRowFocusIndex,
+        pendingRowFocusNonce,
+        carouselRows
+    ) {
+        val targetRowKey = pendingRowFocusKey ?: return@LaunchedEffect
+        val targetRow = rowByKey[targetRowKey] ?: return@LaunchedEffect
+        val targetRowIndex = rowIndexByKey[targetRowKey] ?: return@LaunchedEffect
+        val targetIndex = (pendingRowFocusIndex ?: 0)
+            .coerceIn(0, (targetRow.items.size - 1).coerceAtLeast(0))
+
+        runCatching { verticalRowListState.scrollToItem(targetRowIndex) }
+
+        repeat(30) { attempt ->
+            val currentRow = rowByKey[targetRowKey]
+            val targetItemKey = currentRow?.items?.getOrNull(targetIndex)?.key
+            val rowListState = rowListStates[targetRowKey]
+            if (currentRow == null || targetItemKey == null || rowListState == null) {
+                withFrameNanos { }
+                return@repeat
+            }
+            runCatching { rowListState.scrollToItem(targetIndex) }
+            val granted = runCatching {
+                uiCaches.requesterFor(targetRowKey, targetItemKey).requestFocus()
+            }.getOrDefault(false)
+            if (granted) {
+                pendingRowFocusKey = null
+                pendingRowFocusIndex = null
+                return@LaunchedEffect
+            }
+            withFrameNanos { }
         }
     }
 

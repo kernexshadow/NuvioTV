@@ -44,6 +44,17 @@ interface WatchProgressRepository {
     fun observeNextUpSeeds(): Flow<List<WatchProgress>>
 
     /**
+     * Emits whether Continue Watching is currently backed by Trakt progress.
+     */
+    fun observeUsingTraktProgress(): Flow<Boolean>
+
+    /**
+     * Emits when the active Continue Watching source has resolved enough data for startup focus.
+     * For non-Trakt sources this resolves immediately.
+     */
+    fun observeContinueWatchingResolved(): Flow<Boolean>
+
+    /**
      * Emits immediate optimistic updates that should patch Continue Watching
      * without waiting for the regular progress flows to settle.
      */

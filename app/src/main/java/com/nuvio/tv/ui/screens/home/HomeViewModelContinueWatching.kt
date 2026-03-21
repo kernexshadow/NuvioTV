@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.joinAll
@@ -43,7 +44,9 @@ private data class ContinueWatchingSettingsSnapshot(
     val nextUpSeeds: List<WatchProgress>,
     val daysCap: Int,
     val dismissedNextUp: Set<String>,
-    val showUnairedNextUp: Boolean
+    val showUnairedNextUp: Boolean,
+    val usesTraktSource: Boolean,
+    val resolved: Boolean
 )
 
 private data class NextUpTmdbData(
@@ -73,6 +76,28 @@ private data class NextUpResolution(
 internal fun HomeViewModel.loadContinueWatchingPipeline() {
     viewModelScope.launch {
         combine(
+            watchProgressRepository.observeUsingTraktProgress(),
+            watchProgressRepository.observeContinueWatchingResolved()
+        ) { usesTraktSource, resolved ->
+            usesTraktSource to resolved
+        }.distinctUntilChanged().collect { (usesTraktSource, resolved) ->
+            _uiState.update { state ->
+                val nextState = state.copy(
+                    continueWatchingUsesTraktSource = usesTraktSource,
+                    continueWatchingStartupReady = !usesTraktSource,
+                    continueWatchingResolved = resolved
+                )
+                if (state == nextState) {
+                    state
+                } else {
+                    nextState
+                }
+            }
+        }
+    }
+
+    viewModelScope.launch {
+        combine(
             combine(
                 watchProgressRepository.allProgress,
                 watchProgressRepository.observeNextUpSeeds()
@@ -82,19 +107,30 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
             combine(
                 traktSettingsDataStore.continueWatchingDaysCap,
                 traktSettingsDataStore.dismissedNextUpKeys,
-                traktSettingsDataStore.showUnairedNextUp
-            ) { daysCap, dismissedNextUp, showUnairedNextUp ->
-                Triple(daysCap, dismissedNextUp, showUnairedNextUp)
+                traktSettingsDataStore.showUnairedNextUp,
+                watchProgressRepository.observeUsingTraktProgress(),
+                watchProgressRepository.observeContinueWatchingResolved()
+            ) { daysCap, dismissedNextUp, showUnairedNextUp, usesTraktSource, resolved ->
+                ContinueWatchingSettingsSnapshot(
+                    items = emptyList(),
+                    nextUpSeeds = emptyList(),
+                    daysCap = daysCap,
+                    dismissedNextUp = dismissedNextUp,
+                    showUnairedNextUp = showUnairedNextUp,
+                    usesTraktSource = usesTraktSource,
+                    resolved = resolved
+                )
             }
         ) { progressSnapshot, settingsSnapshot ->
             val (items, nextUpSeeds) = progressSnapshot
-            val (daysCap, dismissedNextUp, showUnairedNextUp) = settingsSnapshot
             ContinueWatchingSettingsSnapshot(
                 items = items,
                 nextUpSeeds = nextUpSeeds,
-                daysCap = daysCap,
-                dismissedNextUp = dismissedNextUp,
-                showUnairedNextUp = showUnairedNextUp
+                daysCap = settingsSnapshot.daysCap,
+                dismissedNextUp = settingsSnapshot.dismissedNextUp,
+                showUnairedNextUp = settingsSnapshot.showUnairedNextUp,
+                usesTraktSource = settingsSnapshot.usesTraktSource,
+                resolved = settingsSnapshot.resolved
             )
         }.debounce(CW_PROGRESS_DEBOUNCE_MS).collectLatest { snapshot ->
             val items = snapshot.items
@@ -102,6 +138,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
             val daysCap = snapshot.daysCap
             val dismissedNextUp = snapshot.dismissedNextUp
             val showUnairedNextUp = snapshot.showUnairedNextUp
+            val usesTraktSource = snapshot.usesTraktSource
+            val resolved = snapshot.resolved
             val cutoffMs = if (daysCap == TraktSettingsDataStore.CONTINUE_WATCHING_DAYS_CAP_ALL) {
                 null
             } else {
@@ -146,13 +184,16 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
             )
 
             _uiState.update { state ->
-                if (state.continueWatchingItems == normalItems) {
+                val nextState = state.copy(
+                    continueWatchingItems = normalItems,
+                    continueWatchingStartupReady = if (usesTraktSource) resolved else true
+                )
+                if (state == nextState) {
                     state
                 } else {
-                    state.copy(continueWatchingItems = normalItems)
+                    nextState
                 }
             }
-
             // Rich metadata only runs after the final lightweight CW list is visible.
             val enrichmentDelayMs = remainingContinueWatchingEnrichmentGraceMs()
             if (enrichmentDelayMs > 0L) {
