@@ -66,10 +66,21 @@ private data class NextUpResolution(
     val episode: Int,
     val videoId: String,
     val episodeTitle: String?,
+    val thumbnail: String?,
+    val poster: String?,
+    val backdrop: String?,
+    val logo: String?,
+    val releaseInfo: String?,
     val released: String?,
     val hasAired: Boolean,
     val airDateLabel: String?,
     val lastWatched: Long
+)
+
+private data class ResolvedNextUpImages(
+    val poster: String?,
+    val backdrop: String?,
+    val thumbnail: String?
 )
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
@@ -178,9 +189,14 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 dismissedNextUp = dismissedNextUp,
                 showUnairedNextUp = showUnairedNextUp
             )
+            val previousContinueWatchingItems = _uiState.value.continueWatchingItems
+            val hydratedNextUpItems = carryForwardNextUpImages(
+                items = nextUpItems,
+                previousItems = previousContinueWatchingItems
+            )
             val normalItems = mergeContinueWatchingItems(
                 inProgressItems = inProgressOnly,
-                nextUpItems = nextUpItems
+                nextUpItems = hydratedNextUpItems
             )
 
             _uiState.update { state ->
@@ -522,6 +538,41 @@ private fun mergeContinueWatchingItems(
         .map { it.second }
 }
 
+private fun carryForwardNextUpImages(
+    items: List<ContinueWatchingItem.NextUp>,
+    previousItems: List<ContinueWatchingItem>
+): List<ContinueWatchingItem.NextUp> {
+    if (items.isEmpty() || previousItems.isEmpty()) return items
+
+    val previousNextUpItems = previousItems.filterIsInstance<ContinueWatchingItem.NextUp>()
+    if (previousNextUpItems.isEmpty()) return items
+
+    val previousByKey = previousNextUpItems.associateBy(::continueWatchingItemKey)
+    val previousByContentId = previousNextUpItems
+        .filter { it.info.contentId.isNotBlank() }
+        .groupBy { it.info.contentId.trim() }
+        .mapValues { (_, value) -> value.maxByOrNull { it.info.lastWatched } }
+
+    return items.map { item ->
+        val exactMatch = previousByKey[continueWatchingItemKey(item)]
+        val contentMatch = previousByContentId[item.info.contentId.trim()]
+        val resolvedImages = resolveNextUpImages(
+            poster = item.info.poster ?: exactMatch?.info?.poster ?: contentMatch?.info?.poster,
+            backdrop = item.info.backdrop ?: exactMatch?.info?.backdrop ?: contentMatch?.info?.backdrop,
+            thumbnail = item.info.thumbnail ?: exactMatch?.info?.thumbnail,
+            preferLandscapeFallback = false
+        )
+        val resolvedLogo = item.info.logo ?: exactMatch?.info?.logo ?: contentMatch?.info?.logo
+        val mergedInfo = item.info.copy(
+            poster = resolvedImages.poster,
+            backdrop = resolvedImages.backdrop,
+            thumbnail = resolvedImages.thumbnail,
+            logo = resolvedLogo
+        )
+        if (mergedInfo == item.info) item else item.copy(info = mergedInfo)
+    }
+}
+
 private suspend fun HomeViewModel.buildNextUpItem(
     progress: WatchProgress,
     showUnairedNextUp: Boolean
@@ -538,26 +589,32 @@ private suspend fun HomeViewModel.buildNextUpItem(
 
     val name = progress.name.trim().takeIf { it.isNotEmpty() }
         ?: progress.contentId
+    val resolvedImages = resolveNextUpImages(
+        poster = nextUp.poster ?: progress.poster,
+        backdrop = nextUp.backdrop ?: progress.backdrop,
+        thumbnail = nextUp.thumbnail,
+        preferLandscapeFallback = nextUp.hasAired
+    )
     val info = NextUpInfo(
         contentId = progress.contentId,
         contentType = progress.contentType,
         name = name,
-        poster = progress.poster.normalizeImageUrl(),
-        backdrop = progress.backdrop.normalizeImageUrl(),
-        logo = progress.logo.normalizeImageUrl(),
+        poster = resolvedImages.poster,
+        backdrop = resolvedImages.backdrop,
+        logo = nextUp.logo ?: progress.logo.normalizeImageUrl(),
         videoId = nextUp.videoId,
         season = nextUp.season,
         episode = nextUp.episode,
         episodeTitle = nextUp.episodeTitle,
         episodeDescription = null,
-        thumbnail = null,
+        thumbnail = resolvedImages.thumbnail,
         released = nextUp.released,
         hasAired = nextUp.hasAired,
         airDateLabel = nextUp.airDateLabel,
         lastWatched = nextUp.lastWatched,
         imdbRating = null,
         genres = emptyList(),
-        releaseInfo = null,
+        releaseInfo = nextUp.releaseInfo,
         seedSeason = progress.season,
         seedEpisode = progress.episode
     )
@@ -605,12 +662,18 @@ private suspend fun HomeViewModel.enrichNextUpItem(
     val releaseDate = parseEpisodeReleaseDate(released)
     val todayLocal = LocalDate.now(ZoneId.systemDefault())
     val hasAired = releaseDate?.let { !it.isAfter(todayLocal) } ?: item.info.hasAired
+    val resolvedImages = resolveNextUpImages(
+        poster = meta.poster.normalizeImageUrl() ?: tmdbData?.poster ?: item.info.poster,
+        backdrop = meta.backdropUrl.normalizeImageUrl() ?: tmdbData?.backdrop ?: item.info.backdrop,
+        thumbnail = video?.thumbnail.normalizeImageUrl() ?: tmdbData?.thumbnail ?: item.info.thumbnail,
+        preferLandscapeFallback = hasAired
+    )
 
     val enrichedInfo = item.info.copy(
         name = tmdbData?.name ?: meta.name,
-        poster = item.info.poster ?: meta.poster.normalizeImageUrl() ?: tmdbData?.poster,
-        backdrop = item.info.backdrop ?: meta.backdropUrl.normalizeImageUrl() ?: tmdbData?.backdrop,
-        logo = item.info.logo ?: meta.logo.normalizeImageUrl() ?: tmdbData?.logo,
+        poster = resolvedImages.poster,
+        backdrop = resolvedImages.backdrop,
+        logo = meta.logo.normalizeImageUrl() ?: tmdbData?.logo ?: item.info.logo,
         season = video?.season ?: item.info.season,
         episode = video?.episode ?: item.info.episode,
         videoId = video?.id?.takeIf { it.isNotBlank() } ?: item.info.videoId,
@@ -620,7 +683,7 @@ private suspend fun HomeViewModel.enrichNextUpItem(
         episodeDescription = tmdbData?.overview
             ?: video?.overview?.takeIf { it.isNotBlank() }
             ?: item.info.episodeDescription,
-        thumbnail = item.info.thumbnail ?: video?.thumbnail.normalizeImageUrl() ?: tmdbData?.thumbnail,
+        thumbnail = resolvedImages.thumbnail,
         released = released,
         hasAired = hasAired,
         airDateLabel = if (hasAired || releaseDate == null) null else formatEpisodeAirDateLabel(releaseDate),
@@ -675,6 +738,11 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
                 nextVideo.episode ?: return null
             ),
         episodeTitle = nextVideo.title.takeIf { it.isNotBlank() },
+        thumbnail = nextVideo.thumbnail.normalizeImageUrl(),
+        poster = meta.poster.normalizeImageUrl(),
+        backdrop = meta.backdropUrl.normalizeImageUrl(),
+        logo = meta.logo.normalizeImageUrl(),
+        releaseInfo = meta.releaseInfo?.takeIf { it.isNotBlank() },
         released = nextVideo.released?.trim()?.takeIf { it.isNotBlank() },
         hasAired = nextVideo.released?.let(::parseEpisodeReleaseDate)?.let { !it.isAfter(LocalDate.now(ZoneId.systemDefault())) } ?: true,
         airDateLabel = nextVideo.released?.let(::parseEpisodeReleaseDate)?.takeIf { it.isAfter(LocalDate.now(ZoneId.systemDefault())) }?.let(::formatEpisodeAirDateLabel),
@@ -811,6 +879,31 @@ private fun buildLightweightEpisodeVideoId(
     season: Int,
     episode: Int
 ): String = "$contentId:$season:$episode"
+
+private fun resolveNextUpImages(
+    poster: String?,
+    backdrop: String?,
+    thumbnail: String?,
+    preferLandscapeFallback: Boolean
+): ResolvedNextUpImages {
+    val normalizedPoster = poster.normalizeImageUrl()
+    val normalizedBackdrop = backdrop.normalizeImageUrl()
+    val normalizedThumbnail = thumbnail.normalizeImageUrl()
+
+    val resolvedPoster = normalizedPoster ?: normalizedBackdrop ?: normalizedThumbnail
+    val resolvedBackdrop = normalizedBackdrop ?: normalizedThumbnail ?: normalizedPoster
+    val resolvedThumbnail = if (preferLandscapeFallback) {
+        normalizedThumbnail ?: normalizedBackdrop ?: normalizedPoster
+    } else {
+        normalizedThumbnail ?: normalizedPoster ?: normalizedBackdrop
+    }
+
+    return ResolvedNextUpImages(
+        poster = resolvedPoster,
+        backdrop = resolvedBackdrop,
+        thumbnail = resolvedThumbnail
+    )
+}
 
 private fun NextUpInfo.toProgressSeed(): WatchProgress {
     return WatchProgress(
