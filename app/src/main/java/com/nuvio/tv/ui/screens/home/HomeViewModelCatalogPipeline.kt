@@ -449,6 +449,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
 
     val computedHomeRows = buildList {
         for (key in orderedKeys) {
+            if (key in disabledHomeCatalogKeys) continue
             val collectionEntry = collectionsSnapshot[key]
             if (collectionEntry != null) {
                 add(HomeRow.CollectionRow(collectionEntry))
