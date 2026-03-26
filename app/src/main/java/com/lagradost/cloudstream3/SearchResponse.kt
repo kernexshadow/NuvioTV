@@ -12,6 +12,7 @@ abstract class SearchResponse {
     open var id: Int? = null
     open var quality: SearchQuality? = null
     open var posterHeaders: Map<String, String>? = null
+    open var score: Score? = null
 }
 
 data class MovieSearchResponse(
@@ -51,7 +52,8 @@ data class AnimeSearchResponse(
     override var posterHeaders: Map<String, String>? = null,
     var dubStatus: Set<DubStatus>? = null,
     var dubEpisodes: MutableMap<DubStatus, Int> = mutableMapOf(),
-    var episodes: MutableMap<DubStatus, Int> = mutableMapOf()
+    var episodes: MutableMap<DubStatus, Int> = mutableMapOf(),
+    var otherName: String? = null
 ) : SearchResponse()
 
 data class LiveSearchResponse(
@@ -59,6 +61,18 @@ data class LiveSearchResponse(
     override val url: String,
     override val apiName: String,
     override var type: TvType? = TvType.Live,
+    override var posterUrl: String? = null,
+    override var year: Int? = null,
+    override var id: Int? = null,
+    override var quality: SearchQuality? = null,
+    override var posterHeaders: Map<String, String>? = null
+) : SearchResponse()
+
+data class TorrentSearchResponse(
+    override val name: String,
+    override val url: String,
+    override val apiName: String,
+    override var type: TvType? = TvType.Torrent,
     override var posterUrl: String? = null,
     override var year: Int? = null,
     override var id: Int? = null,

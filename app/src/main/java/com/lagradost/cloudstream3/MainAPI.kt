@@ -130,12 +130,16 @@ suspend fun MainAPI.newAnimeLoadResponse(
     name: String,
     url: String,
     type: TvType = TvType.Anime,
+    comingSoonIfNone: Boolean = true,
     initializer: suspend AnimeLoadResponse.() -> Unit = {}
 ): AnimeLoadResponse {
     val r = AnimeLoadResponse(
         name = name, url = url, apiName = this.name, type = type
     )
     r.initializer()
+    if (comingSoonIfNone && r.episodes.isEmpty()) {
+        r.comingSoon = true
+    }
     return r
 }
 
@@ -425,6 +429,66 @@ fun AnimeSearchResponse.addDubStatus(status: String, episodes: Int? = null) {
     }
 }
 
+// ── AnimeSearchResponse shorthand helpers ──
+
+fun AnimeSearchResponse.addDub(episodes: Int?) {
+    addDubStatus(DubStatus.Dubbed, episodes)
+}
+
+fun AnimeSearchResponse.addSub(episodes: Int?) {
+    addDubStatus(DubStatus.Subbed, episodes)
+}
+
+// ── SearchResponse helpers ──
+
+fun SearchResponse.addPoster(url: String?, headers: Map<String, String>? = null) {
+    this.posterUrl = url
+    this.posterHeaders = headers
+}
+
+fun SearchResponse.addQuality(quality: String) {
+    this.quality = getSearchQuality(quality)
+}
+
+fun getSearchQuality(quality: String?): SearchQuality? {
+    if (quality == null) return null
+    val lower = quality.lowercase().trim()
+    return when {
+        lower.contains("cam") -> SearchQuality.Cam
+        lower.contains("hdcam") -> SearchQuality.HdCam
+        lower.contains("webdl") || lower.contains("web-dl") || lower.contains("webrip") -> SearchQuality.WebRip
+        lower.contains("bluray") || lower.contains("blu-ray") -> SearchQuality.BlueRay
+        lower.contains("4k") || lower.contains("2160") || lower.contains("uhd") -> SearchQuality.FourK
+        lower.contains("hdrip") || lower.contains("hd") -> SearchQuality.HD
+        lower.contains("dvd") -> SearchQuality.DVD
+        lower.contains("sd") -> SearchQuality.SD
+        lower.contains("hq") -> SearchQuality.HQ
+        else -> null
+    }
+}
+
+// ── Duration parsing ──
+
+fun getDurationFromString(input: String?): Int? {
+    if (input == null) return null
+    val cleaned = input.trim().lowercase()
+
+    // "X h Y min" / "Xh Ym" / "X hr Y min"
+    Regex("""(\d+)\s*(?:h|hr|hour)s?\s*(?:(\d+)\s*(?:m|min|minute)s?)?""").find(cleaned)?.let { match ->
+        val hours = match.groupValues[1].toIntOrNull() ?: 0
+        val mins = match.groupValues[2].toIntOrNull() ?: 0
+        return hours * 60 + mins
+    }
+
+    // "X min" / "X minutes"
+    Regex("""(\d+)\s*(?:m|min|minute)s?""").find(cleaned)?.let { match ->
+        return match.groupValues[1].toIntOrNull()
+    }
+
+    // Bare number (assume minutes)
+    return cleaned.toIntOrNull()
+}
+
 // ── Episode helpers ──
 
 fun Episode.addDate(date: String?, format: String = "yyyy-MM-dd") {
@@ -435,4 +499,54 @@ fun Episode.addDate(date: String?, format: String = "yyyy-MM-dd") {
 
 fun Episode.addDate(date: Date?) {
     this.date = date?.time
+}
+
+// ── Additional builder functions ──
+
+fun MainAPI.newTorrentSearchResponse(
+    name: String,
+    url: String,
+    type: TvType = TvType.Torrent,
+    fix: Boolean = true,
+    initializer: TorrentSearchResponse.() -> Unit = {}
+): TorrentSearchResponse {
+    val r = TorrentSearchResponse(
+        name = name,
+        url = if (fix) fixUrl(url) else url,
+        apiName = this.name,
+        type = type
+    )
+    r.initializer()
+    return r
+}
+
+fun MainAPI.newLiveSearchResponse(
+    name: String,
+    url: String,
+    type: TvType = TvType.Live,
+    fix: Boolean = true,
+    initializer: LiveSearchResponse.() -> Unit = {}
+): LiveSearchResponse {
+    val r = LiveSearchResponse(
+        name = name,
+        url = if (fix) fixUrl(url) else url,
+        apiName = this.name,
+        type = type
+    )
+    r.initializer()
+    return r
+}
+
+suspend fun MainAPI.newLiveLoadResponse(
+    name: String,
+    url: String,
+    type: TvType = TvType.Live,
+    dataUrl: String,
+    initializer: suspend LiveLoadResponse.() -> Unit = {}
+): LiveLoadResponse {
+    val r = LiveLoadResponse(
+        name = name, url = url, apiName = this.name, type = type, dataUrl = dataUrl
+    )
+    r.initializer()
+    return r
 }
