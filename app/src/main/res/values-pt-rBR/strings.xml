@@ -509,6 +509,7 @@
     <string name="layout_reset_default">Redefinir para Padrão</string>
     <string name="layout_custom">Personalizado</string>
 
+    
     <!-- MDBListSettingsScreen -->
     <string name="mdblist_title">Avaliações do MDBList</string>
     <string name="mdblist_subtitle">Configure avaliações externas no destaque.</string>
@@ -535,7 +536,6 @@
     <string name="mdblist_dialog_placeholder">Digite sua chave API MDBList</string>
     <string name="mdblist_not_set">Não definido</string>
     <string name="mdblist_invalid_api_key">Chave API inválida</string>
-
 
     <!-- Anime-Skip -->
     <string name="animeskip_title">Anime Skip</string>
@@ -734,8 +734,9 @@
     <string name="profile_pin_overlay_forgot_hint">Esqueceu o PIN? Redefina-o pelo site do Nuvio na sua conta.</string>
     <string name="profile_pin_overlay_back_hint">Pressione "Voltar" para cancelar.</string>
 
+    
     <!-- AddonManagerScreen -->
-        <string name="addon_title">Addons</string>
+    <string name="addon_title">Addons</string>
     <string name="addon_readonly_notice">Estes addons pertencem ao perfil principal e não podem ser alterados.</string>
     <string name="addon_install_title">Instalar addon</string>
     <string name="addon_install_placeholder">https://exemplo.com</string>
@@ -772,6 +773,7 @@
     <string name="catalog_order_enable">Ativar</string>
     <string name="catalog_order_disable">Ocultar</string>
 
+    
     <!-- StreamScreen -->
     <string name="stream_retry">Tentar novamente</string>
     <string name="stream_no_streams">Nenhuma fonte encontrada</string>
