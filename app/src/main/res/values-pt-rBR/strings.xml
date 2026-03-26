@@ -827,7 +827,7 @@
     <string name="stream_info_name">Nome</string>
     <string name="stream_info_source">Fonte</string>
     <string name="stream_info_subtitle_source_addon">Extensão</string>
-    <string name="stream_info_subtitle_source_embedded">Integrada</string>
+    <string name="stream_info_subtitle_source_embedded">Embutida</string>
 
     <!-- StreamSourcesSidePanel -->
     <string name="sources_title">Fontes</string>
