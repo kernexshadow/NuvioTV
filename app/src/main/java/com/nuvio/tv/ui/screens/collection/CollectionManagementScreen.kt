@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -36,6 +37,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -51,9 +53,13 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
+import com.nuvio.tv.data.local.ValidationResult
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -91,6 +97,16 @@ fun CollectionManagementScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var exportMessage by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(exportMessage) {
+        if (exportMessage != null) {
+            kotlinx.coroutines.delay(3000)
+            exportMessage = null
+        }
+    }
 
     if (uiState.isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -109,7 +125,21 @@ fun CollectionManagementScreen(
                 val clip = clipboardManager.getText()?.text ?: ""
                 viewModel.updateImportText(clip)
             },
-            onBack = { viewModel.hideImportDialog() }
+            onBack = { viewModel.hideImportDialog() },
+            importMode = uiState.importMode,
+            onModeChange = { viewModel.setImportMode(it) },
+            importUrl = uiState.importUrl,
+            onUrlChange = { viewModel.updateImportUrl(it) },
+            onFetchUrl = { viewModel.fetchUrl() },
+            validationResult = uiState.validationResult,
+            isLoadingImport = uiState.isLoadingImport,
+            onValidate = { viewModel.validateCurrentText() },
+            onPickFile = {
+                scope.launch {
+                    viewModel.loadFromFile(context)
+                }
+            },
+            onConfirmImport = { viewModel.confirmImport() }
         )
         return
     }
@@ -144,11 +174,40 @@ fun CollectionManagementScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (uiState.collections.isNotEmpty()) {
                     NuvioButton(onClick = {
+                        scope.launch {
+                            try {
+                                val json = viewModel.getExportJson()
+                                withContext(Dispatchers.IO) {
+                                    val resolver = context.contentResolver
+                                    // Delete existing file first
+                                    val existingUri = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                                    resolver.delete(
+                                        existingUri,
+                                        "${android.provider.MediaStore.Downloads.DISPLAY_NAME} = ?",
+                                        arrayOf("nuvio-collections.json")
+                                    )
+                                    // Write new file
+                                    val values = android.content.ContentValues().apply {
+                                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "nuvio-collections.json")
+                                        put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/json")
+                                    }
+                                    val uri = resolver.insert(existingUri, values)
+                                    uri?.let { resolver.openOutputStream(it)?.use { os -> os.write(json.toByteArray()) } }
+                                }
+                                exportMessage = "Saved to Downloads"
+                            } catch (_: Exception) {
+                                exportMessage = "Export failed"
+                            }
+                        }
+                    }) {
+                        Text(exportMessage ?: "Export File")
+                    }
+                    NuvioButton(onClick = {
                         val json = viewModel.exportCollections()
                         clipboardManager.setText(AnnotatedString(json))
                         showCopied = true
                     }) {
-                        Text(if (showCopied) "Copied!" else "Export")
+                        Text(if (showCopied) "Copied!" else "Copy JSON")
                     }
                 }
                 NuvioButton(onClick = { viewModel.showImportDialog() }) {
@@ -209,7 +268,17 @@ private fun ImportContent(
     onTextChange: (String) -> Unit,
     onImport: () -> Unit,
     onPaste: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    importMode: ImportMode,
+    onModeChange: (ImportMode) -> Unit,
+    importUrl: String,
+    onUrlChange: (String) -> Unit,
+    onFetchUrl: () -> Unit,
+    validationResult: ValidationResult?,
+    isLoadingImport: Boolean,
+    onValidate: () -> Unit,
+    onPickFile: () -> Unit,
+    onConfirmImport: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -228,68 +297,226 @@ private fun ImportContent(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NuvioButton(onClick = onBack) { Text("Cancel") }
-                NuvioButton(onClick = onImport) { Text("Import") }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = "Paste a collections JSON below. Catalogs from addons you don't have installed will show a warning.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = NuvioColors.TextSecondary
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            NuvioButton(onClick = onPaste) { Text("Paste from Clipboard") }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            colors = SurfaceDefaults.colors(containerColor = NuvioColors.BackgroundElevated),
-            border = Border(
-                border = BorderStroke(1.dp, if (importError != null) NuvioColors.Error else NuvioColors.Border),
-                shape = RoundedCornerShape(12.dp)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 48.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            Box(modifier = Modifier.padding(12.dp)) {
-                BasicTextField(
-                    value = importText,
-                    onValueChange = onTextChange,
-                    modifier = Modifier.fillMaxSize(),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(
-                        color = NuvioColors.TextPrimary
-                    ),
-                    cursorBrush = SolidColor(NuvioColors.Primary),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    decorationBox = { innerTextField ->
-                        if (importText.isEmpty()) {
+            item {
+                Text(
+                    text = "Import collections from JSON. Catalogs from addons you don't have installed will show a warning.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuvioColors.TextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Mode tabs
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ImportMode.entries.forEach { mode ->
+                        val label = when (mode) {
+                            ImportMode.PASTE -> "Paste JSON"
+                            ImportMode.FILE -> "From File"
+                            ImportMode.URL -> "From URL"
+                        }
+                        if (mode == importMode) {
+                            Button(
+                                onClick = { onModeChange(mode) },
+                                colors = ButtonDefaults.colors(
+                                    containerColor = NuvioColors.Primary,
+                                    contentColor = NuvioColors.Background,
+                                    focusedContainerColor = NuvioColors.Primary,
+                                    focusedContentColor = NuvioColors.Background
+                                ),
+                                border = ButtonDefaults.border(
+                                    focusedBorder = Border(
+                                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                ),
+                                shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                            ) {
+                                Text(label)
+                            }
+                        } else {
+                            NuvioButton(onClick = { onModeChange(mode) }) {
+                                Text(label)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            item {
+                when (importMode) {
+                    ImportMode.PASTE -> {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            NuvioButton(onClick = onPaste) { Text("Paste from Clipboard") }
+                            if (importText.isNotBlank()) {
+                                NuvioButton(onClick = onValidate) { Text("Validate") }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = SurfaceDefaults.colors(containerColor = NuvioColors.BackgroundElevated),
+                            border = Border(
+                                border = BorderStroke(1.dp, if (importError != null) NuvioColors.Error else NuvioColors.Border),
+                                shape = RoundedCornerShape(12.dp)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp)
+                        ) {
+                            Box(modifier = Modifier.padding(12.dp)) {
+                                BasicTextField(
+                                    value = importText,
+                                    onValueChange = onTextChange,
+                                    modifier = Modifier.fillMaxSize(),
+                                    textStyle = MaterialTheme.typography.bodySmall.copy(
+                                        color = NuvioColors.TextPrimary
+                                    ),
+                                    cursorBrush = SolidColor(NuvioColors.Primary),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    decorationBox = { innerTextField ->
+                                        if (importText.isEmpty()) {
+                                            Text(
+                                                text = "Paste collections JSON here...",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = NuvioColors.TextTertiary
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    ImportMode.FILE -> {
+                        Text(
+                            text = "Reads nuvio-collections.json from the Downloads folder.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NuvioColors.TextTertiary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        NuvioButton(onClick = onPickFile) { Text("Load File") }
+
+                        if (importText.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Paste collections JSON here...",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = NuvioColors.TextTertiary
+                                text = "File loaded (${importText.length} characters)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = NuvioColors.TextSecondary
                             )
                         }
-                        innerTextField()
                     }
-                )
-            }
-        }
 
-        if (importError != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = importError,
-                style = MaterialTheme.typography.bodySmall,
-                color = NuvioColors.Error
-            )
+                    ImportMode.URL -> {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = SurfaceDefaults.colors(containerColor = NuvioColors.BackgroundElevated),
+                            border = Border(
+                                border = BorderStroke(1.dp, NuvioColors.Border),
+                                shape = RoundedCornerShape(12.dp)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                        ) {
+                            Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
+                                BasicTextField(
+                                    value = importUrl,
+                                    onValueChange = onUrlChange,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                        color = NuvioColors.TextPrimary
+                                    ),
+                                    cursorBrush = SolidColor(NuvioColors.Primary),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    decorationBox = { innerTextField ->
+                                        if (importUrl.isEmpty()) {
+                                            Text(
+                                                text = "https://example.com/collections.json",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = NuvioColors.TextTertiary
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        NuvioButton(onClick = onFetchUrl) {
+                            Text(if (isLoadingImport) "Fetching..." else "Fetch URL")
+                        }
+
+                        if (isLoadingImport) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            LoadingIndicator()
+                        }
+                    }
+                }
+            }
+
+            // Validation result preview
+            if (validationResult != null && validationResult.valid) {
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = SurfaceDefaults.colors(containerColor = NuvioColors.BackgroundCard),
+                        border = Border(
+                            border = BorderStroke(1.dp, NuvioColors.Primary),
+                            shape = RoundedCornerShape(12.dp)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Valid JSON",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = NuvioColors.Primary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${validationResult.collectionCount} collection${if (validationResult.collectionCount != 1) "s" else ""}, " +
+                                        "${validationResult.folderCount} folder${if (validationResult.folderCount != 1) "s" else ""}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = NuvioColors.TextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            NuvioButton(onClick = onConfirmImport) {
+                                Text("Confirm Import")
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (importError != null) {
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = importError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NuvioColors.Error
+                    )
+                }
+            }
         }
     }
 }

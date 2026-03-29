@@ -16,6 +16,13 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class ValidationResult(
+    val valid: Boolean,
+    val error: String? = null,
+    val collectionCount: Int = 0,
+    val folderCount: Int = 0
+)
+
 @Singleton
 class CollectionsDataStore @Inject constructor(
     private val factory: ProfileDataStoreFactory,
@@ -87,6 +94,54 @@ class CollectionsDataStore @Inject constructor(
 
     fun importFromJson(json: String): List<Collection> {
         return parseCollections(json)
+    }
+
+    fun validateCollectionsJson(json: String): ValidationResult {
+        if (json.isBlank()) return ValidationResult(false, "Empty input")
+        return try {
+            val type = object : TypeToken<List<Map<String, Any?>>>() {}.type
+            val parsed = gson.fromJson<List<Map<String, Any?>>>(json, type)
+                ?: return ValidationResult(false, "Invalid format: expected an array")
+            if (parsed.isEmpty()) return ValidationResult(false, "Empty array: no collections found")
+
+            var folderCount = 0
+            val validShapes = setOf("POSTER", "LANDSCAPE", "SQUARE", "poster", "wide", "square")
+
+            for ((i, item) in parsed.withIndex()) {
+                val id = item["id"] as? String
+                if (id.isNullOrBlank()) return ValidationResult(false, "Collection ${i + 1}: missing or invalid \"id\"")
+                val title = item["title"] as? String
+                    ?: return ValidationResult(false, "Collection \"$id\": missing or invalid \"title\"")
+                val folders = item["folders"] as? List<*>
+                    ?: return ValidationResult(false, "Collection \"$title\": \"folders\" must be an array")
+
+                for ((j, f) in folders.withIndex()) {
+                    val folder = f as? Map<*, *>
+                        ?: return ValidationResult(false, "Collection \"$title\", folder ${j + 1}: invalid format")
+                    val folderId = folder["id"] as? String
+                    if (folderId.isNullOrBlank()) return ValidationResult(false, "Collection \"$title\", folder ${j + 1}: missing \"id\"")
+                    val folderTitle = folder["title"] as? String
+                        ?: return ValidationResult(false, "Collection \"$title\", folder \"$folderId\": missing \"title\"")
+                    val sources = folder["catalogSources"] as? List<*>
+                        ?: return ValidationResult(false, "Collection \"$title\", folder \"$folderTitle\": \"catalogSources\" must be an array")
+                    val shape = folder["tileShape"] as? String
+                    if (shape != null && shape !in validShapes) {
+                        return ValidationResult(false, "Collection \"$title\", folder \"$folderTitle\": invalid tileShape \"$shape\"")
+                    }
+                    for ((k, s) in sources.withIndex()) {
+                        val source = s as? Map<*, *>
+                            ?: return ValidationResult(false, "Collection \"$title\", folder \"$folderTitle\", source ${k + 1}: invalid format")
+                        if (source["addonId"] !is String || source["type"] !is String || source["catalogId"] !is String) {
+                            return ValidationResult(false, "Collection \"$title\", folder \"$folderTitle\", source ${k + 1}: missing required fields")
+                        }
+                    }
+                    folderCount++
+                }
+            }
+            ValidationResult(true, collectionCount = parsed.size, folderCount = folderCount)
+        } catch (e: Exception) {
+            ValidationResult(false, "JSON parse error: ${e.message}")
+        }
     }
 
     private fun parseCollections(json: String?): List<Collection> {

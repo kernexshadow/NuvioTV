@@ -237,6 +237,28 @@ class CollectionEditorViewModel @Inject constructor(
         }
     }
 
+    fun moveCatalogSourceUp(index: Int) {
+        if (index <= 0) return
+        _uiState.update { state ->
+            val folder = state.editingFolder ?: return@update state
+            val sources = folder.catalogSources.toMutableList()
+            val item = sources.removeAt(index)
+            sources.add(index - 1, item)
+            state.copy(editingFolder = folder.copy(catalogSources = sources))
+        }
+    }
+
+    fun moveCatalogSourceDown(index: Int) {
+        _uiState.update { state ->
+            val folder = state.editingFolder ?: return@update state
+            if (index >= folder.catalogSources.size - 1) return@update state
+            val sources = folder.catalogSources.toMutableList()
+            val item = sources.removeAt(index)
+            sources.add(index + 1, item)
+            state.copy(editingFolder = folder.copy(catalogSources = sources))
+        }
+    }
+
     fun toggleCatalogSource(catalog: AvailableCatalog) {
         _uiState.update { state ->
             val folder = state.editingFolder ?: return@update state

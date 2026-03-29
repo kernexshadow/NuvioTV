@@ -710,27 +710,65 @@ private fun FolderEditorContent(
                                 color = if (isMissing) NuvioColors.Error.copy(alpha = 0.7f) else NuvioColors.TextTertiary
                             )
                         }
-                        Button(
-                            onClick = {
-                                pendingFocusIndex = index
-                                viewModel.removeCatalogSource(index)
-                            },
-                            modifier = Modifier.focusRequester(removeFocusRequester),
-                            colors = ButtonDefaults.colors(
-                                containerColor = NuvioColors.BackgroundCard,
-                                contentColor = NuvioColors.TextSecondary,
-                                focusedContainerColor = NuvioColors.FocusBackground,
-                                focusedContentColor = NuvioColors.Error
-                            ),
-                            border = ButtonDefaults.border(
-                                focusedBorder = Border(
-                                    border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                            ),
-                            shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
-                        ) {
-                            Icon(Icons.Default.Close, "Remove")
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Button(
+                                onClick = { viewModel.moveCatalogSourceUp(index) },
+                                colors = ButtonDefaults.colors(
+                                    containerColor = NuvioColors.BackgroundCard,
+                                    contentColor = NuvioColors.TextSecondary,
+                                    focusedContainerColor = NuvioColors.FocusBackground,
+                                    focusedContentColor = NuvioColors.TextPrimary
+                                ),
+                                border = ButtonDefaults.border(
+                                    focusedBorder = Border(
+                                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                ),
+                                shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowUp, "Move Up", tint = if (index > 0) NuvioColors.TextSecondary else NuvioColors.TextTertiary)
+                            }
+                            Button(
+                                onClick = { viewModel.moveCatalogSourceDown(index) },
+                                colors = ButtonDefaults.colors(
+                                    containerColor = NuvioColors.BackgroundCard,
+                                    contentColor = NuvioColors.TextSecondary,
+                                    focusedContainerColor = NuvioColors.FocusBackground,
+                                    focusedContentColor = NuvioColors.TextPrimary
+                                ),
+                                border = ButtonDefaults.border(
+                                    focusedBorder = Border(
+                                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                ),
+                                shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowDown, "Move Down", tint = if (index < folder.catalogSources.size - 1) NuvioColors.TextSecondary else NuvioColors.TextTertiary)
+                            }
+                            Button(
+                                onClick = {
+                                    pendingFocusIndex = index
+                                    viewModel.removeCatalogSource(index)
+                                },
+                                modifier = Modifier.focusRequester(removeFocusRequester),
+                                colors = ButtonDefaults.colors(
+                                    containerColor = NuvioColors.BackgroundCard,
+                                    contentColor = NuvioColors.TextSecondary,
+                                    focusedContainerColor = NuvioColors.FocusBackground,
+                                    focusedContentColor = NuvioColors.Error
+                                ),
+                                border = ButtonDefaults.border(
+                                    focusedBorder = Border(
+                                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                ),
+                                shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                            ) {
+                                Icon(Icons.Default.Close, "Remove")
+                            }
                         }
                     }
                 }
