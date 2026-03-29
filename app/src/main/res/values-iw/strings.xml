@@ -194,7 +194,7 @@
     <string name="network_error_prefix">שגיאה: %1$s</string>
     <string name="network_powered_by_fast">מופעל על ידי fast.com</string>
     <string name="network_connection_wifi">Wi-Fi</string>
-    <string name="network_connection_ethernet">אתרנט</string>
+    <string name="network_connection_ethernet">Ethernet</string>
     <string name="network_connection_offline">אין חיבור</string>
     <string name="settings_debug">ניפוי שגיאות</string>
     <string name="settings_debug_subtitle">כלי מפתחים ודגלי פיצ׳רים.</string>
