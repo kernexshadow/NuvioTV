@@ -196,7 +196,8 @@ data class Episode(
     var rating: Int? = null,
     var description: String? = null,
     var date: Long? = null,
-    var runTime: Int? = null
+    var runTime: Int? = null,
+    var score: Score? = null
 )
 
 data class MovieLoadResponse(

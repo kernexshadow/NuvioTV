@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.toJson
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.EnumSet
@@ -98,6 +99,23 @@ fun MainAPI.newAnimeSearchResponse(
     return r
 }
 
+suspend fun <T> MainAPI.newMovieLoadResponse(
+    name: String,
+    url: String,
+    type: TvType,
+    data: T?,
+    initializer: suspend MovieLoadResponse.() -> Unit = {}
+): MovieLoadResponse {
+    if (data is String) return newMovieLoadResponse(name, url, type, dataUrl = data, initializer = initializer)
+    val dataUrl = data?.toJson() ?: ""
+    val r = MovieLoadResponse(
+        name = name, url = url, apiName = this.name, type = type, dataUrl = dataUrl
+    )
+    r.comingSoon = dataUrl.isBlank()
+    r.initializer()
+    return r
+}
+
 suspend fun MainAPI.newMovieLoadResponse(
     name: String,
     url: String,
@@ -108,6 +126,7 @@ suspend fun MainAPI.newMovieLoadResponse(
     val r = MovieLoadResponse(
         name = name, url = url, apiName = this.name, type = type, dataUrl = dataUrl
     )
+    r.comingSoon = dataUrl.isBlank()
     r.initializer()
     return r
 }
@@ -122,6 +141,7 @@ suspend fun MainAPI.newTvSeriesLoadResponse(
     val r = TvSeriesLoadResponse(
         name = name, url = url, apiName = this.name, type = type, episodes = episodes
     )
+    r.comingSoon = episodes.isEmpty()
     r.initializer()
     return r
 }
@@ -437,6 +457,15 @@ fun AnimeSearchResponse.addDub(episodes: Int?) {
 
 fun AnimeSearchResponse.addSub(episodes: Int?) {
     addDubStatus(DubStatus.Subbed, episodes)
+}
+
+// ── AnimeLoadResponse helpers (top-level, expected in MainAPIKt) ──
+
+fun AnimeLoadResponse.addEpisodes(status: DubStatus, episodes: List<Episode>?) {
+    if (episodes.isNullOrEmpty()) return
+    this.episodes = this.episodes.toMutableMap().also {
+        it[status.name] = (it[status.name] ?: emptyList()) + episodes
+    }
 }
 
 // ── SearchResponse helpers ──

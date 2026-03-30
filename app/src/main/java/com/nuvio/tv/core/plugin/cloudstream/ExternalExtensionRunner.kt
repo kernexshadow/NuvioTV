@@ -128,13 +128,13 @@ class ExternalExtensionRunner @Inject constructor(
                     executeSearchBasedWithDiagnostics(api, tmdbId, mediaType, season, episode, diagnostics)
                 }
             } catch (e: Error) {
-                val missing = extractMissingClass(e)
+                Log.e(TAG, "Diagnostic ${api.name} error: ${e.javaClass.simpleName}: ${e.message}", e)
                 diagnostics.addStep("Runtime error: ${e.javaClass.simpleName}")
-                if (missing != null) diagnostics.addStep("Missing class: $missing")
-                else diagnostics.addStep("Error: ${e.message?.take(200)}")
+                diagnostics.addStep("Detail: ${e.message?.take(300)}")
                 emptyList()
             } catch (e: Exception) {
-                diagnostics.addStep("Runtime exception: ${e.javaClass.simpleName}: ${e.message?.take(200)}")
+                Log.e(TAG, "Diagnostic ${api.name} exception: ${e.javaClass.simpleName}: ${e.message}", e)
+                diagnostics.addStep("Runtime exception: ${e.javaClass.simpleName}: ${e.message?.take(300)}")
                 emptyList()
             }
         } ?: run {
