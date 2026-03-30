@@ -572,6 +572,7 @@ private fun LegacySidebarScaffold(
     val openDrawerWidth = 196.dp
 
     val focusManager = LocalFocusManager.current
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val contentFocusRequester = remember { FocusRequester() }
     var pendingContentFocusTransfer by remember { mutableStateOf(false) }
     var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
@@ -624,7 +625,8 @@ private fun LegacySidebarScaffold(
                         .padding(12.dp)
                         .selectableGroup()
                         .onPreviewKeyEvent { keyEvent ->
-                            if (keyEvent.key == Key.DirectionRight && keyEvent.type == KeyEventType.KeyDown) {
+                            val closeKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
+                            if (keyEvent.key == closeKey && keyEvent.type == KeyEventType.KeyDown) {
                                 drawerState.setValue(DrawerValue.Closed)
                                 pendingContentFocusTransfer = false
                                 true
@@ -740,13 +742,14 @@ private fun LegacySidebarScaffold(
                 .fillMaxSize()
                 .padding(start = contentStartPadding)
                 .onKeyEvent { keyEvent ->
+                    val openKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
                     if (
                         showSidebar &&
                         drawerState.currentValue == DrawerValue.Closed &&
                         keyEvent.type == KeyEventType.KeyDown &&
-                        keyEvent.key == Key.DirectionLeft
+                        keyEvent.key == openKey
                     ) {
-                        if (focusManager.moveFocus(FocusDirection.Left)) {
+                        if (focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)) {
                             true
                         } else {
                             pendingSidebarFocusRequest = true
@@ -874,6 +877,7 @@ private fun ModernSidebarScaffold(
     val openSidebarWidth = 262.dp
 
     val focusManager = LocalFocusManager.current
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val contentFocusRequester = remember { FocusRequester() }
     val drawerItemFocusRequesters = remember(drawerItems) {
         drawerItems.associate { item -> item.route to FocusRequester() }
@@ -1091,8 +1095,9 @@ private fun ModernSidebarScaffold(
                                 else -> Unit
                             }
                         }
-                        if (keyEvent.key == Key.DirectionLeft) {
-                            if (focusManager.moveFocus(FocusDirection.Left)) {
+                        val openKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
+                        if (keyEvent.key == openKey) {
+                            if (focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)) {
                                 true
                             } else {
                                 isSidebarExpanded = true
@@ -1155,10 +1160,15 @@ private fun ModernSidebarScaffold(
                                 focusedDrawerIndex == drawerItems.lastIndex
                             }
 
-                            Key.DirectionRight -> {
-                                pendingContentFocusTransfer = false
-                                sidebarCollapsePending = true
-                                true
+                            Key.DirectionRight, Key.DirectionLeft -> {
+                                val collapseKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
+                                if (keyEvent.key == collapseKey) {
+                                    pendingContentFocusTransfer = false
+                                    sidebarCollapsePending = true
+                                    true
+                                } else {
+                                    false
+                                }
                             }
 
                             else -> false
