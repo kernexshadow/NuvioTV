@@ -813,18 +813,17 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             }
         }
         PlayerEvent.OnToggleAspectRatio -> {
-            val currentMode = _uiState.value.resizeMode
-            val newMode = PlayerDisplayModeUtils.nextResizeMode(currentMode)
-            val modeText = PlayerDisplayModeUtils.resizeModeLabel(newMode, context)
-            Log.d("PlayerViewModel", "Aspect ratio toggled: $currentMode -> $newMode")
+            val state = _uiState.value
+            val newMode = nextAspectMode(state.aspectMode)
+            val label = aspectModeLabel(newMode, context::getString)
+            Log.d("PlayerViewModel", "Aspect mode toggled: ${state.aspectMode} -> $newMode ($label)")
             _uiState.update {
                 it.copy(
-                    resizeMode = newMode,
+                    aspectMode = newMode,
                     showAspectRatioIndicator = true,
-                    aspectRatioIndicatorText = modeText
+                    aspectRatioIndicatorText = label
                 )
             }
-            scope.launch { playerSettingsDataStore.setResizeMode(newMode) }
             hideAspectRatioIndicatorJob?.cancel()
             hideAspectRatioIndicatorJob = scope.launch {
                 delay(1500)

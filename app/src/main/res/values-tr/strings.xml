@@ -847,6 +847,8 @@
     <string name="player_aspect_fit_width">Genişliğe Sığdır</string>
     <string name="player_aspect_fit_height">Yüksekliğe Sığdır</string>
     <string name="player_aspect_crop">Kırp</string>
+    <string name="player_aspect_mode_slight_zoom">Hafif Yakınlaştırma</string>
+    <string name="player_aspect_mode_cinema_zoom">Sinema Yakınlaştırma</string>
 
     <!-- AudioDialog -->
     <string name="audio_dialog_title">Ses</string>

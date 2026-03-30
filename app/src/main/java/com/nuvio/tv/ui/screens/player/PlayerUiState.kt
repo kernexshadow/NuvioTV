@@ -125,6 +125,7 @@ data class PlayerUiState(
     val showDisplayModeInfo: Boolean = false,
     // Aspect ratio / resize mode
     val resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
+    val aspectMode: AspectMode = AspectMode.ORIGINAL,
     val showAspectRatioIndicator: Boolean = false,
     val aspectRatioIndicatorText: String = "",
     // Stream info overlay

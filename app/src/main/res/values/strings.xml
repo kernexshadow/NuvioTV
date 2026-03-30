@@ -850,6 +850,8 @@
     <string name="player_aspect_fit_width">Fit Width</string>
     <string name="player_aspect_fit_height">Fit Height</string>
     <string name="player_aspect_crop">Crop</string>
+    <string name="player_aspect_mode_slight_zoom">Slight Zoom</string>
+    <string name="player_aspect_mode_cinema_zoom">Cinema Zoom</string>
 
     <!-- AudioDialog -->
     <string name="audio_dialog_title">Audio</string>
