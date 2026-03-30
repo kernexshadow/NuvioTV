@@ -98,6 +98,7 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.CollectionRowSection
@@ -171,6 +172,8 @@ fun ModernHomeContent(
     val effectiveExpandEnabled =
         (uiState.focusedPosterBackdropExpandEnabled && expandControlAvailable) ||
             landscapeExpandedCardMode
+    val showCatalogTypeSuffixInModern = uiState.catalogTypeSuffixEnabled
+    val showFullReleaseDate = uiState.showFullReleaseDate
     val shouldActivateFocusedPosterFlow =
         effectiveExpandEnabled ||
             (effectiveAutoplayEnabled &&
@@ -365,6 +368,9 @@ fun ModernHomeContent(
     val carouselLookups = remember(carouselRows) {
         val rowIndexByKey = LinkedHashMap<String, Int>(carouselRows.size)
         val rowByKey = LinkedHashMap<String, HeroCarouselRow>(carouselRows.size)
+        val rowKeyByGlobalRowIdx = LinkedHashMap<Int, String>(carouselRows.size)
+        val firstHeroPreviewByRowMap = LinkedHashMap<String, HeroPreview>(carouselRows.size)
+        val fallbackBackdropByRowMap = LinkedHashMap<String, String>(carouselRows.size)
         val activeRowKeys = LinkedHashSet<String>(carouselRows.size)
         val activeItemKeysByRow = LinkedHashMap<String, Set<String>>(carouselRows.size)
         val activeCatalogItemIds = LinkedHashSet<String>()
@@ -372,7 +378,11 @@ fun ModernHomeContent(
         carouselRows.forEachIndexed { index, row ->
             rowIndexByKey[row.key] = index
             rowByKey[row.key] = row
+            rowKeyByGlobalRowIdx[row.globalRowIndex] = row.key
             activeRowKeys += row.key
+
+            row.items.firstOrNull()?.heroPreview?.let { firstHeroPreviewByRowMap[row.key] = it }
+            row.items.firstNotNullOfOrNull { it.heroPreview.backdrop }?.let { fallbackBackdropByRowMap[row.key] = it }
 
             val itemKeys = LinkedHashSet<String>(row.items.size)
             row.items.forEach { item ->
@@ -388,6 +398,9 @@ fun ModernHomeContent(
         CarouselRowLookups(
             rowIndexByKey = rowIndexByKey,
             rowByKey = rowByKey,
+            rowKeyByGlobalRowIndex = rowKeyByGlobalRowIdx,
+            firstHeroPreviewByRow = firstHeroPreviewByRowMap,
+            fallbackBackdropByRow = fallbackBackdropByRowMap,
             activeRowKeys = activeRowKeys,
             activeItemKeysByRow = activeItemKeysByRow,
             activeCatalogItemIds = activeCatalogItemIds
@@ -1003,6 +1016,8 @@ fun ModernHomeContent(
                             }
                             ModernRowSection(
                                 row = row,
+                                isActiveRow = row.key == activeRowKey,
+                                isVerticalRowsScrolling = isVerticalRowsScrolling,
                                 rowTitleBottom = rowTitleBottom,
                                 defaultBringIntoViewSpec = defaultBringIntoViewSpec,
                                 focusStateCatalogRowScrollIndex = remember(focusState.catalogRowScrollStates, row.key) {
