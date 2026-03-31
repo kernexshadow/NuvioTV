@@ -1735,6 +1735,9 @@ private fun BackdropLayer(
     leftGradient: ImageBitmap,
     bottomGradient: ImageBitmap,
 ) {
+    var showHeroBackdropUnderlay by remember(heroBackdropRequest, backdropRequest) {
+        mutableStateOf(heroBackdropRequest != null)
+    }
     val backdropAlphaState = animateFloatAsState(
         targetValue = if (isTrailerPlaying) 0f else if (isScrolledPastHero) 0.15f else 1f,
         animationSpec = tween(durationMillis = if (isScrolledPastHero) 300 else 800),
@@ -1748,7 +1751,7 @@ private fun BackdropLayer(
     Box(modifier = Modifier.fillMaxSize()) {
         // Show hero backdrop from previous screen as persistent underlay
         // to prevent flash/re-render during navigation transition
-        if (heroBackdropRequest != null) {
+        if (showHeroBackdropUnderlay && heroBackdropRequest != null) {
             AsyncImage(
                 model = heroBackdropRequest,
                 contentDescription = null,
@@ -1763,6 +1766,7 @@ private fun BackdropLayer(
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             alpha = backdropAlphaState.value,
+            onSuccess = { showHeroBackdropUnderlay = false },
             contentScale = ContentScale.Crop,
             alignment = Alignment.TopEnd
         )

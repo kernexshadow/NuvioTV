@@ -194,6 +194,7 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
                     pauseOverlayEnabled = settings.pauseOverlayEnabled,
                     osdClockEnabled = settings.osdClockEnabled,
                     frameRateMatchingMode = settings.frameRateMatchingMode,
+                    tunnelingEnabled = settings.tunnelingEnabled,
                     persistAudioAmplification = settings.persistAudioAmplification,
                     audioAmplificationDb = resolvedAudioAmplificationDb
                 )

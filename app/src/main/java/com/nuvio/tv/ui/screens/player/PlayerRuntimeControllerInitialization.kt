@@ -1,16 +1,19 @@
 package com.nuvio.tv.ui.screens.player
 
 import android.content.Context
-import com.nuvio.tv.R
 import android.content.res.Resources
 import android.os.Build
 import android.util.Log
+import com.nuvio.tv.R
 import android.view.accessibility.CaptioningManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
+import androidx.media3.common.text.Cue
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -66,7 +69,7 @@ private suspend fun PlayerRuntimeController.resolveCurrentStreamMimeType(
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<String, String>) {
     if (url.isEmpty()) {
-        _uiState.update { it.copy(error = "No stream URL provided", showLoadingOverlay = false) }
+        _uiState.update { it.copy(error = context.getString(R.string.player_error_no_stream_url), showLoadingOverlay = false) }
         return
     }
 
@@ -79,6 +82,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 it.copy(
                     frameRateMatchingMode = playerSettings.frameRateMatchingMode,
                     resizeMode = playerSettings.resizeMode,
+                    tunnelingEnabled = playerSettings.tunnelingEnabled,
                     loadingMessage = if (showLoadingStatus) context.getString(R.string.player_loading_detecting_format) else null
                 )
             }
@@ -176,6 +180,11 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
             val renderersFactory = SubtitleOffsetRenderersFactory(
                 context = context,
                 subtitleDelayUsProvider = subtitleDelayUs::get,
+                shouldNormalizeCuePositionProvider = {
+                    val selectedAddonSubtitle = _uiState.value.selectedAddonSubtitle
+                    selectedAddonSubtitle != null &&
+                        PlayerSubtitleUtils.mimeTypeFromUrl(selectedAddonSubtitle.url) == MimeTypes.TEXT_VTT
+                },
                 gainAudioProcessor = gainAudioProcessor
             ).setExtensionRendererMode(playerSettings.decoderPriority)
                 .setMapDV7ToHevc(playerSettings.mapDV7ToHevc)
@@ -591,6 +600,7 @@ internal fun PlayerRuntimeController.resetLoadingOverlayForNewStream() {
 private class SubtitleOffsetRenderersFactory(
     context: Context,
     private val subtitleDelayUsProvider: () -> Long,
+    private val shouldNormalizeCuePositionProvider: () -> Boolean,
     private val gainAudioProcessor: GainAudioProcessor
 ) : DefaultRenderersFactory(context) {
 
@@ -614,11 +624,48 @@ private class SubtitleOffsetRenderersFactory(
         extensionRendererMode: Int,
         out: ArrayList<Renderer>
     ) {
+        val normalizingOutput = CueNormalizingTextOutput(
+            delegate = output,
+            shouldNormalizeCuePositionProvider = shouldNormalizeCuePositionProvider
+        )
         val startIndex = out.size
-        super.buildTextRenderers(context, output, outputLooper, extensionRendererMode, out)
+        super.buildTextRenderers(context, normalizingOutput, outputLooper, extensionRendererMode, out)
         for (index in startIndex until out.size) {
             out[index] = SubtitleOffsetRenderer(out[index], subtitleDelayUsProvider)
         }
+    }
+}
+
+private class CueNormalizingTextOutput(
+    private val delegate: TextOutput,
+    private val shouldNormalizeCuePositionProvider: () -> Boolean
+) : TextOutput {
+
+    override fun onCues(cueGroup: CueGroup) {
+        if (!shouldNormalizeCuePositionProvider()) {
+            delegate.onCues(cueGroup)
+            return
+        }
+        delegate.onCues(CueGroup(cueGroup.cues.map(::normalizeCuePosition), cueGroup.presentationTimeUs))
+    }
+
+    @Deprecated("Uses the deprecated Media3 callback for text outputs.")
+    override fun onCues(cues: List<Cue>) {
+        if (!shouldNormalizeCuePositionProvider()) {
+            delegate.onCues(cues)
+            return
+        }
+        delegate.onCues(cues.map(::normalizeCuePosition))
+    }
+
+    private fun normalizeCuePosition(cue: Cue): Cue {
+        if (cue.bitmap != null || cue.verticalType != Cue.TYPE_UNSET || cue.line == Cue.DIMEN_UNSET) {
+            return cue
+        }
+        return cue.buildUpon()
+            .setLine(Cue.DIMEN_UNSET, Cue.TYPE_UNSET)
+            .setLineAnchor(Cue.TYPE_UNSET)
+            .build()
     }
 }
 

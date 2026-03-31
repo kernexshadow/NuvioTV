@@ -81,6 +81,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
+    private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val itemId: String = savedStateHandle["itemId"] ?: ""
@@ -368,6 +369,7 @@ class MetaDetailsViewModel @Inject constructor(
                     }
                 }
                 // Recalculate next to watch when progress changes
+                reevaluateSeriesWatchedBadge()
                 calculateNextToWatch()
             }
         }
@@ -388,6 +390,7 @@ class MetaDetailsViewModel @Inject constructor(
                         state.copy(watchedEpisodes = watchedSet)
                     }
                 }
+                reevaluateSeriesWatchedBadge()
                 calculateNextToWatch()
             }
         }
@@ -541,17 +544,22 @@ class MetaDetailsViewModel @Inject constructor(
             .toIntOrNull()
             ?: return raw
 
-        return tmdbService.tmdbToImdb(tmdbNumericId, itemType) ?: raw
+        return tmdbService.tmdbToImdb(tmdbNumericId, itemType)
+            ?.takeIf { it.isNotBlank() }
+            ?: raw
     }
 
     private fun applyMeta(meta: Meta) {
         // Update the effective content ID so watch-progress observers pick up
         // the canonical ID (e.g. IMDB "tt0396375") instead of the navigation ID
-        // (which may be "tmdb:13836").  This also covers the reverse: if the user
-        // arrived via an IMDB catalog but progress was stored under a tmdb: key,
-        // we still try both.
+        // (which may be "tmdb:13836").  Don't downgrade from an IMDB ID to a
+        // less canonical one (e.g. tmdb:) — Trakt stores progress under IMDB.
         if (meta.id.isNotBlank() && meta.id != itemId) {
-            _effectiveContentId.value = meta.id
+            val currentIsImdb = _effectiveContentId.value.startsWith("tt")
+            val newIsImdb = meta.id.startsWith("tt")
+            if (!currentIsImdb || newIsImdb) {
+                _effectiveContentId.value = meta.id
+            }
         }
 
         val seasons = meta.videos
@@ -581,6 +589,7 @@ class MetaDetailsViewModel @Inject constructor(
         }
 
         // Calculate next to watch after meta is loaded
+        reevaluateSeriesWatchedBadge()
         calculateNextToWatch()
 
         // Start fetching trailer after meta is loaded
@@ -1180,6 +1189,38 @@ class MetaDetailsViewModel @Inject constructor(
         return videos
             .filter { it.season == season }
             .sortedBy { it.episode }
+    }
+
+    private fun reevaluateSeriesWatchedBadge() {
+        val contentId = _effectiveContentId.value
+        val meta = _uiState.value.meta ?: return
+        val isSeries = meta.apiType.equals("series", ignoreCase = true) ||
+            meta.apiType.equals("tv", ignoreCase = true)
+        if (!isSeries) return
+
+        val episodes = meta.watchableEpisodes()
+        if (episodes.isEmpty()) return
+
+        val watchedEpisodes = _uiState.value.watchedEpisodes
+        val progressMap = _uiState.value.episodeProgressMap
+
+        val allWatched = episodes.all { video ->
+            val key = video.season!! to video.episode!!
+            key in watchedEpisodes || progressMap[key]?.isCompleted() == true
+        }
+
+        val current = watchedSeriesStateHolder.fullyWatchedSeriesIds.value
+        // Include both effectiveContentId and meta.id so badges match
+        // regardless of whether the catalog uses IMDB or TMDB IDs.
+        val allIds = buildSet {
+            add(contentId)
+            meta.id.takeIf { it.isNotBlank() && it != contentId }?.let { add(it) }
+            itemId.takeIf { it.isNotBlank() && it != contentId }?.let { add(it) }
+        }
+        val updated = if (allWatched) current + allIds else current - allIds
+        if (updated != current) {
+            watchedSeriesStateHolder.updateWithValidation(updated, allIds)
+        }
     }
 
     private fun calculateNextToWatch() {
