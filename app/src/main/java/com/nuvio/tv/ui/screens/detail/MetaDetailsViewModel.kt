@@ -1203,44 +1203,10 @@ class MetaDetailsViewModel @Inject constructor(
 
         val watchedEpisodes = _uiState.value.watchedEpisodes
         val progressMap = _uiState.value.episodeProgressMap
+
         val allWatched = episodes.all { video ->
             val key = video.season!! to video.episode!!
             key in watchedEpisodes || progressMap[key]?.isCompleted() == true
-        }
-
-        // If not all episodes are watched, check if the unwatched ones are only
-        // from a season whose first episode hasn't aired yet. In that case the
-        // user has watched everything available — keep the badge.
-        val effectivelyWatched = if (!allWatched) {
-            val today = LocalDate.now()
-            val unwatchedEpisodes = episodes.filter { video ->
-                val key = video.season!! to video.episode!!
-                key !in watchedEpisodes && progressMap[key]?.isCompleted() != true
-            }
-            val unwatchedSeasons = unwatchedEpisodes.mapNotNull { it.season }.distinct()
-            val watchedSeasons = episodes
-                .filter { video ->
-                    val key = video.season!! to video.episode!!
-                    key in watchedEpisodes || progressMap[key]?.isCompleted() == true
-                }
-                .mapNotNull { it.season }
-                .distinct()
-            // Only grant badge if: user watched at least one season, and every
-            // unwatched season's first episode hasn't aired yet.
-            watchedSeasons.isNotEmpty() && unwatchedSeasons.all { season ->
-                season !in watchedSeasons && run {
-                    val firstEpisode = episodes
-                        .filter { it.season == season }
-                        .minByOrNull { it.episode ?: Int.MAX_VALUE }
-                    val released = firstEpisode?.released?.substringBefore('T')
-                    if (released.isNullOrBlank()) false
-                    else try {
-                        LocalDate.parse(released, java.time.format.DateTimeFormatter.ISO_LOCAL_DATE).isAfter(today)
-                    } catch (_: Exception) { false }
-                }
-            }
-        } else {
-            true
         }
 
         val current = watchedSeriesStateHolder.fullyWatchedSeriesIds.value
@@ -1251,7 +1217,7 @@ class MetaDetailsViewModel @Inject constructor(
             meta.id.takeIf { it.isNotBlank() && it != contentId }?.let { add(it) }
             itemId.takeIf { it.isNotBlank() && it != contentId }?.let { add(it) }
         }
-        val updated = if (effectivelyWatched) current + allIds else current - allIds
+        val updated = if (allWatched) current + allIds else current - allIds
         if (updated != current) {
             watchedSeriesStateHolder.updateWithValidation(updated, allIds)
         }
