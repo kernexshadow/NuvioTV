@@ -544,7 +544,9 @@ class MetaDetailsViewModel @Inject constructor(
             .toIntOrNull()
             ?: return raw
 
-        return tmdbService.tmdbToImdb(tmdbNumericId, itemType) ?: raw
+        return tmdbService.tmdbToImdb(tmdbNumericId, itemType)
+            ?.takeIf { it.isNotBlank() }
+            ?: raw
     }
 
     private fun applyMeta(meta: Meta) {
@@ -1216,7 +1218,7 @@ class MetaDetailsViewModel @Inject constructor(
         }
         val updated = if (allWatched) current + allIds else current - allIds
         if (updated != current) {
-            watchedSeriesStateHolder.update(updated)
+            watchedSeriesStateHolder.updateWithValidation(updated, allIds)
         }
     }
 
