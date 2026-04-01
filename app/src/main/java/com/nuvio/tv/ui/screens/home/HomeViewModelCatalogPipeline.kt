@@ -456,7 +456,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     val tmdbEnabledForCurrentLayout = tmdbSettings.enabled &&
         (currentLayout != HomeLayout.MODERN || tmdbSettings.modernHomeEnabled)
     val shouldUseEnrichedHeroItems = tmdbEnabledForCurrentLayout &&
-        (tmdbSettings.useArtwork || tmdbSettings.useBasicInfo || tmdbSettings.useDetails)
+        (tmdbSettings.useArtwork || tmdbSettings.useBasicInfo || tmdbSettings.useDetails || tmdbSettings.useReleaseDates)
 
     if (shouldUseEnrichedHeroItems && baseHeroItems.isNotEmpty()) {
         heroEnrichmentJob?.cancel()

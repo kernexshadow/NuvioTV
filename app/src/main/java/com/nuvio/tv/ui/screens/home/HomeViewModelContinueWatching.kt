@@ -885,22 +885,24 @@ private suspend fun HomeViewModel.enrichInProgressItem(
         )
     } else null
     val imdbRating = tmdbData?.rating?.toFloat() ?: meta.imdbRating
-    val enrichedEpTitle = tmdbData?.episodeTitle
-        ?: video?.title?.takeIf { it.isNotBlank() }
-        ?: item.progress.episodeTitle
+    val settings = currentTmdbSettings
     return item.copy(
         progress = item.progress.copy(
-            name = tmdbData?.name ?: meta.name,
-            poster = item.progress.poster ?: meta.poster.normalizeImageUrl() ?: tmdbData?.poster.normalizeImageUrl(),
-            backdrop = tmdbData?.backdrop.normalizeImageUrl() ?: meta.backdropUrl.normalizeImageUrl() ?: item.progress.backdrop,
-            logo = tmdbData?.logo.normalizeImageUrl() ?: meta.logo.normalizeImageUrl() ?: item.progress.logo,
-            episodeTitle = enrichedEpTitle
+            name = if (settings.useBasicInfo) tmdbData?.name ?: meta.name else meta.name,
+            poster = item.progress.poster ?: meta.poster.normalizeImageUrl() ?: if (settings.useArtwork) tmdbData?.poster.normalizeImageUrl() else null,
+            backdrop = if (settings.useArtwork) tmdbData?.backdrop.normalizeImageUrl() ?: meta.backdropUrl.normalizeImageUrl() ?: item.progress.backdrop else meta.backdropUrl.normalizeImageUrl() ?: item.progress.backdrop,
+            logo = if (settings.useArtwork) tmdbData?.logo.normalizeImageUrl() ?: meta.logo.normalizeImageUrl() ?: item.progress.logo else meta.logo.normalizeImageUrl() ?: item.progress.logo,
+            episodeTitle = if (settings.useEpisodes) tmdbData?.episodeTitle
+                ?: video?.title?.takeIf { it.isNotBlank() }
+                ?: item.progress.episodeTitle
+            else video?.title?.takeIf { it.isNotBlank() } ?: item.progress.episodeTitle
         ),
-        episodeDescription = tmdbData?.overview
+        episodeDescription = if (settings.useEpisodes) tmdbData?.overview
             ?: video?.overview?.takeIf { it.isNotBlank() }
-            ?: item.episodeDescription,
-        episodeThumbnail = tmdbData?.thumbnail ?: video?.thumbnail.normalizeImageUrl() ?: item.episodeThumbnail,
-        episodeImdbRating = imdbRating,
+            ?: item.episodeDescription
+        else video?.overview?.takeIf { it.isNotBlank() } ?: item.episodeDescription,
+        episodeThumbnail = if (settings.useEpisodes) tmdbData?.thumbnail ?: video?.thumbnail.normalizeImageUrl() ?: item.episodeThumbnail else video?.thumbnail.normalizeImageUrl() ?: item.episodeThumbnail,
+        episodeImdbRating = if (settings.useBasicInfo) imdbRating else meta.imdbRating,
         genres = genres,
         releaseInfo = releaseInfo
     )
@@ -938,25 +940,28 @@ private suspend fun HomeViewModel.enrichNextUpItem(
         hasAired = hasAired
     )
 
+    val settings = currentTmdbSettings
     val enrichedInfo = item.info.copy(
-        name = tmdbData?.name ?: meta.name,
-        poster = item.info.poster ?: meta.poster.normalizeImageUrl() ?: tmdbData?.poster,
-        backdrop = tmdbData?.backdrop ?: meta.backdropUrl.normalizeImageUrl() ?: item.info.backdrop,
-        logo = tmdbData?.logo ?: meta.logo.normalizeImageUrl() ?: item.info.logo,
+        name = if (settings.useBasicInfo) tmdbData?.name ?: meta.name else meta.name,
+        poster = item.info.poster ?: meta.poster.normalizeImageUrl() ?: if (settings.useArtwork) tmdbData?.poster else null,
+        backdrop = if (settings.useArtwork) tmdbData?.backdrop ?: meta.backdropUrl.normalizeImageUrl() ?: item.info.backdrop else meta.backdropUrl.normalizeImageUrl() ?: item.info.backdrop,
+        logo = if (settings.useArtwork) tmdbData?.logo ?: meta.logo.normalizeImageUrl() ?: item.info.logo else meta.logo.normalizeImageUrl() ?: item.info.logo,
         season = video?.season ?: item.info.season,
         episode = video?.episode ?: item.info.episode,
         videoId = video?.id?.takeIf { it.isNotBlank() } ?: item.info.videoId,
-        episodeTitle = tmdbData?.episodeTitle
+        episodeTitle = if (settings.useEpisodes) tmdbData?.episodeTitle
             ?: video?.title?.takeIf { it.isNotBlank() }
-            ?: item.info.episodeTitle,
-        episodeDescription = tmdbData?.overview
+            ?: item.info.episodeTitle
+        else video?.title?.takeIf { it.isNotBlank() } ?: item.info.episodeTitle,
+        episodeDescription = if (settings.useEpisodes) tmdbData?.overview
             ?: video?.overview?.takeIf { it.isNotBlank() }
-            ?: item.info.episodeDescription,
-        thumbnail = tmdbData?.thumbnail ?: video?.thumbnail.normalizeImageUrl() ?: item.info.thumbnail,
+            ?: item.info.episodeDescription
+        else video?.overview?.takeIf { it.isNotBlank() } ?: item.info.episodeDescription,
+        thumbnail = if (settings.useEpisodes) tmdbData?.thumbnail ?: video?.thumbnail.normalizeImageUrl() ?: item.info.thumbnail else video?.thumbnail.normalizeImageUrl() ?: item.info.thumbnail,
         released = released,
         hasAired = hasAired,
         airDateLabel = if (hasAired || releaseDate == null) null else formatEpisodeAirDateLabel(releaseDate),
-        imdbRating = tmdbData?.rating?.toFloat() ?: meta.imdbRating ?: item.info.imdbRating,
+        imdbRating = if (settings.useBasicInfo) tmdbData?.rating?.toFloat() ?: meta.imdbRating ?: item.info.imdbRating else meta.imdbRating ?: item.info.imdbRating,
         genres = meta.genres.take(3).ifEmpty { item.info.genres },
         releaseInfo = meta.releaseInfo?.takeIf { it.isNotBlank() } ?: item.info.releaseInfo,
         sortTimestamp = releaseState.sortTimestamp,
@@ -1393,13 +1398,22 @@ private suspend fun HomeViewModel.resolveContinueWatchingTmdbData(
 
     if (!isSeriesTypeCW(progress.contentType)) {
         val startedAtMs = SystemClock.elapsedRealtime()
-        val movieMeta = runCatching {
-            tmdbMetadataService.fetchEnrichment(
-                tmdbId = tmdbId,
-                contentType = ContentType.MOVIE,
-                language = language
-            )
-        }.getOrNull()
+        val mdbEnabled = currentMdbListSettings.enabled && currentMdbListSettings.apiKey.isNotBlank()
+        val (movieMeta, mdbImdbRating) = coroutineScope {
+            val movieDeferred = async {
+                runCatching {
+                    tmdbMetadataService.fetchEnrichment(
+                        tmdbId = tmdbId,
+                        contentType = ContentType.MOVIE,
+                        language = language
+                    )
+                }.getOrNull()
+            }
+            val mdbDeferred = if (mdbEnabled) async {
+                runCatching { mdbListRepository.getImdbRatingForItem(progress.contentId, progress.contentType) }.getOrNull()
+            } else null
+            movieDeferred.await() to mdbDeferred?.await()
+        }
         debug?.recordTmdbCall(
             kind = "in-progress-movie-enrichment",
             elapsedMs = SystemClock.elapsedRealtime() - startedAtMs,
@@ -1416,40 +1430,49 @@ private suspend fun HomeViewModel.resolveContinueWatchingTmdbData(
                 airDate = null,
                 overview = it.description?.trim()?.takeIf { t -> t.isNotEmpty() },
                 showDescription = null,
-                rating = it.rating
+                rating = mdbImdbRating ?: it.rating
             )
         }
     }
 
     val episodeStartedAtMs = SystemClock.elapsedRealtime()
-    val episodeMeta = runCatching {
-        tmdbMetadataService
-            .fetchEpisodeEnrichment(
-                tmdbId = tmdbId,
-                seasonNumbers = listOf(season),
-                language = language
-            )[season to episode]
-    }.getOrNull()
+    val mdbEnabled = currentMdbListSettings.enabled && currentMdbListSettings.apiKey.isNotBlank()
+
+    val (episodeMeta, showMeta, mdbImdbRating) = coroutineScope {
+        val episodeDeferred = async {
+            runCatching {
+                tmdbMetadataService.fetchEpisodeEnrichment(
+                    tmdbId = tmdbId,
+                    seasonNumbers = listOf(season),
+                    language = language
+                )[season to episode]
+            }.getOrNull()
+        }
+        val showDeferred = async {
+            runCatching {
+                tmdbMetadataService.fetchEnrichment(
+                    tmdbId = tmdbId,
+                    contentType = ContentType.SERIES,
+                    language = language
+                )
+            }.getOrNull()
+        }
+        val mdbDeferred = if (mdbEnabled) async {
+            runCatching { mdbListRepository.getImdbRatingForItem(progress.contentId, progress.contentType) }.getOrNull()
+        } else null
+        Triple(episodeDeferred.await(), showDeferred.await(), mdbDeferred?.await())
+    }
+
     debug?.recordTmdbCall(
         kind = "next-up-episode-enrichment",
         elapsedMs = SystemClock.elapsedRealtime() - episodeStartedAtMs,
         success = episodeMeta != null
     )
-
-    val showStartedAtMs = SystemClock.elapsedRealtime()
-    val showMeta = runCatching {
-        tmdbMetadataService.fetchEnrichment(
-            tmdbId = tmdbId,
-            contentType = ContentType.SERIES,
-            language = language
-        )
-    }.getOrNull()
     debug?.recordTmdbCall(
         kind = "next-up-show-enrichment",
-        elapsedMs = SystemClock.elapsedRealtime() - showStartedAtMs,
+        elapsedMs = SystemClock.elapsedRealtime() - episodeStartedAtMs,
         success = showMeta != null
     )
-
     val fallback = NextUpTmdbData(
         thumbnail = episodeMeta?.thumbnail.normalizeImageUrl(),
         backdrop = showMeta?.backdrop.normalizeImageUrl(),
@@ -1460,7 +1483,7 @@ private suspend fun HomeViewModel.resolveContinueWatchingTmdbData(
         airDate = episodeMeta?.airDate?.trim()?.takeIf { it.isNotEmpty() },
         overview = episodeMeta?.overview?.trim()?.takeIf { it.isNotEmpty() },
         showDescription = showMeta?.description?.trim()?.takeIf { it.isNotEmpty() },
-        rating = showMeta?.rating
+        rating = mdbImdbRating ?: showMeta?.rating
     )
 
     return if (
