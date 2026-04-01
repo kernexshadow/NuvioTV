@@ -1,5 +1,7 @@
 package com.nuvio.tv.data.repository
 
+import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.remote.api.TraktApi
 import com.nuvio.tv.data.remote.dto.trakt.TraktCommentDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktIdsDto
@@ -7,6 +9,9 @@ import com.nuvio.tv.data.remote.dto.trakt.TraktSearchResultDto
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.TraktCommentReview
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -41,7 +46,9 @@ data class TraktCommentsPage(
 @Singleton
 class TraktCommentsService @Inject constructor(
     private val traktApi: TraktApi,
-    private val traktAuthService: TraktAuthService
+    private val traktAuthService: TraktAuthService,
+    private val traktAuthDataStore: TraktAuthDataStore,
+    private val profileManager: ProfileManager
 ) {
     private data class TimedCache(
         val pages: Map<Int, List<TraktCommentReview>>,
@@ -52,6 +59,14 @@ class TraktCommentsService @Inject constructor(
 
     private val cacheMutex = Mutex()
     private val cache = mutableMapOf<String, TimedCache>()
+
+    val authAvailableForComments: Flow<Boolean> = combine(
+        profileManager.activeProfileId,
+        traktAuthDataStore.isAuthenticated,
+        traktAuthDataStore.isAuthenticated(1)
+    ) { activeProfileId, activeAuthenticated, primaryAuthenticated ->
+        activeAuthenticated || (activeProfileId != 1 && primaryAuthenticated)
+    }.distinctUntilChanged()
 
     suspend fun getCommentsPage(
         meta: Meta,
@@ -93,7 +108,7 @@ class TraktCommentsService @Inject constructor(
             }
         }
 
-        val response = traktAuthService.executeAuthorizedRequest { authHeader ->
+        val response = executeCommentsAuthorizedRequest { authHeader ->
             when (target.type) {
                 TraktCommentsType.MOVIE -> traktApi.getMovieComments(
                     authorization = authHeader,
@@ -153,7 +168,7 @@ class TraktCommentsService @Inject constructor(
         }
 
         val tmdbId = resolveTmdbCandidate(meta = meta, fallbackItemId = fallbackItemId) ?: return null
-        val searchResponse = traktAuthService.executeAuthorizedRequest { authHeader ->
+        val searchResponse = executeCommentsAuthorizedRequest { authHeader ->
             traktApi.searchById(
                 authorization = authHeader,
                 idType = "tmdb",
@@ -213,6 +228,25 @@ class TraktCommentsService @Inject constructor(
         if (metaIds.tmdb != null) return metaIds.tmdb
 
         return parseContentIds(fallbackItemId).tmdb
+    }
+
+    private suspend fun <T> executeCommentsAuthorizedRequest(
+        call: suspend (authorizationHeader: String) -> retrofit2.Response<T>
+    ): retrofit2.Response<T>? {
+        val activeProfileId = profileManager.activeProfileId.value
+        val activeState = traktAuthDataStore.getState(activeProfileId)
+        if (activeState.isAuthenticated) {
+            return traktAuthService.executeAuthorizedRequest(call)
+        }
+
+        if (activeProfileId != 1) {
+            val primaryState = traktAuthDataStore.getState(1)
+            if (primaryState.isAuthenticated) {
+                return traktAuthService.executeAuthorizedRequestAsProfile(1, call)
+            }
+        }
+
+        return null
     }
 }
 

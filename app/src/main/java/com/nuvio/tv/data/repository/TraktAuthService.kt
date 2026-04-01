@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.BuildConfig
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.AuthSessionNoticeDataStore
 import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktAuthState
@@ -35,7 +36,8 @@ sealed interface TraktTokenPollResult {
 class TraktAuthService @Inject constructor(
     private val traktApi: TraktApi,
     private val traktAuthDataStore: TraktAuthDataStore,
-    private val authSessionNoticeDataStore: AuthSessionNoticeDataStore
+    private val authSessionNoticeDataStore: AuthSessionNoticeDataStore,
+    private val profileManager: ProfileManager
 ) {
     private val refreshLeewaySeconds = 60L
     private val writeRequestMutex = Mutex()
@@ -118,6 +120,8 @@ class TraktAuthService @Inject constructor(
     }
 
     suspend fun getCurrentAuthState(): TraktAuthState = traktAuthDataStore.state.first()
+
+    suspend fun getAuthState(profileId: Int): TraktAuthState = traktAuthDataStore.getState(profileId)
 
     suspend fun startDeviceAuth(): Result<TraktDeviceCodeResponseDto> {
         if (!hasRequiredCredentials()) {
@@ -211,17 +215,21 @@ class TraktAuthService @Inject constructor(
     }
 
     suspend fun refreshTokenIfNeeded(force: Boolean = false): Boolean {
+        return refreshTokenIfNeeded(profileId = profileManager.activeProfileId.value, force = force)
+    }
+
+    suspend fun refreshTokenIfNeeded(profileId: Int, force: Boolean = false): Boolean {
         if (!hasRequiredCredentials()) return false
 
         return tokenRefreshMutex.withLock {
-            val state = getCurrentAuthState()
+            val state = traktAuthDataStore.getState(profileId)
             val refreshToken = state.refreshToken ?: return@withLock false
             if (!force && !isTokenExpiredOrExpiring(state)) {
-                trace("refreshTokenIfNeeded: token still valid, skip refresh")
+                trace("refreshTokenIfNeeded[p$profileId]: token still valid, skip refresh")
                 return@withLock true
             }
 
-            trace("refreshTokenIfNeeded: refreshing token (force=$force)")
+            trace("refreshTokenIfNeeded[p$profileId]: refreshing token (force=$force)")
             val response = try {
                 traktApi.refreshToken(
                     TraktRefreshTokenRequestDto(
@@ -232,24 +240,24 @@ class TraktAuthService @Inject constructor(
                     )
                 )
             } catch (e: IOException) {
-                Log.w("TraktAuthService", "Network error while refreshing token", e)
+                Log.w("TraktAuthService", "Network error while refreshing token for profile $profileId", e)
                 return@withLock false
             }
 
             val tokenBody = response.body()
             if (!response.isSuccessful || tokenBody == null) {
-                trace("refreshTokenIfNeeded: failed code=${response.code()}")
+                trace("refreshTokenIfNeeded[p$profileId]: failed code=${response.code()}")
                 if (response.code() == 401 || response.code() == 403) {
                     authSessionNoticeDataStore.markUnexpectedTraktLogoutIfNeeded()
-                    traktAuthDataStore.clearAuth()
-                    tripCircuit("Token refresh returned ${response.code()}")
+                    traktAuthDataStore.clearAuth(profileId)
+                    tripCircuit("Token refresh returned ${response.code()} for profile $profileId")
                 }
                 return@withLock false
             }
 
-            traktAuthDataStore.saveToken(tokenBody)
+            traktAuthDataStore.saveToken(tokenBody, profileId = profileId)
             authSessionNoticeDataStore.markTraktAuthenticated()
-            trace("refreshTokenIfNeeded: success")
+            trace("refreshTokenIfNeeded[p$profileId]: success")
             true
         }
     }
@@ -368,6 +376,92 @@ class TraktAuthService @Inject constructor(
         }
     }
 
+    suspend fun <T> executeAuthorizedRequestAsProfile(
+        profileId: Int,
+        call: suspend (authorizationHeader: String) -> Response<T>
+    ): Response<T>? {
+        if (profileId == profileManager.activeProfileId.value) {
+            return executeAuthorizedRequest(call)
+        }
+        if (isCircuitOpen()) {
+            trace("authorized request[p$profileId]: circuit breaker is OPEN, skipping request")
+            return null
+        }
+
+        var token = getValidAccessToken(profileId) ?: return null
+        var retriedAuth = false
+        var retriedRateLimit = false
+        var retriedTransient = false
+        var retriedNetwork = false
+
+        while (true) {
+            acquireGetRateSlot()
+
+            val response = try {
+                call("Bearer $token")
+            } catch (e: IOException) {
+                if (!retriedNetwork) {
+                    trace("authorized request[p$profileId]: network error, retrying once")
+                    delay(1_000L)
+                    retriedNetwork = true
+                    continue
+                }
+                Log.w("TraktAuthService", "Network error during authorized request for profile $profileId", e)
+                return null
+            }
+
+            val code = response.code()
+
+            if (response.isSuccessful) {
+                resetCircuit()
+                return response
+            }
+
+            if (code == 403) {
+                tripCircuit("403 Forbidden (invalid API key or unapproved app) for ${responseTarget(response)}")
+                return response
+            }
+
+            if (code == 423) {
+                tripCircuit("423 Locked User Account for ${responseTarget(response)}")
+                return response
+            }
+
+            if (code in nonRetryableStatusCodes) {
+                trace("authorized request[p$profileId]: non-retryable $code for ${responseTarget(response)}")
+                return response
+            }
+
+            if (code == 401 && !retriedAuth) {
+                val refreshed = refreshTokenIfNeeded(profileId = profileId, force = true)
+                if (refreshed) {
+                    trace("authorized request[p$profileId]: 401 for ${responseTarget(response)}, retrying after token refresh")
+                    token = traktAuthDataStore.getState(profileId).accessToken ?: return response
+                    retriedAuth = true
+                    continue
+                }
+                tripCircuit("401 Unauthorized and token refresh failed for ${responseTarget(response)} (profile $profileId)")
+                return response
+            }
+
+            if (code == 429 && !retriedRateLimit) {
+                val waitSeconds = delayForRetryAfter(response = response, fallbackSeconds = 2L, maxSeconds = 60L)
+                trace("authorized request[p$profileId]: 429 for ${responseTarget(response)}, retrying in ${waitSeconds}s")
+                retriedRateLimit = true
+                continue
+            }
+
+            if (code in transientRetryStatusCodes && !retriedTransient) {
+                val waitSeconds = delayForRetryAfter(response = response, fallbackSeconds = 30L, maxSeconds = 30L)
+                trace("authorized request[p$profileId]: transient $code for ${responseTarget(response)}, retrying in ${waitSeconds}s")
+                retriedTransient = true
+                continue
+            }
+
+            return response
+        }
+    }
+
     suspend fun <T> executeAuthorizedWriteRequest(
         call: suspend (authorizationHeader: String) -> Response<T>
     ): Response<T>? {
@@ -380,11 +474,11 @@ class TraktAuthService @Inject constructor(
         return executeAuthorizedRequest(call)
     }
 
-    private suspend fun getValidAccessToken(): String? {
-        val state = getCurrentAuthState()
+    private suspend fun getValidAccessToken(profileId: Int = profileManager.activeProfileId.value): String? {
+        val state = traktAuthDataStore.getState(profileId)
         if (state.accessToken.isNullOrBlank()) return null
-        if (refreshTokenIfNeeded(force = false)) {
-            return getCurrentAuthState().accessToken
+        if (refreshTokenIfNeeded(profileId = profileId, force = false)) {
+            return traktAuthDataStore.getState(profileId).accessToken
         }
         return null
     }

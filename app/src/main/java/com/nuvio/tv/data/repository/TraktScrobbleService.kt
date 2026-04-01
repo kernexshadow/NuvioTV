@@ -7,7 +7,6 @@ import com.nuvio.tv.data.remote.dto.trakt.TraktIdsDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktMovieDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktScrobbleRequestDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktShowDto
-import com.nuvio.tv.core.profile.ProfileManager
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
@@ -41,8 +40,7 @@ sealed interface TraktScrobbleItem {
 class TraktScrobbleService @Inject constructor(
     private val traktApi: TraktApi,
     private val traktAuthService: TraktAuthService,
-    private val traktProgressService: TraktProgressService,
-    private val profileManager: ProfileManager
+    private val traktProgressService: TraktProgressService
 ) {
     private data class ScrobbleStamp(
         val action: String,
@@ -72,7 +70,6 @@ class TraktScrobbleService @Inject constructor(
         item: TraktScrobbleItem,
         progressPercent: Float
     ) {
-        if (profileManager.activeProfileId.value != 1) return
         if (!traktAuthService.getCurrentAuthState().isAuthenticated) return
         if (!traktAuthService.hasRequiredCredentials()) return
 

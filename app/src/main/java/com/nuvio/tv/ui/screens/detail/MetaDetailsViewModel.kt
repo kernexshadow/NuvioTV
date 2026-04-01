@@ -10,7 +10,6 @@ import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
-import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.repository.ImdbEpisodeRatingsRepository
@@ -75,7 +74,6 @@ class MetaDetailsViewModel @Inject constructor(
     private val watchedItemsPreferences: WatchedItemsPreferences,
     private val trailerService: TrailerService,
     private val trailerSettingsDataStore: TrailerSettingsDataStore,
-    private val traktAuthDataStore: TraktAuthDataStore,
     private val traktCommentsService: TraktCommentsService,
     private val traktRelatedService: TraktRelatedService,
     private val traktSettingsDataStore: TraktSettingsDataStore,
@@ -162,7 +160,7 @@ class MetaDetailsViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 traktSettingsDataStore.showMetaComments,
-                traktAuthDataStore.isAuthenticated
+                traktCommentsService.authAvailableForComments
             ) { enabled, authenticated ->
                 enabled to authenticated
             }

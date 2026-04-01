@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.repository
 
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.remote.api.TraktApi
 import com.nuvio.tv.data.remote.dto.trakt.TraktCreateOrUpdateListRequestDto
@@ -25,6 +26,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -44,7 +46,8 @@ import javax.inject.Singleton
 class TraktLibraryService @Inject constructor(
     private val traktApi: TraktApi,
     private val traktAuthService: TraktAuthService,
-    private val metaRepository: MetaRepository
+    private val metaRepository: MetaRepository,
+    private val profileManager: ProfileManager
 ) {
     private data class LibraryMetadata(
         val name: String?,
@@ -78,6 +81,26 @@ class TraktLibraryService @Inject constructor(
     private val metadataHydrationLimit = 500
     private val listFetchConcurrency = 3
     private val metadataFetchSemaphore = Semaphore(5)
+    @Volatile
+    private var observedProfileId: Int? = null
+
+    init {
+        scope.launch {
+            profileManager.activeProfileId
+                .collectLatest { profileId ->
+                    if (observedProfileId == null) {
+                        observedProfileId = profileId
+                        return@collectLatest
+                    }
+                    if (observedProfileId == profileId) return@collectLatest
+                    observedProfileId = profileId
+                    snapshotState.value = Snapshot()
+                    metadataState.value = emptyMap()
+                    lastRefreshMs = 0L
+                    refresh(force = true)
+                }
+        }
+    }
 
     fun observeListTabs(): Flow<List<LibraryListTab>> {
         return snapshotState
