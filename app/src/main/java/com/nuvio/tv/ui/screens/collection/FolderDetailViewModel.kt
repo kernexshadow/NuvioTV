@@ -13,6 +13,9 @@ import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.repository.AddonRepository
+import com.nuvio.tv.ui.screens.home.GridItem
+import com.nuvio.tv.ui.screens.home.HomeRow
+import com.nuvio.tv.ui.screens.home.HomeUiState
 import com.nuvio.tv.domain.repository.CatalogRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,9 +31,12 @@ data class FolderDetailUiState(
     val collectionTitle: String = "",
     val viewMode: FolderViewMode = FolderViewMode.TABBED_GRID,
     val homeLayout: HomeLayout = HomeLayout.MODERN,
+    val modernLandscapePostersEnabled: Boolean = false,
+    val modernHeroFullScreenBackdropEnabled: Boolean = false,
     val tabs: List<FolderTab> = emptyList(),
     val selectedTabIndex: Int = 0,
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val followLayoutHomeState: HomeUiState? = null
 )
 
 data class FolderTab(
@@ -88,6 +94,8 @@ class FolderDetailViewModel @Inject constructor(
 
             val addons = addonRepository.getInstalledAddons().first()
             val homeLayout = layoutPreferenceDataStore.selectedLayout.first()
+            val modernLandscapePosters = layoutPreferenceDataStore.modernLandscapePostersEnabled.first()
+            val modernFullScreenBackdrop = layoutPreferenceDataStore.modernHeroFullScreenBackdropEnabled.first()
             val showAll = (collection?.showAllTab ?: true) && folder.catalogSources.size >= 2
 
             val sourceTabs = folder.catalogSources.map { source ->
@@ -109,6 +117,8 @@ class FolderDetailViewModel @Inject constructor(
                     collectionTitle = collection?.title ?: "",
                     viewMode = collection?.viewMode ?: FolderViewMode.TABBED_GRID,
                     homeLayout = homeLayout,
+                    modernLandscapePostersEnabled = modernLandscapePosters,
+                    modernHeroFullScreenBackdropEnabled = modernFullScreenBackdrop,
                     tabs = tabs,
                     isLoading = false
                 )
@@ -151,6 +161,53 @@ class FolderDetailViewModel @Inject constructor(
         }
     }
 
+    private fun rebuildFollowLayoutState() {
+        val state = _uiState.value
+        if (state.viewMode != FolderViewMode.FOLLOW_LAYOUT) return
+        val sourceTabs = state.tabs.filter { !it.isAllTab }
+        val loadedRows = sourceTabs.mapNotNull { it.catalogRow }
+        if (loadedRows.isEmpty()) return
+
+        val homeRows = loadedRows.map { HomeRow.Catalog(it) }
+        val gridItems = buildList<GridItem> {
+            loadedRows.forEach { row ->
+                add(GridItem.SectionDivider(
+                    catalogName = row.catalogName,
+                    catalogId = row.catalogId,
+                    addonBaseUrl = row.addonBaseUrl,
+                    addonId = row.addonId,
+                    type = row.apiType
+                ))
+                row.items.forEach { item ->
+                    add(GridItem.Content(
+                        item = item,
+                        addonBaseUrl = row.addonBaseUrl,
+                        catalogId = row.catalogId,
+                        catalogName = row.catalogName
+                    ))
+                }
+            }
+        }
+
+        val anyLoading = sourceTabs.any { it.isLoading }
+        _uiState.update { s ->
+            s.copy(followLayoutHomeState = HomeUiState(
+                catalogRows = loadedRows,
+                homeRows = homeRows,
+                gridItems = gridItems,
+                heroItems = emptyList(),
+                heroSectionEnabled = false,
+                isLoading = anyLoading,
+                homeLayout = s.homeLayout,
+                modernLandscapePostersEnabled = s.modernLandscapePostersEnabled,
+                modernHeroFullScreenBackdropEnabled = s.modernHeroFullScreenBackdropEnabled,
+                catalogAddonNameEnabled = false,
+                catalogTypeSuffixEnabled = true,
+                posterLabelsEnabled = true
+            ))
+        }
+    }
+
     private fun roundRobinMerge(lists: List<List<MetaPreview>>): List<MetaPreview> {
         val result = mutableListOf<MetaPreview>()
         val seen = mutableSetOf<String>()
@@ -182,12 +239,15 @@ class FolderDetailViewModel @Inject constructor(
                 return@launch
             }
 
+            val catalog = addon.catalogs.find { it.id == source.catalogId && it.apiType == source.type }
+            val catalogName = catalog?.name ?: source.catalogId
+
             catalogRepository.getCatalog(
                 addonBaseUrl = addon.baseUrl,
                 addonId = addon.id,
                 addonName = addon.displayName,
                 catalogId = source.catalogId,
-                catalogName = source.catalogId,
+                catalogName = catalogName,
                 type = source.type,
                 skip = 0
             ).collect { result ->
@@ -204,6 +264,7 @@ class FolderDetailViewModel @Inject constructor(
                             state.copy(tabs = tabs)
                         }
                         rebuildAllTab()
+                        rebuildFollowLayoutState()
                     }
                     is NetworkResult.Error -> {
                         _uiState.update { state ->
@@ -214,6 +275,7 @@ class FolderDetailViewModel @Inject constructor(
                             state.copy(tabs = tabs)
                         }
                         rebuildAllTab()
+                        rebuildFollowLayoutState()
                     }
                     NetworkResult.Loading -> {}
                 }

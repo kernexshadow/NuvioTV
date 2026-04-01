@@ -45,6 +45,12 @@ import com.nuvio.tv.ui.components.CatalogRowSection
 import com.nuvio.tv.ui.components.ContentCard
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.PosterCardDefaults
+import com.nuvio.tv.ui.components.PosterCardStyle
+import com.nuvio.tv.ui.screens.home.ClassicHomeContent
+import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
+import com.nuvio.tv.ui.screens.home.GridHomeContent
+import com.nuvio.tv.ui.screens.home.HomeScreenFocusState
+import com.nuvio.tv.ui.screens.home.ModernHomeContent
 import com.nuvio.tv.ui.theme.NuvioColors
 
 @OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -71,33 +77,31 @@ fun FolderDetailScreen(
         return
     }
 
-    val effectiveViewMode = when (uiState.viewMode) {
-        FolderViewMode.FOLLOW_LAYOUT -> when (uiState.homeLayout) {
-            HomeLayout.CLASSIC -> FolderViewMode.ROWS
-            HomeLayout.GRID -> FolderViewMode.TABBED_GRID
-            HomeLayout.MODERN -> FolderViewMode.ROWS
-        }
-        else -> uiState.viewMode
-    }
+    if (uiState.viewMode == FolderViewMode.FOLLOW_LAYOUT) {
+        FollowLayoutContent(
+            uiState = uiState,
+            onNavigateToDetail = onNavigateToDetail
+        )
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 24.dp)
+        ) {
+            FolderHeader(folder = folder)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 24.dp)
-    ) {
-        FolderHeader(folder = folder)
-
-        when (effectiveViewMode) {
-            FolderViewMode.TABBED_GRID -> TabbedGridContent(
-                uiState = uiState,
-                onSelectTab = viewModel::selectTab,
-                onNavigateToDetail = onNavigateToDetail
-            )
-            FolderViewMode.ROWS -> RowsContent(
-                uiState = uiState,
-                onNavigateToDetail = onNavigateToDetail
-            )
-            FolderViewMode.FOLLOW_LAYOUT -> {} // resolved above, won't reach here
+            when (uiState.viewMode) {
+                FolderViewMode.TABBED_GRID -> TabbedGridContent(
+                    uiState = uiState,
+                    onSelectTab = viewModel::selectTab,
+                    onNavigateToDetail = onNavigateToDetail
+                )
+                FolderViewMode.ROWS -> RowsContent(
+                    uiState = uiState,
+                    onNavigateToDetail = onNavigateToDetail
+                )
+                FolderViewMode.FOLLOW_LAYOUT -> {} // handled above
+            }
         }
     }
 }
@@ -304,5 +308,76 @@ private fun RowsContent(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FollowLayoutContent(
+    uiState: FolderDetailUiState,
+    onNavigateToDetail: (String, String, String) -> Unit
+) {
+    val homeState = uiState.followLayoutHomeState
+
+    if (homeState == null || homeState.isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            LoadingIndicator()
+        }
+        return
+    }
+
+    val focusState = remember { HomeScreenFocusState() }
+    val posterCardStyle = remember {
+        PosterCardStyle(
+            width = homeState.posterCardWidthDp.dp,
+            height = homeState.posterCardHeightDp.dp,
+            cornerRadius = homeState.posterCardCornerRadiusDp.dp
+        )
+    }
+    val noOpSaveFocus: (Int, Int, Int, Int, Map<String, Int>) -> Unit = remember { { _, _, _, _, _ -> } }
+    val noOpSaveGridFocus: (Int, Int) -> Unit = remember { { _, _ -> } }
+    val noOpCwClick: (ContinueWatchingItem) -> Unit = remember { { } }
+    val noOpRemoveCw: (String, Int?, Int?, Boolean) -> Unit = remember { { _, _, _, _ -> } }
+    val noOpSeeAll: (String, String, String) -> Unit = remember { { _, _, _ -> } }
+    val noOpFolderDetail: (String, String) -> Unit = remember { { _, _ -> } }
+
+    when (uiState.homeLayout) {
+        HomeLayout.CLASSIC -> ClassicHomeContent(
+            uiState = homeState,
+            posterCardStyle = posterCardStyle,
+            focusState = focusState,
+            trailerPreviewUrls = emptyMap(),
+            trailerPreviewAudioUrls = emptyMap(),
+            onNavigateToDetail = onNavigateToDetail,
+            onContinueWatchingClick = noOpCwClick,
+            onNavigateToCatalogSeeAll = noOpSeeAll,
+            onNavigateToFolderDetail = noOpFolderDetail,
+            onRemoveContinueWatching = noOpRemoveCw,
+            onRequestTrailerPreview = { },
+            onSaveFocusState = noOpSaveFocus
+        )
+        HomeLayout.GRID -> GridHomeContent(
+            uiState = homeState,
+            gridFocusState = focusState,
+            onNavigateToDetail = onNavigateToDetail,
+            onContinueWatchingClick = noOpCwClick,
+            onNavigateToCatalogSeeAll = noOpSeeAll,
+            onNavigateToFolderDetail = noOpFolderDetail,
+            onRemoveContinueWatching = noOpRemoveCw,
+            posterCardStyle = posterCardStyle,
+            onSaveGridFocusState = noOpSaveGridFocus
+        )
+        HomeLayout.MODERN -> ModernHomeContent(
+            uiState = homeState,
+            focusState = focusState,
+            trailerPreviewUrls = emptyMap(),
+            trailerPreviewAudioUrls = emptyMap(),
+            onNavigateToDetail = onNavigateToDetail,
+            onContinueWatchingClick = noOpCwClick,
+            onRequestTrailerPreview = { _, _, _, _ -> },
+            onLoadMoreCatalog = noOpSeeAll,
+            onRemoveContinueWatching = noOpRemoveCw,
+            onNavigateToFolderDetail = noOpFolderDetail,
+            onSaveFocusState = noOpSaveFocus
+        )
     }
 }
