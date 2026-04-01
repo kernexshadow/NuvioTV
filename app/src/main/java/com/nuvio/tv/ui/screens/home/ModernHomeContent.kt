@@ -96,6 +96,7 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
+import com.nuvio.tv.domain.model.CollectionFolder
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -1074,7 +1075,29 @@ fun ModernHomeContent(
                         is ModernDisplayRow.CollectionDisplay -> {
                             CollectionRowSection(
                                 collection = displayRow.collection,
-                                onFolderClick = onNavigateToFolderDetail
+                                onFolderClick = onNavigateToFolderDetail,
+                                onFolderFocused = remember(Unit) { { collection, folder ->
+                                    val backdrop = folder.coverImageUrl?.takeIf { it.isNotBlank() }
+                                        ?: collection.backdropImageUrl?.takeIf { it.isNotBlank() }
+                                    val title = if (!folder.coverEmoji.isNullOrBlank()) {
+                                        "${folder.coverEmoji}  ${folder.title}"
+                                    } else {
+                                        folder.title
+                                    }
+                                    heroItem = HeroPreview(
+                                        title = title,
+                                        logo = null,
+                                        description = null,
+                                        contentTypeText = collection.title,
+                                        yearText = null,
+                                        imdbText = null,
+                                        genres = emptyList(),
+                                        poster = null,
+                                        backdrop = backdrop,
+                                        imageUrl = backdrop
+                                    )
+                                    activeRowKey = null
+                                } }
                             )
                         }
                     }

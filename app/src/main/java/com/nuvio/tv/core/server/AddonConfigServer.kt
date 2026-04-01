@@ -32,6 +32,9 @@ class AddonConfigServer(
     data class CollectionInfo(
         val id: String,
         val title: String,
+        val backdropImageUrl: String? = null,
+        val viewMode: String = "TABBED_GRID",
+        val showAllTab: Boolean = true,
         val folders: List<FolderInfo>
     )
 

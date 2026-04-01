@@ -8,6 +8,7 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.CollectionCatalogSource
 import com.nuvio.tv.domain.model.CollectionFolder
+import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.PosterShape
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -159,6 +160,9 @@ class CollectionsDataStore @Inject constructor(
     private data class SerializableCollection(
         val id: String,
         val title: String,
+        val backdropImageUrl: String? = null,
+        val viewMode: String = "TABBED_GRID",
+        val showAllTab: Boolean = true,
         val folders: List<SerializableFolder> = emptyList()
     )
 
@@ -183,6 +187,9 @@ class CollectionsDataStore @Inject constructor(
     private fun Collection.toSerializable() = SerializableCollection(
         id = id,
         title = title,
+        backdropImageUrl = backdropImageUrl,
+        viewMode = viewMode.name,
+        showAllTab = showAllTab,
         folders = folders.map { folder ->
             SerializableFolder(
                 id = folder.id,
@@ -205,6 +212,9 @@ class CollectionsDataStore @Inject constructor(
     private fun SerializableCollection.toDomain() = Collection(
         id = id,
         title = title,
+        backdropImageUrl = backdropImageUrl,
+        viewMode = FolderViewMode.fromString(viewMode),
+        showAllTab = showAllTab,
         folders = folders.map { folder ->
             CollectionFolder(
                 id = folder.id,

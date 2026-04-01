@@ -5,9 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.local.CollectionsDataStore
+import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.CollectionCatalogSource
 import com.nuvio.tv.domain.model.CollectionFolder
+import com.nuvio.tv.domain.model.FolderViewMode
+import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.CatalogRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,6 +26,8 @@ import javax.inject.Inject
 data class FolderDetailUiState(
     val folder: CollectionFolder? = null,
     val collectionTitle: String = "",
+    val viewMode: FolderViewMode = FolderViewMode.TABBED_GRID,
+    val homeLayout: HomeLayout = HomeLayout.MODERN,
     val tabs: List<FolderTab> = emptyList(),
     val selectedTabIndex: Int = 0,
     val isLoading: Boolean = true
@@ -32,7 +38,8 @@ data class FolderTab(
     val typeLabel: String = "",
     val catalogRow: CatalogRow? = null,
     val isLoading: Boolean = true,
-    val error: String? = null
+    val error: String? = null,
+    val isAllTab: Boolean = false
 )
 
 @HiltViewModel
@@ -40,7 +47,8 @@ class FolderDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val collectionsDataStore: CollectionsDataStore,
     private val addonRepository: AddonRepository,
-    private val catalogRepository: CatalogRepository
+    private val catalogRepository: CatalogRepository,
+    private val layoutPreferenceDataStore: LayoutPreferenceDataStore
 ) : ViewModel() {
 
     private val collectionId: String = savedStateHandle["collectionId"] ?: ""
@@ -53,6 +61,13 @@ class FolderDetailViewModel @Inject constructor(
         loadFolder()
     }
 
+    private val hasAllTab: Boolean
+        get() {
+            val state = _uiState.value
+            val folder = state.folder ?: return false
+            return state.tabs.firstOrNull()?.isAllTab == true && folder.catalogSources.size >= 2
+        }
+
     private fun loadFolder() {
         viewModelScope.launch {
             val collections = collectionsDataStore.collections.first()
@@ -64,6 +79,7 @@ class FolderDetailViewModel @Inject constructor(
                     it.copy(
                         folder = folder,
                         collectionTitle = collection?.title ?: "",
+                        viewMode = collection?.viewMode ?: FolderViewMode.TABBED_GRID,
                         isLoading = false
                     )
                 }
@@ -71,27 +87,83 @@ class FolderDetailViewModel @Inject constructor(
             }
 
             val addons = addonRepository.getInstalledAddons().first()
+            val homeLayout = layoutPreferenceDataStore.selectedLayout.first()
+            val showAll = (collection?.showAllTab ?: true) && folder.catalogSources.size >= 2
 
-            val tabs = folder.catalogSources.map { source ->
+            val sourceTabs = folder.catalogSources.map { source ->
                 val addon = addons.find { it.id == source.addonId }
                 val catalog = addon?.catalogs?.find { it.id == source.catalogId && it.apiType == source.type }
                 val (name, typeLabel) = buildTabLabels(source, catalog?.name)
                 FolderTab(label = name, typeLabel = typeLabel, isLoading = true)
             }
 
+            val tabs = if (showAll) {
+                listOf(FolderTab(label = "All", isLoading = true, isAllTab = true)) + sourceTabs
+            } else {
+                sourceTabs
+            }
+
             _uiState.update {
                 it.copy(
                     folder = folder,
                     collectionTitle = collection?.title ?: "",
+                    viewMode = collection?.viewMode ?: FolderViewMode.TABBED_GRID,
+                    homeLayout = homeLayout,
                     tabs = tabs,
                     isLoading = false
                 )
             }
 
+            // The offset for source tab indices when "All" tab is present
+            val tabOffset = if (showAll) 1 else 0
+
             folder.catalogSources.forEachIndexed { index, source ->
-                loadCatalogForTab(index, source)
+                loadCatalogForTab(index + tabOffset, source)
             }
         }
+    }
+
+    private fun rebuildAllTab() {
+        val state = _uiState.value
+        if (!hasAllTab) return
+        val sourceTabs = state.tabs.drop(1) // skip the All tab
+        val anyLoading = sourceTabs.any { it.isLoading }
+        val loadedRows = sourceTabs.mapNotNull { it.catalogRow }
+
+        if (loadedRows.isEmpty()) return
+
+        // Round-robin interleave items from all loaded catalog rows
+        val mergedItems = roundRobinMerge(loadedRows.map { it.items })
+        // Use the first loaded row as a template for the merged CatalogRow
+        val templateRow = loadedRows.first()
+        val mergedRow = templateRow.copy(
+            catalogName = "All",
+            items = mergedItems
+        )
+
+        _uiState.update { s ->
+            val tabs = s.tabs.toMutableList()
+            tabs[0] = tabs[0].copy(
+                catalogRow = mergedRow,
+                isLoading = anyLoading
+            )
+            s.copy(tabs = tabs)
+        }
+    }
+
+    private fun roundRobinMerge(lists: List<List<MetaPreview>>): List<MetaPreview> {
+        val result = mutableListOf<MetaPreview>()
+        val seen = mutableSetOf<String>()
+        val maxSize = lists.maxOfOrNull { it.size } ?: 0
+        for (i in 0 until maxSize) {
+            for (list in lists) {
+                val item = list.getOrNull(i) ?: continue
+                if (seen.add(item.id)) {
+                    result.add(item)
+                }
+            }
+        }
+        return result
     }
 
     private fun loadCatalogForTab(tabIndex: Int, source: CollectionCatalogSource) {
@@ -131,6 +203,7 @@ class FolderDetailViewModel @Inject constructor(
                             }
                             state.copy(tabs = tabs)
                         }
+                        rebuildAllTab()
                     }
                     is NetworkResult.Error -> {
                         _uiState.update { state ->
@@ -140,6 +213,7 @@ class FolderDetailViewModel @Inject constructor(
                             }
                             state.copy(tabs = tabs)
                         }
+                        rebuildAllTab()
                     }
                     NetworkResult.Loading -> {}
                 }

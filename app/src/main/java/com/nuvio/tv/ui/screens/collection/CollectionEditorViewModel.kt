@@ -9,6 +9,7 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.CollectionCatalogSource
 import com.nuvio.tv.domain.model.CollectionFolder
+import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.repository.AddonRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,6 +25,9 @@ data class CollectionEditorUiState(
     val isNew: Boolean = true,
     val collectionId: String = "",
     val title: String = "",
+    val backdropImageUrl: String = "",
+    val viewMode: FolderViewMode = FolderViewMode.TABBED_GRID,
+    val showAllTab: Boolean = true,
     val folders: List<CollectionFolder> = emptyList(),
     val isLoading: Boolean = true,
     val availableCatalogs: List<AvailableCatalog> = emptyList(),
@@ -81,6 +85,9 @@ class CollectionEditorViewModel @Inject constructor(
                             isNew = false,
                             collectionId = existing.id,
                             title = existing.title,
+                            backdropImageUrl = existing.backdropImageUrl ?: "",
+                            viewMode = existing.viewMode,
+                            showAllTab = existing.showAllTab,
                             folders = existing.folders,
                             availableCatalogs = availableCatalogs,
                             isLoading = false
@@ -103,6 +110,10 @@ class CollectionEditorViewModel @Inject constructor(
 
     fun setTitle(title: String) {
         _uiState.update { it.copy(title = title) }
+    }
+
+    fun setBackdropImageUrl(url: String) {
+        _uiState.update { it.copy(backdropImageUrl = url) }
     }
 
     fun addFolder() {
@@ -208,6 +219,14 @@ class CollectionEditorViewModel @Inject constructor(
         _uiState.update { state ->
             state.copy(editingFolder = state.editingFolder?.copy(hideTitle = hide))
         }
+    }
+
+    fun setViewMode(viewMode: FolderViewMode) {
+        _uiState.update { it.copy(viewMode = viewMode) }
+    }
+
+    fun setShowAllTab(show: Boolean) {
+        _uiState.update { it.copy(showAllTab = show) }
     }
 
     fun addCatalogSource(catalog: AvailableCatalog) {
@@ -316,6 +335,9 @@ class CollectionEditorViewModel @Inject constructor(
             val collection = Collection(
                 id = state.collectionId,
                 title = state.title.ifBlank { "Untitled Collection" },
+                backdropImageUrl = state.backdropImageUrl.ifBlank { null },
+                viewMode = state.viewMode,
+                showAllTab = state.showAllTab,
                 folders = state.folders
             )
 

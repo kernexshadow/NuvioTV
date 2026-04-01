@@ -519,6 +519,9 @@ class AddonManagerViewModel @Inject constructor(
             AddonConfigServer.CollectionInfo(
                 id = col.id,
                 title = col.title,
+                backdropImageUrl = col.backdropImageUrl,
+                viewMode = col.viewMode.name,
+                showAllTab = col.showAllTab,
                 folders = col.folders.map { folder ->
                     AddonConfigServer.FolderInfo(
                         id = folder.id,

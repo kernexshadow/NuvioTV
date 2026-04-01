@@ -1318,10 +1318,21 @@ function isCollectionDisabled(ci) {
 }
 
 function addCollection() {
-  collections.push({ id: generateId(), title: 'New Collection', folders: [] });
+  collections.push({ id: generateId(), title: 'New Collection', backdropImageUrl: null, viewMode: 'TABBED_GRID', showAllTab: true, folders: [] });
   expandedCollection = collections.length - 1;
   expandedFolder = null;
   renderCollections();
+}
+
+function updateCollectionBackdrop(ci, val) {
+  collections[ci].backdropImageUrl = val || null;
+  var img = document.getElementById('col-backdrop-preview-' + ci);
+  if (val) {
+    if (img) { img.src = val; img.style.display = ''; }
+    else { renderCollections(); }
+  } else {
+    if (img) img.style.display = 'none';
+  }
 }
 
 function removeCollection(ci) {
@@ -1385,6 +1396,15 @@ function updateFolderCoverEmoji(ci, fi, val) {
 
 function updateFolderTileShape(ci, fi, val) {
   collections[ci].folders[fi].tileShape = val;
+}
+
+function updateCollectionViewMode(ci, val) {
+  collections[ci].viewMode = val;
+  renderCollections();
+}
+
+function updateCollectionShowAllTab(ci, checked) {
+  collections[ci].showAllTab = checked;
 }
 
 function updateFolderHideTitle(ci, fi, checked) {
@@ -1463,12 +1483,31 @@ function renderCollections() {
       '</div>' +
       (!isExpanded ? '<div class="folder-summary">' + folderCount + ' folder' + (folderCount !== 1 ? 's' : '') + '</div>' : '');
 
+    var backdropHtml = '';
     var foldersHtml = '';
     if (!isExpanded) {
       card.innerHTML = headerHtml;
       container.appendChild(card);
       return;
     }
+    backdropHtml =
+      '<div class="folder-meta" style="padding:0.5rem 0.75rem;border-bottom:1px solid rgba(255,255,255,0.06);flex-wrap:nowrap">' +
+        '<img id="col-backdrop-preview-' + ci + '" src="' + escapeAttr(col.backdropImageUrl || '') + '" style="width:48px;height:27px;object-fit:cover;border-radius:4px;border:1px solid rgba(255,255,255,0.1);flex-shrink:0;' + (col.backdropImageUrl ? '' : 'display:none') + '" onerror="this.style.display=\'none\'">' +
+        '<input type="url" placeholder="Backdrop image URL (optional)" value="' + escapeAttr(col.backdropImageUrl || '') + '" oninput="updateCollectionBackdrop(' + ci + ',this.value)" style="flex:1;min-width:120px">' +
+      '</div>' +
+      '<div class="folder-meta" style="padding:0.5rem 0.75rem;border-bottom:1px solid rgba(255,255,255,0.06);flex-wrap:nowrap;align-items:center">' +
+        '<span style="font-size:0.75rem;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.05em;flex-shrink:0">View Mode</span>' +
+        '<select onchange="updateCollectionViewMode(' + ci + ',this.value)">' +
+          '<option value="TABBED_GRID"' + ((col.viewMode === 'TABBED_GRID' || !col.viewMode) ? ' selected' : '') + '>Tabbed Grid</option>' +
+          '<option value="ROWS"' + (col.viewMode === 'ROWS' ? ' selected' : '') + '>Rows</option>' +
+          '<option value="FOLLOW_LAYOUT"' + (col.viewMode === 'FOLLOW_LAYOUT' ? ' selected' : '') + '>Follow Layout</option>' +
+        '</select>' +
+      '</div>' +
+      ((col.viewMode === 'TABBED_GRID' || !col.viewMode) ?
+      '<div class="folder-toggle-row" style="padding:0.25rem 0.75rem;border-bottom:1px solid rgba(255,255,255,0.06)">' +
+        '<input type="checkbox" id="sat-' + ci + '"' + (col.showAllTab !== false ? ' checked' : '') + ' onchange="updateCollectionShowAllTab(' + ci + ',this.checked)">' +
+        '<label for="sat-' + ci + '">Show "All" tab</label>' +
+      '</div>' : '');
     (col.folders || []).forEach(function(folder, fi) {
       var sourcesHtml = '';
       (folder.catalogSources || []).forEach(function(src, si) {
@@ -1576,7 +1615,7 @@ function renderCollections() {
         '</div>';
     });
 
-    card.innerHTML = headerHtml + foldersHtml +
+    card.innerHTML = headerHtml + backdropHtml + foldersHtml +
       '<button class="btn" onclick="addFolder(' + ci + ')" style="width:100%;margin-top:0.5rem;padding:0.6rem;font-size:0.8rem">+ Add Folder</button>';
 
     container.appendChild(card);

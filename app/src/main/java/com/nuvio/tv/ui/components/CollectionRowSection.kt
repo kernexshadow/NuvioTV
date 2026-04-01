@@ -56,9 +56,11 @@ fun CollectionRowSection(
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     focusedItemIndex: Int = -1,
-    onItemFocused: (itemIndex: Int) -> Unit = {}
+    onItemFocused: (itemIndex: Int) -> Unit = {},
+    onFolderFocused: (collection: Collection, folder: CollectionFolder) -> Unit = { _, _ -> }
 ) {
     val currentOnItemFocused by rememberUpdatedState(onItemFocused)
+    val currentOnFolderFocused by rememberUpdatedState(onFolderFocused)
     val rowFocusRequester = remember { FocusRequester() }
     var lastFocusedItemIndex by remember { mutableIntStateOf(-1) }
 
@@ -101,6 +103,7 @@ fun CollectionRowSection(
                             lastFocusedItemIndex = index
                             currentOnItemFocused(index)
                         }
+                        currentOnFolderFocused(collection, folder)
                     }
                 )
             }

@@ -66,6 +66,7 @@ import androidx.tv.material3.SwitchDefaults
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.nuvio.tv.domain.model.CollectionFolder
+import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -234,6 +235,86 @@ fun CollectionEditorScreen(
             )
             NuvioButton(onClick = { viewModel.save { onBack() } }) {
                 Text("Save")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Backdrop Image",
+            style = MaterialTheme.typography.labelLarge,
+            color = NuvioColors.TextSecondary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        NuvioTextField(
+            value = uiState.backdropImageUrl,
+            onValueChange = { viewModel.setBackdropImageUrl(it) },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = "Backdrop image URL (optional)"
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "View Mode",
+            style = MaterialTheme.typography.labelLarge,
+            color = NuvioColors.TextSecondary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val viewModes = listOf(
+                FolderViewMode.TABBED_GRID to "Tabbed Grid",
+                FolderViewMode.ROWS to "Rows",
+                FolderViewMode.FOLLOW_LAYOUT to "Follow Layout"
+            )
+            viewModes.forEach { (mode, label) ->
+                val isSelected = uiState.viewMode == mode
+                Button(
+                    onClick = { viewModel.setViewMode(mode) },
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (isSelected) NuvioColors.Secondary else NuvioColors.BackgroundCard,
+                        focusedContainerColor = NuvioColors.FocusBackground,
+                        contentColor = if (isSelected) Color.White else NuvioColors.TextSecondary,
+                        focusedContentColor = Color.White
+                    ),
+                    border = ButtonDefaults.border(
+                        focusedBorder = Border(
+                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                ) {
+                    Text(label)
+                }
+            }
+        }
+
+        if (uiState.viewMode == FolderViewMode.TABBED_GRID) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Show \"All\" Tab",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = NuvioColors.TextSecondary
+                )
+                Switch(
+                    checked = uiState.showAllTab,
+                    onCheckedChange = { viewModel.setShowAllTab(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = NuvioColors.Secondary,
+                        checkedTrackColor = NuvioColors.Secondary.copy(alpha = 0.3f),
+                        uncheckedThumbColor = NuvioColors.TextSecondary,
+                        uncheckedTrackColor = NuvioColors.BackgroundCard
+                    )
+                )
             }
         }
 
