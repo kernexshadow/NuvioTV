@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Resources
 import android.os.Build
 import android.util.Log
+import com.nuvio.tv.R
 import android.view.accessibility.CaptioningManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -68,7 +69,7 @@ private suspend fun PlayerRuntimeController.resolveCurrentStreamMimeType(
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<String, String>) {
     if (url.isEmpty()) {
-        _uiState.update { it.copy(error = "No stream URL provided", showLoadingOverlay = false) }
+        _uiState.update { it.copy(error = context.getString(R.string.player_error_no_stream_url), showLoadingOverlay = false) }
         return
     }
 
@@ -87,7 +88,8 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 it.copy(
                     internalPlayerEngine = playerSettings.internalPlayerEngine,
                     frameRateMatchingMode = playerSettings.frameRateMatchingMode,
-                    resizeMode = playerSettings.resizeMode
+                    resizeMode = playerSettings.resizeMode,
+                    tunnelingEnabled = playerSettings.tunnelingEnabled
                 )
             }
             val afrJob = async {
