@@ -36,6 +36,7 @@ import com.nuvio.tv.data.local.FrameRateMatchingMode
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.domain.model.Subtitle
 import io.github.peerless2012.ass.media.type.AssRenderType
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.async
@@ -76,11 +77,13 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
         try {
             resetLoadingOverlayForNewStream()
             val playerSettings = playerSettingsDataStore.playerSettings.first()
+            val showLoadingStatus = playerSettings.showPlayerLoadingStatus
             _uiState.update {
                 it.copy(
                     frameRateMatchingMode = playerSettings.frameRateMatchingMode,
                     resizeMode = playerSettings.resizeMode,
-                    tunnelingEnabled = playerSettings.tunnelingEnabled
+                    tunnelingEnabled = playerSettings.tunnelingEnabled,
+                    loadingMessage = if (showLoadingStatus) context.getString(R.string.player_loading_detecting_format) else null
                 )
             }
             val afrJob = async {
@@ -95,7 +98,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 url = url,
                 headers = headers
             )
-            val startupSubtitlePreparation = prepareStreamStartSubtitles(playerSettings)
+            val startupSubtitlePreparation = prepareStreamStartSubtitles(playerSettings, showLoadingStatus)
             afrJob.await()
             requestedUseLibassByUser = playerSettings.useLibass
             val useLibass = when {
@@ -186,6 +189,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
             ).setExtensionRendererMode(playerSettings.decoderPriority)
                 .setMapDV7ToHevc(playerSettings.mapDV7ToHevc)
 
+            if (showLoadingStatus) _uiState.update { it.copy(loadingMessage = context.getString(R.string.player_loading_building)) }
             val buildDefaultPlayer = {
                 mediaSourceFactory.configureSubtitleParsing(
                     extractorsFactory = null,
@@ -261,6 +265,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                         mimeTypeOverride = currentStreamMimeType
                     )
                 )
+                if (showLoadingStatus) _uiState.update { it.copy(loadingMessage = context.getString(R.string.player_loading_starting)) }
                 playWhenReady = true
                 prepare()
 
@@ -282,9 +287,9 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                         if (playbackState == Player.STATE_BUFFERING && !hasRenderedFirstFrame) {
                             _uiState.update { state ->
                                 if (state.loadingOverlayEnabled && !state.showLoadingOverlay) {
-                                    state.copy(showLoadingOverlay = true, showControls = false)
+                                    state.copy(showLoadingOverlay = true, showControls = false, loadingMessage = if (showLoadingStatus) context.getString(R.string.player_loading_buffering) else null)
                                 } else {
-                                    state
+                                    state.copy(loadingMessage = if (showLoadingStatus) context.getString(R.string.player_loading_buffering) else null)
                                 }
                             }
                         }
@@ -352,7 +357,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     override fun onRenderedFirstFrame() {
                         hasRenderedFirstFrame = true
                         resetErrorRetryState()
-                        _uiState.update { it.copy(showLoadingOverlay = false) }
+                        _uiState.update { it.copy(showLoadingOverlay = false, loadingMessage = null) }
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
@@ -438,7 +443,8 @@ internal fun resolvePreferredAudioLanguages(
 internal suspend fun PlayerRuntimeController.prepareStartupSubtitles(
     mode: AddonSubtitleStartupMode,
     preferredLanguage: String,
-    secondaryLanguage: String?
+    secondaryLanguage: String?,
+    showLoadingStatus: Boolean = true
 ): StartupSubtitlePreparation {
     if (mode == AddonSubtitleStartupMode.FAST_STARTUP) {
         return StartupSubtitlePreparation(
@@ -479,7 +485,18 @@ internal suspend fun PlayerRuntimeController.prepareStartupSubtitles(
     _uiState.update { it.copy(isLoadingAddonSubtitles = true, addonSubtitlesError = null) }
 
     val fetchedSubtitles = withTimeoutOrNull(STARTUP_SUBTITLE_PREFETCH_TIMEOUT_MS) {
-        fetchAddonSubtitlesNow()
+        fetchAddonSubtitlesNow(
+            onProgress = if (showLoadingStatus) { completed, total, addonName ->
+                val msg = if (completed == 0) {
+                    context.getString(R.string.player_loading_subtitles_from, total)
+                } else if (addonName != null) {
+                    context.getString(R.string.player_loading_subtitles_addon, addonName, completed, total)
+                } else {
+                    context.getString(R.string.player_loading_subtitles_progress, completed, total)
+                }
+                _uiState.update { it.copy(loadingMessage = msg) }
+            } else null
+        )
     } ?: return StartupSubtitlePreparation(
         fetchedSubtitles = emptyList(),
         attachedSubtitles = emptyList(),
@@ -522,7 +539,8 @@ internal fun PlayerRuntimeController.resetAddonSubtitleStateForNewStream() {
 }
 
 internal suspend fun PlayerRuntimeController.prepareStreamStartSubtitles(
-    playerSettings: PlayerSettings
+    playerSettings: PlayerSettings,
+    showLoadingStatus: Boolean = true
 ): StartupSubtitlePreparation {
     requestedUseLibassByUser = playerSettings.useLibass
     if (libassPipelineDecisionStreamUrl != currentStreamUrl) {
@@ -535,7 +553,8 @@ internal suspend fun PlayerRuntimeController.prepareStreamStartSubtitles(
     return prepareStartupSubtitles(
         mode = playerSettings.addonSubtitleStartupMode,
         preferredLanguage = playerSettings.subtitleStyle.preferredLanguage,
-        secondaryLanguage = playerSettings.subtitleStyle.secondaryPreferredLanguage
+        secondaryLanguage = playerSettings.subtitleStyle.secondaryPreferredLanguage,
+        showLoadingStatus = showLoadingStatus
     )
 }
 
