@@ -5,10 +5,13 @@ import android.content.Context
 import android.util.Log
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.utils.ExtractorApi
+import com.lagradost.cloudstream3.utils.extractorApis
 
 /**
- * The actual base class that CloudStream extensions extend.
- * Extensions override [load] to call [registerMainAPI] / [registerExtractorAPI].
+ * The base class that CloudStream extensions extend in NuvioTV.
+ * Kept standalone (not extending BasePlugin) because BasePlugin's registration
+ * methods are final and can't be overridden. Extensions compiled against the
+ * real CloudStream app reference this class directly.
  */
 open class Plugin {
     private val _registeredMainAPIs = mutableListOf<MainAPI>()
@@ -20,6 +23,9 @@ open class Plugin {
     /** Extensions can set this to provide a settings UI callback. No-op in NuvioTV. */
     var openSettings: ((Context) -> Unit)? = null
 
+    /** Full file path to the plugin (matches BasePlugin's property). */
+    var filename: String? = null
+
     /**
      * Called when the plugin is loaded. Override to register APIs.
      * The [activity] parameter may be null when loaded outside an Activity context.
@@ -30,11 +36,18 @@ open class Plugin {
     fun registerMainAPI(element: MainAPI) {
         Log.d("CS3Plugin", "registerMainAPI called: ${element.name} (${element.javaClass.name})")
         _registeredMainAPIs.add(element)
+        // Also register globally for extensions that access APIHolder directly
+        element.sourcePlugin = this.filename
+        try {
+            com.lagradost.cloudstream3.APIHolder.addPluginMapping(element)
+        } catch (_: Exception) {}
     }
 
     fun registerExtractorAPI(element: ExtractorApi) {
         Log.d("CS3Plugin", "registerExtractorAPI called: ${element.name} (${element.javaClass.name})")
         _registeredExtractorAPIs.add(element)
+        element.sourcePlugin = this.filename
+        extractorApis.add(element)
     }
 
     // Some extensions call these overloads

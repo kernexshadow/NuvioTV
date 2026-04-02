@@ -2,6 +2,8 @@ package com.nuvio.tv.core.plugin
 
 import android.util.Log
 import com.lagradost.cloudstream3.TvType
+import com.nuvio.tv.core.plugin.cloudstream.toNuvioType
+import com.nuvio.tv.core.plugin.cloudstream.tvTypeFromString
 import com.nuvio.tv.core.plugin.cloudstream.ExternalExtensionLoader
 import com.nuvio.tv.core.plugin.cloudstream.ExternalExtensionRunner
 import com.nuvio.tv.core.plugin.cloudstream.ExternalRepoParser
@@ -899,8 +901,8 @@ class PluginManager @Inject constructor(
 
                 // Map tvTypes to NuvioTV content types
                 val supportedTypes = plugin.tvTypes
-                    ?.mapNotNull { TvType.fromString(it) }
-                    ?.map { TvType.toNuvioType(it) }
+                    ?.mapNotNull { tvTypeFromString(it) }
+                    ?.map { it.toNuvioType() }
                     ?.distinct()
                     ?.ifEmpty { listOf("movie", "tv") }
                     ?: listOf("movie", "tv")

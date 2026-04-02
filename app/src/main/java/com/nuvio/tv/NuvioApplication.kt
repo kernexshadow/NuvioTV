@@ -12,14 +12,43 @@ import com.nuvio.tv.core.sync.StartupSyncService
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.Dispatchers
 import okhttp3.Cache
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 @HiltAndroidApp
 class NuvioApplication : Application(), ImageLoaderFactory {
 
     @Inject lateinit var startupSyncService: StartupSyncService
+
+    companion object {
+        /**
+         * Shared cookie jar for CloudStream extension HTTP requests.
+         * Accessible so the player's OkHttpClient can share cookies
+         * obtained during scraping (e.g., session tokens needed for playback).
+         */
+        val extensionCookieJar: CookieJar = object : CookieJar {
+            private val store = ConcurrentHashMap<String, MutableList<Cookie>>()
+
+            override fun loadForRequest(url: HttpUrl): List<Cookie> {
+                return store[url.host]?.filter { cookie ->
+                    cookie.expiresAt > System.currentTimeMillis()
+                } ?: emptyList()
+            }
+
+            override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+                val hostCookies = store.getOrPut(url.host) { mutableListOf() }
+                cookies.forEach { newCookie ->
+                    hostCookies.removeAll { it.name == newCookie.name }
+                    hostCookies.add(newCookie)
+                }
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -29,7 +58,12 @@ class NuvioApplication : Application(), ImageLoaderFactory {
         // doesn't ignore SSL errors, causing connections to scraper sites with
         // bad certificates to fail silently. This matches CloudStream's own
         // RequestsHelper.initClient() setup.
+        //
+        // The cookie jar maintains cookies across extension HTTP requests.
+        // Many streaming sites require cookies from initial page loads to
+        // authenticate subsequent stream URL requests.
         app.baseClient = OkHttpClient.Builder()
+            .cookieJar(extensionCookieJar)
             .followRedirects(true)
             .followSslRedirects(true)
             .ignoreAllSSLErrors()

@@ -4,19 +4,23 @@ import android.util.Log
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.LoadResponse
-import com.lagradost.cloudstream3.LiveLoadResponse
+import com.lagradost.cloudstream3.LiveStreamLoadResponse
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MovieLoadResponse
+import com.lagradost.cloudstream3.MovieSearchResponse
+import com.lagradost.cloudstream3.TvSeriesSearchResponse
+import com.lagradost.cloudstream3.AnimeSearchResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.metaproviders.TmdbLink
 import com.lagradost.cloudstream3.metaproviders.TmdbProvider
-import com.lagradost.cloudstream3.utils.toJson
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.app
 import com.nuvio.tv.core.plugin.TestDiagnostics
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbService
@@ -45,16 +49,6 @@ class ExternalExtensionRunner @Inject constructor(
     private val tmdbMetadataService: TmdbMetadataService,
     private val tmdbService: TmdbService
 ) {
-    /**
-     * Execute an external extension scraper.
-     *
-     * @param scraperId The unique scraper identifier
-     * @param tmdbId The TMDB ID of the content
-     * @param mediaType "movie" or "tv"/"series"
-     * @param season Season number (for TV)
-     * @param episode Episode number (for TV)
-     * @return List of scraper results, or empty on failure
-     */
     suspend fun execute(
         scraperId: String,
         tmdbId: String,
@@ -62,7 +56,6 @@ class ExternalExtensionRunner @Inject constructor(
         season: Int?,
         episode: Int?
     ): List<LocalScraperResult> = withContext(Dispatchers.IO) {
-        // Ensure extractors are loaded (no-op if already done by PluginManager)
         extensionLoader.ensureExtractorsLoaded(listOf(scraperId))
 
         val api = extensionLoader.getApi(scraperId)
@@ -92,10 +85,6 @@ class ExternalExtensionRunner @Inject constructor(
         }
     }
 
-    /**
-     * Execute with diagnostics for the test UI. Captures each step so the user
-     * can see exactly where the extension fails.
-     */
     suspend fun executeWithDiagnostics(
         scraperId: String,
         tmdbId: String,
@@ -104,7 +93,6 @@ class ExternalExtensionRunner @Inject constructor(
         episode: Int?,
         diagnostics: TestDiagnostics
     ): List<LocalScraperResult> = withContext(Dispatchers.IO) {
-        // Ensure extractors are loaded (no-op if already done by PluginManager)
         extensionLoader.ensureExtractorsLoaded(listOf(scraperId), diagnostics)
 
         diagnostics.addStep("Loading DEX extension...")
@@ -165,15 +153,12 @@ class ExternalExtensionRunner @Inject constructor(
         val imdbId = if (tmdbIdInt != null) tmdbService.tmdbToImdb(tmdbIdInt, mediaType) else null
         diagnostics.addStep("IMDB ID: ${imdbId ?: "(not found)"}")
 
-        val year = enrichment?.releaseInfo?.take(4)?.toIntOrNull()
         val tmdbLink = TmdbLink(
             imdbID = imdbId,
             tmdbID = tmdbIdInt,
             episode = episode,
             season = season,
-            movieName = movieName,
-            year = year,
-            orgTitle = movieName
+            movieName = movieName
         )
         val data = tmdbLink.toJson()
         diagnostics.addStep("TmdbLink JSON: ${data.take(120)}")
@@ -185,23 +170,6 @@ class ExternalExtensionRunner @Inject constructor(
         // Instrument loadExtractor to log each call's result
         data class ExtractorCall(val url: String, var matched: Boolean = false, var linkCount: Int = 0, var error: String? = null)
         val extractorCalls = mutableListOf<ExtractorCall>()
-        val originalDelegate = com.lagradost.cloudstream3.utils._loadExtractorDelegate
-        com.lagradost.cloudstream3.utils._loadExtractorDelegate = { url, referer, subCb, cb ->
-            val call = ExtractorCall(url)
-            extractorCalls.add(call)
-            try {
-                val result = originalDelegate(url, referer, subCb) { link ->
-                    call.linkCount++
-                    cb(link)
-                }
-                call.matched = result
-                result
-            } catch (e: Throwable) {
-                call.error = "${e.javaClass.simpleName}: ${e.message?.take(80)}"
-                diagnostics.addStep("loadExtractor ERROR for ${url.take(60)}: ${call.error}")
-                false
-            }
-        }
 
         val success = try {
             api.loadLinks(
@@ -213,26 +181,10 @@ class ExternalExtensionRunner @Inject constructor(
         } catch (e: Throwable) {
             diagnostics.addStep("loadLinks THREW: ${e.javaClass.simpleName}: ${e.message?.take(120)}")
             false
-        } finally {
-            com.lagradost.cloudstream3.utils._loadExtractorDelegate = originalDelegate
         }
 
         diagnostics.addStep("loadLinks returned: success=$success, ${links.size} links, ${subtitles.size} subs")
-        if (extractorCalls.isNotEmpty()) {
-            diagnostics.addStep("loadExtractor called ${extractorCalls.size}x:")
-            extractorCalls.forEach { call ->
-                val domain = try { java.net.URI(call.url).host } catch (_: Exception) { call.url.take(40) }
-                val status = when {
-                    call.error != null -> "ERROR: ${call.error}"
-                    !call.matched -> "NO MATCH"
-                    call.linkCount > 0 -> "${call.linkCount} links"
-                    else -> "matched, 0 links"
-                }
-                diagnostics.addStep("  $domain → $status")
-            }
-        } else {
-            diagnostics.addStep("loadExtractor was NOT called")
-        }
+
         // Show missing extractor domains
         val missing = extractorRegistry.getMissingExtractorDomains()
         if (missing.isNotEmpty()) {
@@ -279,7 +231,7 @@ class ExternalExtensionRunner @Inject constructor(
 
         // Install temporary HTTP logging on the app singleton
         val httpLog = mutableListOf<String>()
-        val originalClient = com.lagradost.cloudstream3.app.baseClient
+        val originalClient = app.baseClient
         val loggingClient = originalClient.newBuilder()
             .addInterceptor { chain ->
                 val req = chain.request()
@@ -294,22 +246,20 @@ class ExternalExtensionRunner @Inject constructor(
                 }
             }
             .build()
-        com.lagradost.cloudstream3.app.baseClient = loggingClient
+        app.baseClient = loggingClient
 
         diagnostics.addStep("Searching for: \"$title\"")
-        // Call search(query, page) like real CloudStream's APIRepository does
         var searchResults = try {
             api.search(title, 1)?.items
         } catch (e: Exception) {
             diagnostics.addStep("search() THREW: ${e.javaClass.simpleName}: ${e.message?.take(120)}")
             null
         } catch (e: Error) {
-            val missing = extractMissingClass(e)
-            diagnostics.addStep("search() ERROR: ${missing ?: e.message?.take(120)}")
+            val missingCls = extractMissingClass(e)
+            diagnostics.addStep("search() ERROR: ${missingCls ?: e.message?.take(120)}")
             null
         } finally {
-            // Restore original client
-            com.lagradost.cloudstream3.app.baseClient = originalClient
+            app.baseClient = originalClient
         }
 
         // Show HTTP activity
@@ -382,8 +332,6 @@ class ExternalExtensionRunner @Inject constructor(
 
     private fun extractMissingClass(e: Error): String? {
         val msg = e.message ?: return null
-        // NoClassDefFoundError messages look like: "com/lagradost/cloudstream3/SomeClass"
-        // or "Failed resolution of: Lcom/lagradost/cloudstream3/SomeClass;"
         val match = Regex("""(?:L?)([\w/.]+)(?:;)?""").find(msg)
         return match?.groupValues?.get(1)?.replace('/', '.')
     }
@@ -395,20 +343,12 @@ class ExternalExtensionRunner @Inject constructor(
         season: Int?,
         episode: Int?
     ): List<LocalScraperResult> {
-        // TmdbProvider extensions receive TmdbLink JSON directly in loadLinks()
-        // instead of going through search → load → extractData
         if (api is TmdbProvider) {
             return executeTmdbProvider(api, tmdbId, mediaType, season, episode)
         }
-
         return executeSearchBased(api, tmdbId, mediaType, season, episode)
     }
 
-    /**
-     * Fast path for TmdbProvider-based extensions.
-     * These extensions override loadLinks() and expect a JSON-serialized TmdbLink
-     * containing TMDB ID, IMDB ID, season/episode info.
-     */
     private suspend fun executeTmdbProvider(
         api: MainAPI,
         tmdbId: String,
@@ -417,8 +357,6 @@ class ExternalExtensionRunner @Inject constructor(
         episode: Int?
     ): List<LocalScraperResult> {
         val tmdbIdInt = tmdbId.toIntOrNull()
-
-        // Get enrichment for the movie name
         val contentType = when (mediaType.lowercase()) {
             "movie" -> ContentType.MOVIE
             else -> ContentType.SERIES
@@ -426,20 +364,16 @@ class ExternalExtensionRunner @Inject constructor(
         val enrichment = tmdbMetadataService.fetchEnrichment(tmdbId, contentType)
         val movieName = enrichment?.localizedTitle
 
-        // Look up IMDB ID from TMDB ID
         val imdbId = if (tmdbIdInt != null) {
             tmdbService.tmdbToImdb(tmdbIdInt, mediaType)
         } else null
 
-        val year = enrichment?.releaseInfo?.take(4)?.toIntOrNull()
         val tmdbLink = TmdbLink(
             imdbID = imdbId,
             tmdbID = tmdbIdInt,
             episode = episode,
             season = season,
-            movieName = movieName,
-            year = year,
-            orgTitle = movieName
+            movieName = movieName
         )
 
         val data = tmdbLink.toJson()
@@ -473,10 +407,6 @@ class ExternalExtensionRunner @Inject constructor(
         return links.map { link -> link.toLocalScraperResult(api.name) }
     }
 
-    /**
-     * Standard path for regular MainAPI extensions.
-     * Uses text search to find content, then loads and extracts links.
-     */
     private suspend fun executeSearchBased(
         api: MainAPI,
         tmdbId: String,
@@ -484,7 +414,6 @@ class ExternalExtensionRunner @Inject constructor(
         season: Int?,
         episode: Int?
     ): List<LocalScraperResult> {
-        // Step 1: Get title and year from TMDB
         val contentType = when (mediaType.lowercase()) {
             "movie" -> ContentType.MOVIE
             else -> ContentType.SERIES
@@ -498,7 +427,6 @@ class ExternalExtensionRunner @Inject constructor(
         val title = enrichment.localizedTitle ?: return emptyList()
         val year = enrichment.releaseInfo?.take(4)?.toIntOrNull()
 
-        // Step 2: Search the extension using search(query, page) like real CloudStream's APIRepository
         Log.d(TAG, "SearchBased ${api.name}: searching for \"$title\"")
         var searchResults = try {
             api.search(title, 1)?.items
@@ -510,7 +438,7 @@ class ExternalExtensionRunner @Inject constructor(
             Log.e(TAG, "SearchBased ${api.name} search() error: ${missing ?: e.message}", e)
             null
         }
-        // Fallback: if title has special characters, try simplified version
+
         if (searchResults.isNullOrEmpty() && title.contains(Regex("[:\\-–—]"))) {
             val simplified = title.replace(Regex("[:\\-–—]"), " ").replace(Regex("\\s+"), " ").trim()
             Log.d(TAG, "SearchBased ${api.name}: retrying with simplified \"$simplified\"")
@@ -529,7 +457,6 @@ class ExternalExtensionRunner @Inject constructor(
         }
         Log.d(TAG, "SearchBased ${api.name}: ${searchResults.size} results")
 
-        // Step 3: Find best match
         val bestMatch = findBestMatch(searchResults, title, year, mediaType)
         if (bestMatch == null) {
             Log.d(TAG, "No suitable match in ${api.name} results for: $title ($year)")
@@ -537,7 +464,6 @@ class ExternalExtensionRunner @Inject constructor(
         }
         Log.d(TAG, "Best match from ${api.name}: ${bestMatch.name} (${bestMatch.url})")
 
-        // Step 4: Load the full page
         val loadResponse = try {
             api.load(bestMatch.url)
         } catch (e: Exception) {
@@ -554,14 +480,12 @@ class ExternalExtensionRunner @Inject constructor(
         }
         Log.d(TAG, "SearchBased ${api.name}: loaded ${loadResponse.javaClass.simpleName}")
 
-        // Step 5: Extract the data string for loadLinks
         val data = extractData(loadResponse, mediaType, season, episode)
         if (data == null) {
             Log.d(TAG, "No data extracted from ${api.name} for S${season}E${episode}")
             return emptyList()
         }
 
-        // Step 6: Call loadLinks and collect results
         val links = mutableListOf<ExtractorLink>()
         val subtitles = mutableListOf<SubtitleFile>()
 
@@ -587,14 +511,17 @@ class ExternalExtensionRunner @Inject constructor(
         }
 
         Log.d(TAG, "SearchBased ${api.name}: ${links.size} links, ${subtitles.size} subs")
-
-        // Step 7: Map ExtractorLink → LocalScraperResult
         return links.map { link -> link.toLocalScraperResult(api.name) }
     }
 
-    /**
-     * Find the best matching search result by title similarity and type.
-     */
+    /** Extract year from SearchResponse concrete types (not in the interface). */
+    private fun getSearchResponseYear(result: SearchResponse): Int? = when (result) {
+        is MovieSearchResponse -> result.year
+        is TvSeriesSearchResponse -> result.year
+        is AnimeSearchResponse -> result.year
+        else -> null
+    }
+
     private fun findBestMatch(
         results: List<SearchResponse>,
         targetTitle: String,
@@ -612,7 +539,8 @@ class ExternalExtensionRunner @Inject constructor(
                     !isMovie && result.type in listOf(TvType.TvSeries, TvType.Anime, TvType.OVA, TvType.Cartoon, TvType.AsianDrama) -> 0.1
                     else -> -0.1
                 }
-                val yearBonus = if (targetYear != null && result.year == targetYear) 0.1 else 0.0
+                val resultYear = getSearchResponseYear(result)
+                val yearBonus = if (targetYear != null && resultYear == targetYear) 0.1 else 0.0
                 val score = titleSimilarity + typeBonus + yearBonus
                 result to score
             }
@@ -621,9 +549,6 @@ class ExternalExtensionRunner @Inject constructor(
             ?.first
     }
 
-    /**
-     * Extract the data string needed for loadLinks from a LoadResponse.
-     */
     private fun extractData(
         response: LoadResponse,
         mediaType: String,
@@ -631,36 +556,29 @@ class ExternalExtensionRunner @Inject constructor(
         episode: Int?
     ): String? = when (response) {
         is MovieLoadResponse -> response.dataUrl
-        is LiveLoadResponse -> response.dataUrl
+        is LiveStreamLoadResponse -> response.dataUrl
         is TvSeriesLoadResponse -> {
             findEpisode(response.episodes, season, episode)?.data
         }
         is AnimeLoadResponse -> {
-            // Anime episodes are keyed by dub status (e.g., "sub", "dub")
             val allEpisodes = response.episodes.values.flatten()
             findEpisode(allEpisodes, season, episode)?.data
         }
         else -> null
     }
 
-    /**
-     * Find a matching episode from a list of episodes.
-     */
     private fun findEpisode(episodes: List<Episode>, season: Int?, episode: Int?): Episode? {
         if (episodes.isEmpty()) return null
 
-        // Try exact season + episode match
         if (season != null && episode != null) {
             episodes.firstOrNull { it.season == season && it.episode == episode }?.let { return it }
         }
 
-        // Try episode-only match (some extensions don't set season)
         if (episode != null) {
             episodes.firstOrNull { it.episode == episode && (it.season == null || it.season == season) }
                 ?.let { return it }
         }
 
-        // For single-season shows, try matching by episode number with absolute numbering
         if (season != null && episode != null) {
             val absoluteEpisode = episodes.indexOfFirst {
                 (it.season == season || it.season == null) && it.episode == episode
@@ -671,24 +589,18 @@ class ExternalExtensionRunner @Inject constructor(
         return null
     }
 
-    /**
-     * Simple Jaro-Winkler inspired string similarity (0.0 to 1.0).
-     */
     private fun calculateSimilarity(s1: String, s2: String): Double {
         val a = s1.lowercase().trim()
         val b = s2.lowercase().trim()
         if (a == b) return 1.0
         if (a.isEmpty() || b.isEmpty()) return 0.0
 
-        // Normalize: remove common noise like year suffixes, extra whitespace
         val aNorm = a.replace(Regex("\\(\\d{4}\\)"), "").trim()
         val bNorm = b.replace(Regex("\\(\\d{4}\\)"), "").trim()
         if (aNorm == bNorm) return 0.95
 
-        // Check containment
         if (aNorm.contains(bNorm) || bNorm.contains(aNorm)) return 0.85
 
-        // Levenshtein-based similarity
         val distance = levenshteinDistance(aNorm, bNorm)
         val maxLen = maxOf(aNorm.length, bNorm.length)
         return 1.0 - (distance.toDouble() / maxLen)

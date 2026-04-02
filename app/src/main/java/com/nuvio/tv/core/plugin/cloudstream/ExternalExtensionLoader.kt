@@ -1,11 +1,16 @@
 package com.nuvio.tv.core.plugin.cloudstream
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.lagradost.cloudstream3.AcraApplication
+import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
+import com.lagradost.cloudstream3.utils.ExtractorApi
+import com.lagradost.cloudstream3.utils.extractorApis
 import com.nuvio.tv.core.plugin.TestDiagnostics
 import dalvik.system.DexClassLoader
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,17 +29,31 @@ import javax.inject.Singleton
 private const val TAG = "ExtExtensionLoader"
 
 /**
- * Checks whether an instance looks like a CloudStream plugin by checking if it has the
- * required methods (load, getRegisteredMainAPIs). This is more robust than checking class
- * hierarchy by name, since extensions may extend BasePlugin, Plugin, or other base classes.
+ * Checks whether an instance looks like a CloudStream plugin by checking if it has
+ * plugin-like methods. Covers three cases:
+ * 1. Our Plugin class: load(Activity?), load(Context), getRegisteredMainAPIs()
+ * 2. Library's BasePlugin: load() (no-arg), registerMainAPI()
+ * 3. Foreign plugins with similar signatures
  */
 private fun looksLikePlugin(instance: Any): Boolean {
+    // Fast path: check if it's an instance of the library's BasePlugin
+    if (instance is BasePlugin) return true
+
     val clazz = instance.javaClass
+    // Check for any form of load() method
     val hasLoad = try {
-        clazz.getMethod("load", Context::class.java) != null ||
-        clazz.getMethod("load", android.app.Activity::class.java) != null
+        clazz.getMethod("load", Context::class.java) != null
     } catch (_: NoSuchMethodException) {
-        false
+        try {
+            clazz.getMethod("load", android.app.Activity::class.java) != null
+        } catch (_: NoSuchMethodException) {
+            try {
+                // BasePlugin-style no-arg load()
+                clazz.getMethod("load") != null
+            } catch (_: NoSuchMethodException) {
+                false
+            }
+        }
     }
     val hasRegisteredAPIs = try {
         clazz.getMethod("getRegisteredMainAPIs") != null
@@ -46,15 +65,19 @@ private fun looksLikePlugin(instance: Any): Boolean {
 
 /**
  * Wraps a plugin instance loaded from a foreign classloader or with a non-standard base class.
- * Delegates `load()` and reads `registeredMainAPIs`/`registeredExtractorAPIs` via reflection.
- *
- * Handles three load scenarios:
- * 1. load(Context) with Application context
- * 2. If that throws ClassCastException (extension expects Activity), retry with load(null as Activity?)
- * 3. load(Activity?) directly if no load(Context) exists
+ * Handles three plugin patterns:
+ * 1. Our Plugin: load(Activity?), load(Context), getRegisteredMainAPIs()
+ * 2. Library's BasePlugin: load() no-arg, registers to APIHolder.allProviders + extractorApis
+ * 3. Foreign plugins with similar signatures
  */
 private class ReflectivePluginWrapper(private val foreignInstance: Any) : Plugin() {
     override fun load(context: Context) {
+        // Snapshot global registries before load() to detect what this plugin adds
+        val providersBefore = synchronized(APIHolder.allProviders) {
+            APIHolder.allProviders.toList()
+        }
+        val extractorsBefore = extractorApis.toList()
+
         val clazz = foreignInstance.javaClass
         var loaded = false
 
@@ -64,7 +87,6 @@ private class ReflectivePluginWrapper(private val foreignInstance: Any) : Plugin
             m.invoke(foreignInstance, context)
             loaded = true
         } catch (e: java.lang.reflect.InvocationTargetException) {
-            // The extension's load() threw — e.g. ClassCastException when expecting Activity
             val cause = e.cause
             if (cause is ClassCastException) {
                 Log.d(TAG, "ReflectivePluginWrapper: load(Context) got ClassCastException, retrying with null Activity")
@@ -79,11 +101,21 @@ private class ReflectivePluginWrapper(private val foreignInstance: Any) : Plugin
                 Log.w(TAG, "ReflectivePluginWrapper: load(Context) threw: ${cause?.message ?: e.message}")
             }
         } catch (_: NoSuchMethodException) {
-            // No load(Context), try load(Activity?)
+            // Try load(Activity?) next
             try {
                 val m = clazz.getMethod("load", android.app.Activity::class.java)
                 m.invoke(foreignInstance, null)
                 loaded = true
+            } catch (_: NoSuchMethodException) {
+                // Try no-arg load() (BasePlugin pattern)
+                try {
+                    val m = clazz.getMethod("load")
+                    m.invoke(foreignInstance)
+                    loaded = true
+                    Log.d(TAG, "ReflectivePluginWrapper: loaded via no-arg load()")
+                } catch (e: Exception) {
+                    Log.w(TAG, "ReflectivePluginWrapper: load() (no-arg) failed: ${e.message}")
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "ReflectivePluginWrapper: load(Activity) failed: ${e.message}")
             }
@@ -91,27 +123,40 @@ private class ReflectivePluginWrapper(private val foreignInstance: Any) : Plugin
             Log.w(TAG, "ReflectivePluginWrapper: load() failed: ${e.message}")
         }
 
-        // Pull registered MainAPIs from the foreign instance
+        // First try reading local registration lists (our Plugin pattern)
         try {
             val getter = clazz.getMethod("getRegisteredMainAPIs")
             @Suppress("UNCHECKED_CAST")
             val apis = getter.invoke(foreignInstance) as? List<MainAPI> ?: emptyList()
             apis.forEach { registerMainAPI(it) }
-        } catch (e: Exception) {
-            Log.w(TAG, "ReflectivePluginWrapper: getRegisteredMainAPIs() failed: ${e.message}", e)
+        } catch (_: Exception) {
+            // No local list — check global APIHolder for newly registered providers
+            // (BasePlugin.registerMainAPI adds to APIHolder.allProviders)
+            val newProviders = synchronized(APIHolder.allProviders) {
+                APIHolder.allProviders.toList()
+            } - providersBefore.toSet()
+            if (newProviders.isNotEmpty()) {
+                Log.d(TAG, "ReflectivePluginWrapper: found ${newProviders.size} providers via APIHolder")
+                newProviders.forEach { registerMainAPI(it) }
+            }
         }
 
-        // Pull registered ExtractorAPIs from the foreign instance
         try {
             val getter = clazz.getMethod("getRegisteredExtractorAPIs")
             @Suppress("UNCHECKED_CAST")
-            val extractors = getter.invoke(foreignInstance) as? List<com.lagradost.cloudstream3.utils.ExtractorApi> ?: emptyList()
+            val extractors = getter.invoke(foreignInstance) as? List<ExtractorApi> ?: emptyList()
             extractors.forEach { registerExtractorAPI(it) }
-        } catch (e: Exception) {
-            Log.d(TAG, "ReflectivePluginWrapper: getRegisteredExtractorAPIs() failed: ${e.message}")
+        } catch (_: Exception) {
+            // Check global extractorApis for newly registered extractors
+            val newExtractors = extractorApis.toList() - extractorsBefore.toSet()
+            if (newExtractors.isNotEmpty()) {
+                Log.d(TAG, "ReflectivePluginWrapper: found ${newExtractors.size} extractors via extractorApis")
+                newExtractors.forEach { registerExtractorAPI(it) }
+            }
         }
     }
 }
+
 private const val MAX_DEX_SIZE = 10 * 1024 * 1024L // 10MB max per .cs3 file
 
 /**
@@ -120,7 +165,6 @@ private const val MAX_DEX_SIZE = 10 * 1024 * 1024L // 10MB max per .cs3 file
 @Singleton
 class ExternalExtensionLoader @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val networkInterceptor: ExternalNetworkInterceptor,
     private val extractorRegistry: ExternalExtractorRegistry
 ) {
     private val httpClient = OkHttpClient.Builder()
@@ -180,6 +224,14 @@ class ExternalExtensionLoader @Inject constructor(
                 }
 
                 targetFile.writeBytes(bytes)
+
+                // Fix for Android API 28+: DEX files must be read-only
+                // Writing writable DEX files is blocked on newer Android versions
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    targetFile.setReadOnly()
+                    Log.d(TAG, "Set DEX file read-only for API ${Build.VERSION.SDK_INT}")
+                }
+
                 Log.d(TAG, "Downloaded extension $scraperId: ${bytes.size} bytes -> ${targetFile.absolutePath}")
                 targetFile
             }
@@ -201,6 +253,9 @@ class ExternalExtensionLoader @Inject constructor(
             Log.e(TAG, "DEX file not found for $scraperId: ${dexFile.absolutePath}")
             return emptyList()
         }
+
+        // Ensure DEX file is read-only (fix for existing downloads on API 28+)
+        ensureDexReadOnly(dexFile)
 
         return try {
             val classLoader = DexClassLoader(
@@ -235,10 +290,11 @@ class ExternalExtensionLoader @Inject constructor(
                 return emptyList()
             }
 
+            // Ensure global stubs are initialized for extensions
+            AcraApplication.context = context
+            extractorRegistry.installGlobal()
+
             // Call load() to trigger registerMainAPI() calls.
-            // Prefer Activity context since many extensions guard registration with activity?.let { ... }
-            // Wrapped in try-catch so partially-registered APIs survive if a later
-            // registerMainAPI() call fails (e.g. StreamPlay succeeds but StreamPlayAnime crashes).
             val activity = AcraApplication.getActivity()
             try {
                 if (activity != null) {
@@ -257,24 +313,17 @@ class ExternalExtensionLoader @Inject constructor(
                 }
             }
 
-            // Ensure global stubs are initialized for extensions
-            AcraApplication.context = context
-            extractorRegistry.installGlobal()
-
             // Register any extractors the plugin provides
             extractorRegistry.registerAll(plugin.registeredExtractorAPIs)
 
-            // Inject our network layer into each MainAPI
             var apis = plugin.registeredMainAPIs
             Log.d(TAG, "After load(): ${apis.size} MainAPIs, ${plugin.registeredExtractorAPIs.size} extractors")
 
             // FALLBACK: If load() registered 0 APIs or 0 extractors, scan DEX directly.
-            // This works around extensions that guard registerMainAPI()/registerExtractorAPI()
-            // behind activity?.let { ... } or other conditions.
             if (apis.isEmpty() || plugin.registeredExtractorAPIs.isEmpty()) {
                 Log.d(TAG, "Fallback: scanning DEX for MainAPI/ExtractorApi subclasses in $scraperId")
                 val fallbackApis = mutableListOf<MainAPI>()
-                val fallbackExtractors = mutableListOf<com.lagradost.cloudstream3.utils.ExtractorApi>()
+                val fallbackExtractors = mutableListOf<ExtractorApi>()
                 try {
                     @Suppress("DEPRECATION")
                     val inspectDex = dalvik.system.DexFile(dexFile)
@@ -294,12 +343,11 @@ class ExternalExtensionLoader @Inject constructor(
                             val clazz = classLoader.loadClass(className)
                             if (apis.isEmpty() && MainAPI::class.java.isAssignableFrom(clazz)) {
                                 val instance = clazz.getDeclaredConstructor().newInstance() as MainAPI
-                                instance._networkInterceptor = networkInterceptor
                                 fallbackApis.add(instance)
                                 Log.d(TAG, "Fallback found MainAPI: ${instance.name} ($className)")
-                            } else if (com.lagradost.cloudstream3.utils.ExtractorApi::class.java.isAssignableFrom(clazz)
+                            } else if (ExtractorApi::class.java.isAssignableFrom(clazz)
                                 && !java.lang.reflect.Modifier.isAbstract(clazz.modifiers)) {
-                                val instance = clazz.getDeclaredConstructor().newInstance() as com.lagradost.cloudstream3.utils.ExtractorApi
+                                val instance = clazz.getDeclaredConstructor().newInstance() as ExtractorApi
                                 fallbackExtractors.add(instance)
                                 Log.d(TAG, "Fallback found ExtractorApi: ${instance.name} (${instance.mainUrl})")
                             }
@@ -327,7 +375,6 @@ class ExternalExtensionLoader @Inject constructor(
             }
 
             apis.forEach { api ->
-                api._networkInterceptor = networkInterceptor
                 apiCache["$scraperId:${api.name}"] = api
             }
 
@@ -342,7 +389,6 @@ class ExternalExtensionLoader @Inject constructor(
             Log.e(TAG, "Failed to load extension $scraperId: ${e.message}", e)
             emptyList()
         } catch (e: Error) {
-            // Catch NoClassDefFoundError and other linkage errors gracefully
             val missingClass = extractMissingClassName(e)
             if (missingClass != null) {
                 Log.e(TAG, "Failed to load extension $scraperId: MISSING CLASS: $missingClass (${e.javaClass.simpleName})", e)
@@ -364,8 +410,7 @@ class ExternalExtensionLoader @Inject constructor(
     }
 
     /**
-     * Load extension with diagnostic output. Used by the test UI to show exactly
-     * where DEX loading fails.
+     * Load extension with diagnostic output.
      */
     fun loadExtensionWithDiagnostics(scraperId: String, diagnostics: TestDiagnostics): List<MainAPI> {
         apiCache[scraperId]?.let {
@@ -380,6 +425,9 @@ class ExternalExtensionLoader @Inject constructor(
         }
         diagnostics.addStep("DEX: ${dexFile.length()} bytes")
 
+        // Ensure read-only
+        ensureDexReadOnly(dexFile)
+
         return try {
             val classLoader = DexClassLoader(
                 dexFile.absolutePath,
@@ -389,7 +437,6 @@ class ExternalExtensionLoader @Inject constructor(
             )
             classLoaderCache[scraperId] = classLoader
 
-            // Enumerate all classes for fallback and diagnostics
             val allClasses: List<String>
             try {
                 @Suppress("DEPRECATION")
@@ -401,7 +448,6 @@ class ExternalExtensionLoader @Inject constructor(
                 return emptyList()
             }
 
-            // Check if DEX shadows our Plugin class
             val shadowsPlugin = allClasses.any { it == "com.lagradost.cloudstream3.plugins.Plugin" }
             if (shadowsPlugin) {
                 diagnostics.addStep("WARNING: DEX contains its own Plugin class!")
@@ -413,15 +459,12 @@ class ExternalExtensionLoader @Inject constructor(
                 return emptyList()
             }
 
-            // Check class identity
             val sameClass = plugin.javaClass.superclass == Plugin::class.java
             diagnostics.addStep("Plugin: ${plugin.javaClass.simpleName}, sameBaseClass=$sameClass, isWrapper=${plugin is ReflectivePluginWrapper}")
 
-            // Ensure global stubs are ready before load()
             AcraApplication.context = context
             extractorRegistry.installGlobal()
 
-            // Call load()
             val activity = AcraApplication.getActivity()
             try {
                 if (activity != null) {
@@ -441,11 +484,10 @@ class ExternalExtensionLoader @Inject constructor(
 
             var apis = plugin.registeredMainAPIs
 
-            // FALLBACK: If load() registered 0 APIs or 0 extractors, scan DEX directly.
             if (apis.isEmpty() || plugin.registeredExtractorAPIs.isEmpty()) {
                 diagnostics.addStep("Fallback: scanning DEX for MainAPI + ExtractorApi subclasses...")
                 val fallbackApis = mutableListOf<MainAPI>()
-                val fallbackExtractors = mutableListOf<com.lagradost.cloudstream3.utils.ExtractorApi>()
+                val fallbackExtractors = mutableListOf<ExtractorApi>()
                 val candidates = allClasses.filter { className ->
                     !className.contains('$') &&
                     !className.contains("Plugin") &&
@@ -459,12 +501,11 @@ class ExternalExtensionLoader @Inject constructor(
                         val clazz = classLoader.loadClass(className)
                         if (apis.isEmpty() && MainAPI::class.java.isAssignableFrom(clazz)) {
                             val instance = clazz.getDeclaredConstructor().newInstance() as MainAPI
-                            instance._networkInterceptor = networkInterceptor
                             fallbackApis.add(instance)
                             diagnostics.addStep("Found API: ${instance.name} (${clazz.simpleName})")
-                        } else if (com.lagradost.cloudstream3.utils.ExtractorApi::class.java.isAssignableFrom(clazz)
+                        } else if (ExtractorApi::class.java.isAssignableFrom(clazz)
                             && !java.lang.reflect.Modifier.isAbstract(clazz.modifiers)) {
-                            val instance = clazz.getDeclaredConstructor().newInstance() as com.lagradost.cloudstream3.utils.ExtractorApi
+                            val instance = clazz.getDeclaredConstructor().newInstance() as ExtractorApi
                             fallbackExtractors.add(instance)
                             diagnostics.addStep("Found Extractor: ${instance.name} (${instance.mainUrl})")
                         }
@@ -494,9 +535,7 @@ class ExternalExtensionLoader @Inject constructor(
                 }
             }
 
-            // Cache results
             apis.forEach { api ->
-                api._networkInterceptor = networkInterceptor
                 apiCache["$scraperId:${api.name}"] = api
             }
             if (apis.isNotEmpty()) {
@@ -516,11 +555,6 @@ class ExternalExtensionLoader @Inject constructor(
 
     /**
      * Eagerly load all ExtractorApi subclasses from the given .cs3 files.
-     * This mirrors real CloudStream3 behavior where all extensions are loaded at startup,
-     * making all extractors globally available for loadExtractor() calls.
-     *
-     * @param scraperIds List of scraper IDs whose .cs3 files should be scanned
-     * @param diagnostics Optional diagnostics for test UI output
      */
     fun ensureExtractorsLoaded(scraperIds: List<String>, diagnostics: TestDiagnostics? = null) {
         val idsToLoad = scraperIds.filter { it !in extractorPreloadedIds }
@@ -529,7 +563,6 @@ class ExternalExtensionLoader @Inject constructor(
             return
         }
 
-        // Ensure global stubs are initialized
         AcraApplication.context = context
         extractorRegistry.installGlobal()
 
@@ -542,6 +575,9 @@ class ExternalExtensionLoader @Inject constructor(
             val dexFile = File(extensionsDir, "${safeFileName(scraperId)}.cs3")
             if (!dexFile.exists()) continue
 
+            // Ensure read-only
+            ensureDexReadOnly(dexFile)
+
             totalScanned++
             try {
                 val classLoader = classLoaderCache.getOrPut(scraperId) {
@@ -553,7 +589,6 @@ class ExternalExtensionLoader @Inject constructor(
                     )
                 }
 
-                // First try plugin.load() path to get extractors registered via registerExtractorAPI()
                 val plugin = findAndLoadPlugin(classLoader, dexFile)
                 if (plugin != null) {
                     val activity = AcraApplication.getActivity()
@@ -569,11 +604,10 @@ class ExternalExtensionLoader @Inject constructor(
                     if (plugin.registeredExtractorAPIs.isNotEmpty()) {
                         extractorRegistry.registerAll(plugin.registeredExtractorAPIs)
                         totalExtractors += plugin.registeredExtractorAPIs.size
-                        continue // plugin.load() registered extractors, no need for fallback scan
+                        continue
                     }
                 }
 
-                // Fallback: scan DEX entries for ExtractorApi subclasses
                 @Suppress("DEPRECATION")
                 val inspectDex = dalvik.system.DexFile(dexFile)
                 val allClasses = inspectDex.entries().toList()
@@ -583,11 +617,10 @@ class ExternalExtensionLoader @Inject constructor(
                     if (className.contains('$')) continue
                     try {
                         val clazz = classLoader.loadClass(className)
-                        if (com.lagradost.cloudstream3.utils.ExtractorApi::class.java.isAssignableFrom(clazz)
+                        if (ExtractorApi::class.java.isAssignableFrom(clazz)
                             && !java.lang.reflect.Modifier.isAbstract(clazz.modifiers)
                         ) {
-                            val instance = clazz.getDeclaredConstructor().newInstance()
-                                    as com.lagradost.cloudstream3.utils.ExtractorApi
+                            val instance = clazz.getDeclaredConstructor().newInstance() as ExtractorApi
                             extractorRegistry.registerExtractor(instance)
                             totalExtractors++
                         }
@@ -606,9 +639,6 @@ class ExternalExtensionLoader @Inject constructor(
         diagnostics?.addStep("Preloaded $totalExtractors extractors from $totalScanned .cs3 files")
     }
 
-    /**
-     * Delete a downloaded extension and evict its caches.
-     */
     fun deleteExtension(scraperId: String) {
         apiCache.keys.filter { it.startsWith(scraperId) }.forEach { apiCache.remove(it) }
         classLoaderCache.remove(scraperId)
@@ -617,9 +647,6 @@ class ExternalExtensionLoader @Inject constructor(
         Log.d(TAG, "Deleted extension $scraperId")
     }
 
-    /**
-     * Evict cached class loader and API for the given scraper, forcing a reload next time.
-     */
     fun evictCache(scraperId: String) {
         apiCache.keys.filter { it.startsWith(scraperId) }.forEach { apiCache.remove(it) }
         classLoaderCache.remove(scraperId)
@@ -627,24 +654,23 @@ class ExternalExtensionLoader @Inject constructor(
     }
 
     /**
-     * Extract the missing class name from a linkage error for diagnostic purposes.
+     * Ensure a DEX file is read-only. Required for Android API 28+ which blocks
+     * writable DEX file loading.
      */
+    private fun ensureDexReadOnly(dexFile: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && dexFile.canWrite()) {
+            dexFile.setReadOnly()
+            Log.d(TAG, "Fixed DEX permissions (set read-only): ${dexFile.name}")
+        }
+    }
+
     private fun extractMissingClassName(e: Error): String? {
         val msg = e.message ?: return null
-        // NoClassDefFoundError: "com/lagradost/cloudstream3/SomeClass"
-        // or "Failed resolution of: Lcom/lagradost/cloudstream3/SomeClass;"
         val match = Regex("""(?:L?)([\w/.]+)(?:;)?""").find(msg)
         return match?.groupValues?.get(1)?.replace('/', '.')
     }
 
-    /**
-     * Load the plugin from a .cs3 file (ZIP containing classes.dex + manifest.json).
-     *
-     * The manifest.json inside the ZIP has a `pluginClassName` field specifying the
-     * exact class to instantiate. Falls back to annotation scanning if missing.
-     */
     private fun findAndLoadPlugin(classLoader: DexClassLoader, cs3File: File): Plugin? {
-        // Strategy 1: Read pluginClassName from the ZIP's manifest.json
         val pluginClassName = readPluginClassNameFromZip(cs3File)
         if (pluginClassName != null) {
             try {
@@ -654,7 +680,6 @@ class ExternalExtensionLoader @Inject constructor(
                 if (instance is Plugin) {
                     return instance
                 }
-                // Instance isn't our Plugin type — use reflective wrapper if it looks like a plugin
                 if (looksLikePlugin(instance)) {
                     Log.d(TAG, "Using reflective wrapper for $pluginClassName (non-standard base class)")
                     return ReflectivePluginWrapper(instance)
@@ -667,13 +692,9 @@ class ExternalExtensionLoader @Inject constructor(
             }
         }
 
-        // Strategy 2: Scan classes.dex for @CloudstreamPlugin annotation
         return scanForPluginClass(classLoader, cs3File)
     }
 
-    /**
-     * Read the `pluginClassName` from manifest.json inside the .cs3 ZIP file.
-     */
     private fun readPluginClassNameFromZip(cs3File: File): String? {
         return try {
             ZipFile(cs3File).use { zip ->
@@ -688,9 +709,6 @@ class ExternalExtensionLoader @Inject constructor(
         }
     }
 
-    /**
-     * Fallback: enumerate all classes in the DEX and find one annotated with @CloudstreamPlugin.
-     */
     private fun scanForPluginClass(classLoader: DexClassLoader, cs3File: File): Plugin? {
         try {
             @Suppress("DEPRECATION")
@@ -708,7 +726,6 @@ class ExternalExtensionLoader @Inject constructor(
                             dex.close()
                             return instance
                         }
-                        // Annotation present but not our Plugin type — wrap reflectively
                         if (looksLikePlugin(instance)) {
                             Log.d(TAG, "Using reflective wrapper for $className (non-standard base class)")
                             dex.close()
