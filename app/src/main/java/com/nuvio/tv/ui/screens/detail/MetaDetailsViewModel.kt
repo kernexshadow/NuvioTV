@@ -1092,11 +1092,16 @@ class MetaDetailsViewModel @Inject constructor(
         if (enrichment != null && settings.useDetails) {
             updated = updated.copy(
                 runtime = enrichment.runtimeMinutes?.toString() ?: updated.runtime,
-                releaseInfo = enrichment.releaseInfo ?: updated.releaseInfo,
                 status = enrichment.status ?: updated.status,
                 ageRating = enrichment.ageRating ?: updated.ageRating,
                 country = enrichment.countries?.joinToString(", ") ?: updated.country,
                 language = enrichment.language ?: updated.language
+            )
+        }
+
+        if (enrichment != null && settings.useReleaseDates) {
+            updated = updated.copy(
+                releaseInfo = enrichment.releaseInfo ?: updated.releaseInfo
             )
         }
 

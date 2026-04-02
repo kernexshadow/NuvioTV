@@ -604,7 +604,9 @@
     <string name="tmdb_basic_info_title">Basic Info</string>
     <string name="tmdb_basic_info_subtitle">Description, genres, and rating from TMDB</string>
     <string name="tmdb_details_title">Details</string>
-    <string name="tmdb_details_subtitle">Runtime, release date, country, and language from TMDB</string>
+    <string name="tmdb_details_subtitle">Runtime, status, country, and language from TMDB</string>
+    <string name="tmdb_release_dates_title">Release Dates</string>
+    <string name="tmdb_release_dates_subtitle">Release and air dates from TMDB</string>
     <string name="tmdb_credits_title">Credits</string>
     <string name="tmdb_credits_subtitle">Cast with photos, director, and writer from TMDB</string>
     <string name="tmdb_productions_title">Productions</string>
@@ -930,6 +932,7 @@
     <string name="subtitle_tab_style">Style</string>
     <string name="subtitle_tab_delay">Delay</string>
     <string name="subtitle_none">None</string>
+    <string name="subtitle_built_in">Built in</string>
     <string name="subtitle_all">All</string>
     <string name="subtitle_section_core">Core</string>
     <string name="subtitle_section_advanced">Advanced</string>
