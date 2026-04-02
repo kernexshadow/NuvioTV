@@ -87,3 +87,8 @@
 # Keep line numbers for crash reports
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# MPV (native JNI callbacks)
+# Methods on is.xyz.mpv.MPV are looked up by name from native code (GetMethodID),
+# so they must not be removed or renamed by R8.
+-keep class is.xyz.mpv.MPV { *; }
