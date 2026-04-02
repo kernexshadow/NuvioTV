@@ -683,7 +683,7 @@ private fun QrCodeOverlay(
             if (qrBitmap != null) {
                 Image(
                     bitmap = qrBitmap.asImageBitmap(),
-                    contentDescription = "QR Code",
+                    contentDescription = stringResource(R.string.cd_qr_code),
                     modifier = Modifier.size(220.dp),
                     contentScale = ContentScale.Fit
                 )
@@ -1123,7 +1123,7 @@ private fun AddonCardContent(
                         ),
                         shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
                     ) {
-                        Icon(imageVector = Icons.Default.ArrowUpward, contentDescription = "Move up")
+                        Icon(imageVector = Icons.Default.ArrowUpward, contentDescription = stringResource(R.string.cd_move_up))
                     }
                     Button(
                         onClick = onMoveDown,
@@ -1136,7 +1136,7 @@ private fun AddonCardContent(
                         ),
                         shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
                     ) {
-                        Icon(imageVector = Icons.Default.ArrowDownward, contentDescription = "Move down")
+                        Icon(imageVector = Icons.Default.ArrowDownward, contentDescription = stringResource(R.string.cd_move_down))
                     }
                     Button(
                         onClick = onRemove,
