@@ -106,6 +106,8 @@ internal fun SubtitleSelectionOverlay(
     modifier: Modifier = Modifier
 ) {
     val noneLabel = stringResource(R.string.subtitle_none)
+    val builtInLabel = stringResource(R.string.subtitle_built_in)
+    val forcedLabel = stringResource(R.string.sub_forced_lang)
     var persistedStyleFocusKey by rememberSaveable { mutableStateOf<String?>(null) }
     val sessionPreferredLanguage = remember(visible) { subtitleStyle.preferredLanguage }
     val sessionSecondaryPreferredLanguage = remember(visible) { subtitleStyle.secondaryPreferredLanguage }
@@ -144,7 +146,9 @@ internal fun SubtitleSelectionOverlay(
             internalTracks = sessionInternalTracks,
             addonSubtitles = sessionAddonSubtitles,
             installedAddonOrder = sessionInstalledSubtitleAddonOrder,
-            selectedOptionId = activeSelectedOptionId
+            selectedOptionId = activeSelectedOptionId,
+            builtInLabel = builtInLabel,
+            forcedLabel = forcedLabel
         )
     }
 
@@ -1679,7 +1683,9 @@ private fun buildSubtitleOptionRailItems(
     internalTracks: List<TrackInfo>,
     addonSubtitles: List<Subtitle>,
     installedAddonOrder: List<String>,
-    selectedOptionId: String?
+    selectedOptionId: String?,
+    builtInLabel: String,
+    forcedLabel: String
 ): List<SubtitleOptionRailItem> {
     if (selectedLanguageKey == SubtitleOffLanguageKey) return emptyList()
 
@@ -1691,10 +1697,10 @@ private fun buildSubtitleOptionRailItems(
                 id = "internal:${track.index}",
                 kind = SubtitleOptionKind.INTERNAL,
                 title = track.name,
-                sourceLabel = "Built in",
+                sourceLabel = builtInLabel,
                 meta = listOfNotNull(
                     track.codec,
-                    if (track.isForced) "Forced" else null
+                    if (track.isForced) forcedLabel else null
                 ).joinToString(" • ").ifBlank { null },
                 isSelected = "internal:${track.index}" == selectedOptionId,
                 internalTrackIndex = track.index
