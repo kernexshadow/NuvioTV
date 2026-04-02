@@ -203,151 +203,188 @@ fun CollectionEditorScreen(
         return
     }
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 48.dp, start = 48.dp, end = 48.dp)
+            .padding(top = 48.dp),
+        contentPadding = PaddingValues(start = 48.dp, end = 48.dp, bottom = 48.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        Text(
-            text = if (uiState.isNew) "New Collection" else "Edit Collection",
-            style = MaterialTheme.typography.headlineMedium,
-            color = NuvioColors.TextPrimary
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = "Row Title",
-            style = MaterialTheme.typography.labelLarge,
-            color = NuvioColors.TextSecondary
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            NuvioTextField(
-                value = uiState.title,
-                onValueChange = { viewModel.setTitle(it) },
-                modifier = Modifier.weight(1f),
-                placeholder = "Collection name"
+        item(key = "header") {
+            Text(
+                text = if (uiState.isNew) "New Collection" else "Edit Collection",
+                style = MaterialTheme.typography.headlineMedium,
+                color = NuvioColors.TextPrimary
             )
-            NuvioButton(onClick = { viewModel.save { onBack() } }) {
-                Text("Save")
-            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = "Backdrop Image",
-            style = MaterialTheme.typography.labelLarge,
-            color = NuvioColors.TextSecondary
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        NuvioTextField(
-            value = uiState.backdropImageUrl,
-            onValueChange = { viewModel.setBackdropImageUrl(it) },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = "Backdrop image URL (optional)"
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = "View Mode",
-            style = MaterialTheme.typography.labelLarge,
-            color = NuvioColors.TextSecondary
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            val viewModes = listOf(
-                FolderViewMode.TABBED_GRID to "Tabbed Grid",
-                FolderViewMode.ROWS to "Rows",
-                FolderViewMode.FOLLOW_LAYOUT to "Follow Layout"
+        item(key = "title") {
+            Text(
+                text = "Row Title",
+                style = MaterialTheme.typography.labelLarge,
+                color = NuvioColors.TextSecondary
             )
-            viewModes.forEach { (mode, label) ->
-                val isSelected = uiState.viewMode == mode
-                Button(
-                    onClick = { viewModel.setViewMode(mode) },
-                    colors = ButtonDefaults.colors(
-                        containerColor = if (isSelected) NuvioColors.Secondary else NuvioColors.BackgroundCard,
-                        focusedContainerColor = NuvioColors.FocusBackground,
-                        contentColor = if (isSelected) Color.White else NuvioColors.TextSecondary,
-                        focusedContentColor = Color.White
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                NuvioTextField(
+                    value = uiState.title,
+                    onValueChange = { viewModel.setTitle(it) },
+                    modifier = Modifier.weight(1f),
+                    placeholder = "Collection name"
+                )
+                NuvioButton(onClick = { viewModel.save { onBack() } }) {
+                    Text("Save")
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        item(key = "backdrop") {
+            Text(
+                text = "Backdrop Image",
+                style = MaterialTheme.typography.labelLarge,
+                color = NuvioColors.TextSecondary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            NuvioTextField(
+                value = uiState.backdropImageUrl,
+                onValueChange = { viewModel.setBackdropImageUrl(it) },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = "Backdrop image URL (optional)"
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        item(key = "view_mode") {
+            Text(
+                text = "View Mode",
+                style = MaterialTheme.typography.labelLarge,
+                color = NuvioColors.TextSecondary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val viewModes = listOf(
+                    FolderViewMode.TABBED_GRID to "Tabs",
+                    FolderViewMode.ROWS to "Rows",
+                    FolderViewMode.FOLLOW_LAYOUT to "Follow Home Layout"
+                )
+                viewModes.forEach { (mode, label) ->
+                    val isSelected = uiState.viewMode == mode
+                    Button(
+                        onClick = { viewModel.setViewMode(mode) },
+                        colors = ButtonDefaults.colors(
+                            containerColor = if (isSelected) NuvioColors.Secondary.copy(alpha = 0.3f) else NuvioColors.BackgroundCard,
+                            contentColor = if (isSelected) NuvioColors.Secondary else NuvioColors.TextSecondary,
+                            focusedContainerColor = NuvioColors.FocusBackground,
+                            focusedContentColor = NuvioColors.Primary
+                        ),
+                        border = ButtonDefaults.border(
+                            border = if (isSelected) Border(
+                                border = BorderStroke(2.dp, NuvioColors.Secondary),
+                                shape = RoundedCornerShape(12.dp)
+                            ) else Border.None,
+                            focusedBorder = Border(
+                                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        ),
+                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                    ) {
+                        Text(label)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        if (uiState.viewMode == FolderViewMode.TABBED_GRID) {
+            item(key = "show_all_tab") {
+                Card(
+                    onClick = { viewModel.setShowAllTab(!uiState.showAllTab) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.colors(
+                        containerColor = NuvioColors.BackgroundCard,
+                        focusedContainerColor = NuvioColors.FocusBackground
                     ),
-                    border = ButtonDefaults.border(
+                    border = CardDefaults.border(
                         focusedBorder = Border(
                             border = BorderStroke(2.dp, NuvioColors.FocusRing),
                             shape = RoundedCornerShape(12.dp)
                         )
                     ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                    shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+                    scale = CardDefaults.scale(focusedScale = 1.02f)
                 ) {
-                    Text(label)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Show \"All\" Tab",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = NuvioColors.TextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Combine all catalogs into one tab",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NuvioColors.TextSecondary
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Switch(
+                            checked = uiState.showAllTab,
+                            onCheckedChange = { viewModel.setShowAllTab(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = NuvioColors.Secondary,
+                                checkedTrackColor = NuvioColors.Secondary.copy(alpha = 0.3f),
+                                uncheckedThumbColor = NuvioColors.TextSecondary,
+                                uncheckedTrackColor = NuvioColors.BackgroundCard
+                            )
+                        )
+                    }
                 }
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
 
-        if (uiState.viewMode == FolderViewMode.TABBED_GRID) {
-            Spacer(modifier = Modifier.height(12.dp))
+        item(key = "folders_header") {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Show \"All\" Tab",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = NuvioColors.TextSecondary
+                    text = "Folders",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = NuvioColors.TextPrimary
                 )
-                Switch(
-                    checked = uiState.showAllTab,
-                    onCheckedChange = { viewModel.setShowAllTab(it) },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = NuvioColors.Secondary,
-                        checkedTrackColor = NuvioColors.Secondary.copy(alpha = 0.3f),
-                        uncheckedThumbColor = NuvioColors.TextSecondary,
-                        uncheckedTrackColor = NuvioColors.BackgroundCard
-                    )
+                Text(
+                    text = "${uiState.folders.size} item${if (uiState.folders.size != 1) "s" else ""}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioColors.TextTertiary
                 )
             }
+            Spacer(modifier = Modifier.height(12.dp))
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Folders",
-                style = MaterialTheme.typography.titleMedium,
-                color = NuvioColors.TextPrimary
-            )
-            Text(
-                text = "${uiState.folders.size} item${if (uiState.folders.size != 1) "s" else ""}",
-                style = MaterialTheme.typography.bodySmall,
-                color = NuvioColors.TextTertiary
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        LazyColumn(
-            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 48.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            itemsIndexed(
-                items = uiState.folders,
-                key = { _, folder -> folder.id }
-            ) { index, folder ->
+        itemsIndexed(
+            items = uiState.folders,
+            key = { _, folder -> folder.id }
+        ) { index, folder ->
+            Box(modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp)) {
                 FolderListItem(
                     folder = folder,
                     isFirst = index == 0,
@@ -358,14 +395,14 @@ fun CollectionEditorScreen(
                     onMoveDown = { viewModel.moveFolderDown(index) }
                 )
             }
+        }
 
-            item(key = "add_folder") {
-                Box(modifier = Modifier.padding(vertical = 4.dp)) {
-                    NuvioButton(onClick = { viewModel.addFolder() }) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = "Add")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Add Folder")
-                    }
+        item(key = "add_folder") {
+            Box(modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp)) {
+                NuvioButton(onClick = { viewModel.addFolder() }) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Add Folder")
                 }
             }
         }

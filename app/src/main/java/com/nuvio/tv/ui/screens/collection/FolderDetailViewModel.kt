@@ -106,7 +106,7 @@ class FolderDetailViewModel @Inject constructor(
             }
 
             val tabs = if (showAll) {
-                listOf(FolderTab(label = "All", isLoading = true, isAllTab = true)) + sourceTabs
+                listOf(FolderTab(label = "All", typeLabel = "Combined", isLoading = true, isAllTab = true)) + sourceTabs
             } else {
                 sourceTabs
             }

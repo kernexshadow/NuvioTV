@@ -1498,9 +1498,9 @@ function renderCollections() {
       '<div class="folder-meta" style="padding:0.5rem 0.75rem;border-bottom:1px solid rgba(255,255,255,0.06);flex-wrap:nowrap;align-items:center">' +
         '<span style="font-size:0.75rem;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.05em;flex-shrink:0">View Mode</span>' +
         '<select onchange="updateCollectionViewMode(' + ci + ',this.value)">' +
-          '<option value="TABBED_GRID"' + ((col.viewMode === 'TABBED_GRID' || !col.viewMode) ? ' selected' : '') + '>Tabbed Grid</option>' +
+          '<option value="TABBED_GRID"' + ((col.viewMode === 'TABBED_GRID' || !col.viewMode) ? ' selected' : '') + '>Tabs</option>' +
           '<option value="ROWS"' + (col.viewMode === 'ROWS' ? ' selected' : '') + '>Rows</option>' +
-          '<option value="FOLLOW_LAYOUT"' + (col.viewMode === 'FOLLOW_LAYOUT' ? ' selected' : '') + '>Follow Layout</option>' +
+          '<option value="FOLLOW_LAYOUT"' + (col.viewMode === 'FOLLOW_LAYOUT' ? ' selected' : '') + '>Follow Home Layout</option>' +
         '</select>' +
       '</div>' +
       ((col.viewMode === 'TABBED_GRID' || !col.viewMode) ?
