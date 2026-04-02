@@ -560,7 +560,14 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             }
         }
         is PlayerEvent.OnSetPlaybackSpeed -> {
-            _exoPlayer?.setPlaybackSpeed(event.speed)
+            val selectedAudioIsEac3 = _exoPlayer?.let(::selectedAudioIsEac3) == true
+            playbackSpeedAwareAudioOutputProvider?.updatePlaybackSpeed(
+                event.speed,
+                selectedAudioIsEac3 = selectedAudioIsEac3
+            )
+            _exoPlayer?.let { player ->
+                player.setPlaybackSpeed(event.speed)
+            }
             _uiState.update { 
                 it.copy(
                     playbackSpeed = event.speed,
@@ -634,6 +641,21 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             adjustSubtitleDelay(event.deltaMs)
         }
         PlayerEvent.OnShowSpeedDialog -> {
+            val state = _uiState.value
+            if (state.tunnelingEnabled) {
+                _uiState.update {
+                    it.copy(
+                        showAspectRatioIndicator = true,
+                        aspectRatioIndicatorText = context.getString(R.string.player_aspect_tunneling_unavailable)
+                    )
+                }
+                hideAspectRatioIndicatorJob?.cancel()
+                hideAspectRatioIndicatorJob = scope.launch {
+                    delay(1500)
+                    _uiState.update { it.copy(showAspectRatioIndicator = false) }
+                }
+                return
+            }
             _uiState.update {
                 it.copy(
                     showSpeedDialog = true,

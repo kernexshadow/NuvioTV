@@ -20,6 +20,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -182,7 +183,9 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     selectedAddonSubtitle != null &&
                         PlayerSubtitleUtils.mimeTypeFromUrl(selectedAddonSubtitle.url) == MimeTypes.TEXT_VTT
                 },
-                gainAudioProcessor = gainAudioProcessor
+                gainAudioProcessor = gainAudioProcessor,
+                playbackSpeedProvider = { _uiState.value.playbackSpeed },
+                onPlaybackSpeedAwareAudioOutputProviderCreated = { playbackSpeedAwareAudioOutputProvider = it }
             ).setExtensionRendererMode(playerSettings.decoderPriority)
                 .setMapDV7ToHevc(playerSettings.mapDV7ToHevc)
 
@@ -196,6 +199,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
                     .setRenderersFactory(renderersFactory)
                     .setLoadControl(loadControl)
+                    .setReleaseTimeoutMs(3000)
                     .build()
             }
 
@@ -204,6 +208,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     .setLoadControl(loadControl)
                     .setTrackSelector(trackSelector!!)
                     .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
+                    .setReleaseTimeoutMs(3000)
                     .buildWithAssSupportCompat(
                         context = context,
                         renderType = libassRenderType,
@@ -224,6 +229,11 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                     .build()
                 setAudioAttributes(audioAttributes, true)
+                playbackSpeedAwareAudioOutputProvider?.updatePlaybackSpeed(
+                    _uiState.value.playbackSpeed,
+                    selectedAudioIsEac3(this)
+                )
+                setPlaybackSpeed(_uiState.value.playbackSpeed)
 
                 
                 if (playerSettings.skipSilence) {
@@ -356,6 +366,9 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        if (isReleasingPlayer && error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT) {
+                            return
+                        }
                         val detailedError = buildString {
                             append(error.message ?: "Playback error")
                             val cause = error.cause
@@ -582,7 +595,9 @@ private class SubtitleOffsetRenderersFactory(
     context: Context,
     private val subtitleDelayUsProvider: () -> Long,
     private val shouldNormalizeCuePositionProvider: () -> Boolean,
-    private val gainAudioProcessor: GainAudioProcessor
+    private val gainAudioProcessor: GainAudioProcessor,
+    private val playbackSpeedProvider: () -> Float,
+    private val onPlaybackSpeedAwareAudioOutputProviderCreated: (PlaybackSpeedAwareAudioOutputProvider) -> Unit
 ) : DefaultRenderersFactory(context) {
 
     override fun buildAudioSink(
@@ -590,11 +605,19 @@ private class SubtitleOffsetRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
+        val baseAudioOutputProvider = AudioTrackAudioOutputProvider.Builder(context)
+            .setAudioTrackBufferSizeProvider(FormatAwareAudioTrackBufferProvider())
+            .setMaxPlaybackSpeed(PLAYBACK_SPEEDS.maxOrNull() ?: 2f)
+            .build()
+        val audioOutputProvider = PlaybackSpeedAwareAudioOutputProvider(baseAudioOutputProvider)
+        audioOutputProvider.updatePlaybackSpeed(playbackSpeedProvider())
+        onPlaybackSpeedAwareAudioOutputProviderCreated(audioOutputProvider)
+
         return DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
-            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+            .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
             .setAudioProcessors(arrayOf(gainAudioProcessor))
-            .setAudioTrackBufferSizeProvider(FormatAwareAudioTrackBufferProvider())
+            .setAudioOutputProvider(audioOutputProvider)
             .build()
     }
 

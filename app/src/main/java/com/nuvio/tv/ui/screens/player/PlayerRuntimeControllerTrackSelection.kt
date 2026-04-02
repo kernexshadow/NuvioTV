@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.player
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import com.nuvio.tv.domain.model.Subtitle
@@ -39,6 +40,24 @@ internal fun PlayerRuntimeController.showSeekOverlayTemporarily() {
         delay(1500)
         _uiState.update { it.copy(showSeekOverlay = false) }
     }
+}
+
+internal fun PlayerRuntimeController.selectedAudioIsEac3(player: Player): Boolean {
+    player.currentTracks.groups.forEach { trackGroup ->
+        if (trackGroup.type != C.TRACK_TYPE_AUDIO) return@forEach
+        for (i in 0 until trackGroup.length) {
+            if (!trackGroup.isTrackSelected(i)) continue
+            val format = trackGroup.getTrackFormat(i)
+            val sampleMimeType = format.sampleMimeType
+            if (sampleMimeType == MimeTypes.AUDIO_E_AC3 || sampleMimeType == MimeTypes.AUDIO_E_AC3_JOC) {
+                return true
+            }
+            if (format.codecs?.contains("ec-3", ignoreCase = true) == true) {
+                return true
+            }
+        }
+    }
+    return false
 }
 
 internal fun PlayerRuntimeController.selectAudioTrack(trackIndex: Int) {
