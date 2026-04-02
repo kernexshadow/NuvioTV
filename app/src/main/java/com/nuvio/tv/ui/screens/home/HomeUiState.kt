@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.runtime.Immutable
+import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
@@ -19,9 +20,11 @@ data class HomeUiState(
     val installedAddonsCount: Int = 0,
     val homeLayout: HomeLayout = HomeLayout.MODERN,
     val modernLandscapePostersEnabled: Boolean = false,
+    val modernHeroFullScreenBackdropEnabled: Boolean = false,
     val heroItems: List<MetaPreview> = emptyList(),
     val heroCatalogKeys: List<String> = emptyList(),
     val heroSectionEnabled: Boolean = true,
+    val modernHomePresentation: ModernHomePresentationState = ModernHomePresentationState(),
     val posterLabelsEnabled: Boolean = true,
     val catalogAddonNameEnabled: Boolean = true,
     val catalogTypeSuffixEnabled: Boolean = true,
@@ -46,7 +49,10 @@ data class HomeUiState(
     val posterListPickerPending: Boolean = false,
     val posterListPickerError: String? = null,
     val gridItems: List<GridItem> = emptyList(),
-    val hideUnreleasedContent: Boolean = false
+    val hideUnreleasedContent: Boolean = false,
+    val showFullReleaseDate: Boolean = true,
+    val blurUnwatchedEpisodes: Boolean = false,
+    val startupAuthNotice: StartupAuthNotice? = null
 )
 
 @Immutable
@@ -85,7 +91,13 @@ data class NextUpInfo(
     val lastWatched: Long,
     val imdbRating: Float? = null,
     val genres: List<String> = emptyList(),
-    val releaseInfo: String? = null
+    val releaseInfo: String? = null,
+    val sortTimestamp: Long,
+    val releaseTimestamp: Long? = null,
+    val isReleaseAlert: Boolean = false,
+    val isNewSeasonRelease: Boolean = false,
+    val seedSeason: Int? = null,
+    val seedEpisode: Int? = null
 )
 
 @Immutable

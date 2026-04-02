@@ -44,8 +44,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.layout.ContentScale
@@ -64,7 +66,9 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import coil.request.ImageRequest
+import coil.decode.SvgDecoder
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
@@ -96,24 +100,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 
-private fun applyDither(bmp: android.graphics.Bitmap) {
-    val pixels = IntArray(bmp.width * bmp.height)
-    bmp.getPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
-    val rng = java.util.Random(0)
-    for (i in pixels.indices) {
-        val p = pixels[i]
-        val a = (p ushr 24) and 0xFF
-        val r = (p ushr 16) and 0xFF
-        val g = (p ushr 8) and 0xFF
-        val b = p and 0xFF
-        val noise = rng.nextInt(3) - 1
-        pixels[i] = ((a shl 24) or
-            ((r + noise).coerceIn(0, 255) shl 16) or
-            ((g + noise).coerceIn(0, 255) shl 8) or
-            (b + noise).coerceIn(0, 255))
-    }
-    bmp.setPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
-}
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -183,7 +169,8 @@ fun StreamScreen(
     LaunchedEffect(uiState.autoPlayPlaybackInfo) {
         val playbackInfo = uiState.autoPlayPlaybackInfo ?: return@LaunchedEffect
         if (playbackInfo.url != null) {
-            routeAutoPlay(playbackInfo)
+            onAutoPlayResolved(playbackInfo)
+            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
         }
     }
 
@@ -201,9 +188,7 @@ fun StreamScreen(
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuvioColors.Background)
+        modifier = Modifier.fillMaxSize()
     ) {
         // Full screen backdrop
         StreamBackdrop(
@@ -317,10 +302,6 @@ private fun StreamBackdrop(
     isLoading: Boolean
 ) {
     val context = LocalContext.current
-    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val widthPx = remember(configuration, density) { with(density) { configuration.screenWidthDp.dp.roundToPx() }.coerceAtLeast(1) }
-    val heightPx = remember(configuration, density) { with(density) { configuration.screenHeightDp.dp.roundToPx() }.coerceAtLeast(1) }
     val backgroundColor = NuvioColors.Background
     val backdropModel = remember(context, backdrop) {
         backdrop?.let { image ->
@@ -330,60 +311,11 @@ private fun StreamBackdrop(
                 .build()
         }
     }
-    val alpha by animateFloatAsState(
-        targetValue = if (isLoading) 0.3f else 0.5f,
+    val imageAlpha by animateFloatAsState(
+        targetValue = if (isLoading) 0.7f else 0.5f,
         animationSpec = tween(500),
-        label = "backdrop_alpha"
+        label = "backdrop_image_alpha"
     )
-    val leftGradientBitmap = remember(backgroundColor, widthPx, heightPx) {
-        val transparent = backgroundColor.copy(alpha = 0f).toArgb()
-        val bmp = android.graphics.Bitmap.createBitmap(widthPx, 2, android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bmp)
-        val shader = android.graphics.LinearGradient(
-            0f, 0f, widthPx * 0.65f, 0f,
-            intArrayOf(
-                backgroundColor.toArgb(),
-                backgroundColor.copy(alpha = 0.92f).toArgb(),
-                backgroundColor.copy(alpha = 0.78f).toArgb(),
-                backgroundColor.copy(alpha = 0.58f).toArgb(),
-                backgroundColor.copy(alpha = 0.36f).toArgb(),
-                backgroundColor.copy(alpha = 0.16f).toArgb(),
-                backgroundColor.copy(alpha = 0.05f).toArgb(),
-                transparent
-            ),
-            floatArrayOf(0f, 0.12f, 0.26f, 0.44f, 0.62f, 0.78f, 0.90f, 1f),
-            android.graphics.Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, 0f, widthPx.toFloat(), 2f, android.graphics.Paint().apply {
-            this.shader = shader
-        })
-        bmp.asImageBitmap()
-    }
-    val rightGradientBitmap = remember(backgroundColor, widthPx, heightPx) {
-        val transparent = backgroundColor.copy(alpha = 0f).toArgb()
-        val bmp = android.graphics.Bitmap.createBitmap(2, heightPx.coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bmp)
-        val startX = widthPx * 0.35f
-        val shader = android.graphics.LinearGradient(
-            startX, 0f, widthPx.toFloat(), 0f,
-            intArrayOf(
-                transparent,
-                backgroundColor.copy(alpha = 0.05f).toArgb(),
-                backgroundColor.copy(alpha = 0.16f).toArgb(),
-                backgroundColor.copy(alpha = 0.36f).toArgb(),
-                backgroundColor.copy(alpha = 0.58f).toArgb(),
-                backgroundColor.copy(alpha = 0.78f).toArgb(),
-                backgroundColor.copy(alpha = 0.92f).toArgb(),
-                backgroundColor.toArgb()
-            ),
-            floatArrayOf(0f, 0.10f, 0.22f, 0.38f, 0.56f, 0.74f, 0.88f, 1f),
-            android.graphics.Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, 0f, 2f, heightPx.toFloat(), android.graphics.Paint().apply {
-            this.shader = shader
-        })
-        bmp.asImageBitmap()
-    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Backdrop image
@@ -391,48 +323,46 @@ private fun StreamBackdrop(
             AsyncImage(
                 model = backdropModel,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = imageAlpha },
                 contentScale = ContentScale.Crop
             )
         }
 
-        // Dark overlay
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(NuvioColors.Background.copy(alpha = alpha))
-        )
-
-        // Left gradient for text readability
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawWithCache {
-                    onDrawBehind {
-                        drawImage(
-                            leftGradientBitmap,
-                            dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
-                            filterQuality = androidx.compose.ui.graphics.FilterQuality.Low
-                        )
-                    }
-                }
-        )
-
-        // Right gradient for streams panel
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawWithCache {
-                    onDrawBehind {
-                        drawImage(
-                            rightGradientBitmap,
-                            dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
-                            filterQuality = androidx.compose.ui.graphics.FilterQuality.Low
-                        )
-                    }
-                }
+        StreamGradientLayer(
+            bgColor = backgroundColor,
+            modifier = Modifier.fillMaxSize()
         )
     }
+}
+
+@Composable
+private fun StreamGradientLayer(
+    bgColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .drawWithCache {
+                val combinedGradient = Brush.horizontalGradient(
+                    colorStops = arrayOf(
+                        0.0f to bgColor,
+                        0.15f to bgColor.copy(alpha = 0.85f),
+                        0.30f to bgColor.copy(alpha = 0.40f),
+                        0.50f to bgColor.copy(alpha = 0.15f),
+                        0.70f to bgColor.copy(alpha = 0.40f),
+                        0.85f to bgColor.copy(alpha = 0.85f),
+                        1.0f to bgColor
+                    ),
+                    startX = 0f,
+                    endX = size.width
+                )
+                onDrawBehind {
+                    drawRect(brush = combinedGradient)
+                }
+            }
+    )
 }
 
 @Composable
@@ -450,11 +380,13 @@ private fun LeftContentSection(
 ) {
     val context = LocalContext.current
     var logoLoadFailed by remember(logo) { mutableStateOf(false) }
+    val density = LocalDensity.current
     val logoModel = remember(context, logo) {
         logo?.let { image ->
             ImageRequest.Builder(context)
                 .data(image)
                 .crossfade(false)
+                .decoderFactory(SvgDecoder.Factory())
                 .build()
         }
     }
@@ -495,8 +427,9 @@ private fun LeftContentSection(
             // Show episode info or movie info
             if (isEpisode && season != null && episode != null) {
                 // Episode info
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "S$season E$episode",
+                    text = stringResource(R.string.stream_episode_label, season, episode),
                     style = MaterialTheme.typography.titleLarge,
                     color = NuvioTheme.extendedColors.textSecondary,
                     textAlign = TextAlign.Center
@@ -514,8 +447,15 @@ private fun LeftContentSection(
                 }
                 if (runtime != null) {
                     Spacer(modifier = Modifier.height(4.dp))
+                    val runtimeText = if (runtime >= 60) {
+                        val hours = runtime / 60
+                        val mins = runtime % 60
+                        if (mins > 0) "${hours}h ${mins}m" else "${hours}h"
+                    } else {
+                        "${runtime}m"
+                    }
                     Text(
-                        text = "${runtime}m",
+                        text = runtimeText,
                         style = MaterialTheme.typography.bodyMedium,
                         color = NuvioTheme.extendedColors.textSecondary,
                         textAlign = TextAlign.Center
@@ -523,13 +463,12 @@ private fun LeftContentSection(
                 }
             } else {
                 // Movie info - genres and year
+                Spacer(modifier = Modifier.height(8.dp))
                 if (infoText.isNotEmpty()) {
                     Text(
                         text = infoText,
                         style = MaterialTheme.typography.bodyLarge,
                         color = NuvioTheme.extendedColors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center
                     )
                 }
@@ -555,6 +494,7 @@ private fun RightStreamSection(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     var enter by remember { mutableStateOf(false) }
     var shouldFocusFirstStream by remember { mutableStateOf(false) }
     var wasLoading by remember { mutableStateOf(true) }
@@ -681,23 +621,53 @@ private fun AddonFilterChips(
     focusRequesters: List<FocusRequester>,
     orderedNames: List<String>
 ) {
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val chipMap = sourceChips.associateBy { it.name }
     var chipRowHasFocus by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
         modifier = Modifier
-            .onFocusChanged { chipRowHasFocus = it.hasFocus }
+            .onFocusChanged { focusState ->
+                val hasFocus = focusState.hasFocus
+                if (hasFocus && !chipRowHasFocus && isRtl) {
+                    val selectedIdx = if (selectedAddon == null) 0
+                        else (orderedNames.indexOf(selectedAddon) + 1).coerceAtLeast(0)
+                    scope.coroutineLaunch {
+                        withFrameNanos {}
+                        focusRequesters.getOrNull(selectedIdx)?.requestFocus()
+                    }
+                }
+                chipRowHasFocus = hasFocus
+            }
             .onKeyEvent { event ->
                 if (event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) return@onKeyEvent false
+
+                // Throttle rapid key repeats (long-press)
+                if (event.nativeKeyEvent.repeatCount > 0) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastKeyRepeatDispatchRef.get() < 112L) return@onKeyEvent true
+                    lastKeyRepeatDispatchRef.set(now)
+                }
+
                 val allOptions = listOf<String?>(null) + orderedNames
                 val currentIdx = allOptions.indexOf(selectedAddon)
                 when (event.key) {
                     androidx.compose.ui.input.key.Key.DirectionLeft -> {
-                        if (currentIdx > 0) { onAddonSelected(allOptions[currentIdx - 1]); true } else false
+                        if (isRtl) {
+                            if (currentIdx < allOptions.lastIndex) { onAddonSelected(allOptions[currentIdx + 1]); true } else false
+                        } else {
+                            if (currentIdx > 0) { onAddonSelected(allOptions[currentIdx - 1]); true } else false
+                        }
                     }
                     androidx.compose.ui.input.key.Key.DirectionRight -> {
-                        if (currentIdx < allOptions.lastIndex) { onAddonSelected(allOptions[currentIdx + 1]); true } else false
+                        if (isRtl) {
+                            if (currentIdx > 0) { onAddonSelected(allOptions[currentIdx - 1]); true } else false
+                        } else {
+                            if (currentIdx < allOptions.lastIndex) { onAddonSelected(allOptions[currentIdx + 1]); true } else false
+                        }
                     }
                     else -> false
                 }
@@ -835,7 +805,9 @@ private fun StreamsList(
     orderedAddonNames: List<String> = emptyList(),
     onFocusChanged: (Boolean) -> Unit = {}
 ) {
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val firstCardFocusRequester = remember { FocusRequester() }
+    val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val restoreFocusRequester = remember { FocusRequester() }
     val firstStreamKey = streams.firstOrNull()?.let { first ->
         "${first.addonName}_${first.url ?: first.infoHash ?: first.ytId ?: "unknown"}"
@@ -872,15 +844,30 @@ private fun StreamsList(
             .onFocusChanged { onFocusChanged(it.hasFocus) }
             .onKeyEvent { event ->
                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
+
+                // Throttle rapid key repeats (long-press)
+                if (event.nativeKeyEvent.repeatCount > 0) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastKeyRepeatDispatchRef.get() < 112L) return@onKeyEvent true
+                    lastKeyRepeatDispatchRef.set(now)
+                }
                 if (availableAddons.isEmpty()) return@onKeyEvent false
                 val allOptions = listOf<String?>(null) + availableAddons
                 val currentIdx = allOptions.indexOf(selectedAddonFilter)
                 when (event.key) {
                     Key.DirectionLeft -> {
-                        if (currentIdx > 0) { onAddonFilterSelected(allOptions[currentIdx - 1]); true } else false
+                        if (isRtl) {
+                            if (currentIdx < allOptions.lastIndex) { onAddonFilterSelected(allOptions[currentIdx + 1]); true } else false
+                        } else {
+                            if (currentIdx > 0) { onAddonFilterSelected(allOptions[currentIdx - 1]); true } else false
+                        }
                     }
                     Key.DirectionRight -> {
-                        if (currentIdx < allOptions.lastIndex) { onAddonFilterSelected(allOptions[currentIdx + 1]); true } else false
+                        if (isRtl) {
+                            if (currentIdx > 0) { onAddonFilterSelected(allOptions[currentIdx - 1]); true } else false
+                        } else {
+                            if (currentIdx < allOptions.lastIndex) { onAddonFilterSelected(allOptions[currentIdx + 1]); true } else false
+                        }
                     }
                     else -> false
                 }
@@ -927,6 +914,7 @@ private fun StreamCard(
             ImageRequest.Builder(context)
                 .data(logo)
                 .crossfade(false)
+                .decoderFactory(SvgDecoder.Factory())
                 .build()
         }
     }

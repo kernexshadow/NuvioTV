@@ -4,16 +4,17 @@ import android.content.Intent
 import android.media.audiofx.AudioEffect
 
 internal fun PlayerRuntimeController.releasePlayer() {
-    flushPlaybackSnapshotForSwitchOrExit()
+    releasePlayer(flushPlaybackState = true)
+}
+
+internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) {
+    isReleasingPlayer = true
+    if (flushPlaybackState) {
+        flushPlaybackSnapshotForSwitchOrExit()
+    }
 
     notifyAudioSessionUpdate(false)
 
-    try {
-        loudnessEnhancer?.release()
-        loudnessEnhancer = null
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
     try {
         currentMediaSession?.release()
         currentMediaSession = null
@@ -27,10 +28,22 @@ internal fun PlayerRuntimeController.releasePlayer() {
     frameRateProbeJob?.cancel()
     hideStreamSourceIndicatorJob?.cancel()
     hideSubtitleDelayOverlayJob?.cancel()
+    playbackPreparationJob?.cancel()
+    playbackPreparationJob = null
     nextEpisodeAutoPlayJob?.cancel()
     nextEpisodeAutoPlayJob = null
-    _exoPlayer?.release()
+    errorRetryJob?.cancel()
+    errorRetryJob = null
+    _exoPlayer?.let { player ->
+        runCatching { player.playWhenReady = false }
+        runCatching { player.pause() }
+        runCatching { player.clearVideoSurface() }
+        runCatching { player.stop() }
+        runCatching { player.release() }
+    }
     _exoPlayer = null
+    playbackSpeedAwareAudioOutputProvider = null
+    isReleasingPlayer = false
 }
 
 internal fun PlayerRuntimeController.notifyAudioSessionUpdate(active: Boolean) {

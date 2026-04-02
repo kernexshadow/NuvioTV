@@ -66,6 +66,7 @@ internal enum class SettingsCategory {
     PLUGINS,
     INTEGRATION,
     PLAYBACK,
+    ADVANCED,
     TRAKT,
     ABOUT,
     DEBUG
@@ -162,6 +163,13 @@ private fun rememberSettingsSectionSpecs() = listOf(
         destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
+        category = SettingsCategory.ADVANCED,
+        title = stringResource(R.string.settings_advanced),
+        icon = Icons.Default.Build,
+        subtitle = stringResource(R.string.settings_advanced_subtitle),
+        destination = SettingsSectionDestination.Inline
+    ),
+    SettingsSectionSpec(
         category = SettingsCategory.DEBUG,
         title = stringResource(R.string.settings_debug),
         icon = Icons.Default.BugReport,
@@ -194,6 +202,7 @@ fun SettingsScreen(
         }
     }
 
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     var selectedCategory by remember(visibleSections) {
         mutableStateOf(
             visibleSections.firstOrNull()?.category ?: SettingsCategory.APPEARANCE
@@ -208,6 +217,7 @@ fun SettingsScreen(
                 SettingsCategory.LAYOUT to FocusRequester(),
                 SettingsCategory.INTEGRATION to FocusRequester(),
                 SettingsCategory.PLAYBACK to FocusRequester(),
+                SettingsCategory.ADVANCED to FocusRequester(),
                 SettingsCategory.ABOUT to FocusRequester()
             )
     }
@@ -251,7 +261,6 @@ fun SettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
             .padding(
                 start = 32.dp,
                 end = 32.dp,
@@ -290,7 +299,8 @@ fun SettingsScreen(
                             }
                         }
                         .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
+                            val toDetailKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
+                            if (event.type == KeyEventType.KeyDown && event.key == toDetailKey) {
                                 allowDetailAutofocus = true
                                 false
                             } else {
@@ -335,8 +345,9 @@ fun SettingsScreen(
                         .weight(1f)
                         .fillMaxHeight()
                         .onKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                                val movedLeft = focusManager.moveFocus(FocusDirection.Left)
+                            val toRailKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
+                            if (event.type == KeyEventType.KeyDown && event.key == toRailKey) {
+                                val movedLeft = focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)
                                 if (!movedLeft) {
                                     allowDetailAutofocus = false
                                     val requested = railFocusRequesters[selectedCategory]?.let { requester ->
@@ -380,6 +391,13 @@ fun SettingsScreen(
                         SettingsCategory.PLAYBACK -> PlaybackSettingsContent(
                             initialFocusRequester = if (allowDetailAutofocus) {
                                 contentFocusRequesters[SettingsCategory.PLAYBACK]
+                            } else {
+                                null
+                            }
+                        )
+                        SettingsCategory.ADVANCED -> NetworkSettingsContent(
+                            initialFocusRequester = if (allowDetailAutofocus) {
+                                contentFocusRequesters[SettingsCategory.ADVANCED]
                             } else {
                                 null
                             }

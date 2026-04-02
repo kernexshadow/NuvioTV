@@ -91,6 +91,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setLoadingOverlayEnabled(enabled)
     }
 
+    suspend fun setShowPlayerLoadingStatus(enabled: Boolean) {
+        playerSettingsDataStore.setShowPlayerLoadingStatus(enabled)
+    }
+
     suspend fun setPauseOverlayEnabled(enabled: Boolean) {
         playerSettingsDataStore.setPauseOverlayEnabled(enabled)
     }
@@ -235,6 +239,10 @@ class PlaybackSettingsViewModel @Inject constructor(
 
     suspend fun setStreamAutoPlayPreferBingeGroupForNextEpisode(enabled: Boolean) {
         playerSettingsDataStore.setStreamAutoPlayPreferBingeGroupForNextEpisode(enabled)
+    }
+
+    suspend fun setStreamAutoPlayTimeoutSeconds(seconds: Int) {
+        playerSettingsDataStore.setStreamAutoPlayTimeoutSeconds(seconds)
     }
 
     suspend fun setNextEpisodeThresholdMode(mode: NextEpisodeThresholdMode) {

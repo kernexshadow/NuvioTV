@@ -19,21 +19,51 @@ import androidx.media3.exoplayer.source.ConcatenatingMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import okhttp3.ConnectionPool
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import com.nuvio.tv.core.network.IPv4FirstDns
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.net.URLDecoder
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 internal class PlayerMediaSourceFactory(
     private val context: Context
 ) {
-    private var okHttpClient: OkHttpClient? = null
     private var customExtractorsFactory: ExtractorsFactory? = null
     private var customSubtitleParserFactory: SubtitleParser.Factory? = null
+    private val playbackHttpClient by lazy {
+        val trustAllManager = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+        val sslContext = SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf<TrustManager>(trustAllManager), SecureRandom())
+        }
+        OkHttpClient.Builder()
+            .dns(IPv4FirstDns())
+            .sslSocketFactory(sslContext.socketFactory, trustAllManager)
+            .hostnameVerifier { _, _ -> true }
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
 
     fun configureSubtitleParsing(
         extractorsFactory: ExtractorsFactory?,
@@ -57,17 +87,15 @@ internal class PlayerMediaSourceFactory(
     fun createMediaSource(
         url: String,
         headers: Map<String, String>,
-        subtitleConfigurations: List<MediaItem.SubtitleConfiguration> = emptyList()
+        subtitleConfigurations: List<MediaItem.SubtitleConfiguration> = emptyList(),
+        mimeTypeOverride: String? = null
     ): MediaSource {
         val sanitizedHeaders = sanitizeHeaders(headers)
-        val okHttpFactory = OkHttpDataSource.Factory(getOrCreateOkHttpClient()).apply {
+        val httpDataSourceFactory = OkHttpDataSource.Factory(playbackHttpClient).apply {
             setDefaultRequestProperties(sanitizedHeaders)
-            setUserAgent(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
+            setUserAgent(DEFAULT_USER_AGENT)
         }
-        val baseDataSourceFactory = DefaultDataSource.Factory(context, okHttpFactory)
+        val baseDataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val extractorsFactory = customExtractorsFactory ?: createDefaultExtractorsFactory()
         val defaultFactory = DefaultMediaSourceFactory(baseDataSourceFactory, extractorsFactory).apply {
             customSubtitleParserFactory?.let { parserFactory ->
@@ -76,21 +104,12 @@ internal class PlayerMediaSourceFactory(
         }
         val forceDefaultFactory = customExtractorsFactory != null || customSubtitleParserFactory != null
 
-        val lowerPath = extractPath(url).lowercase(Locale.US)
-
-        val isHls = lowerPath.contains(".m3u8") ||
-            lowerPath.contains("/playlist") ||
-            lowerPath.contains("/hls") ||
-            lowerPath.contains("m3u8")
-
-        val isDash = lowerPath.contains(".mpd") ||
-            lowerPath.contains("/dash")
+        val resolvedMimeType = mimeTypeOverride ?: inferMimeType(url = url, filename = null)
+        val isHls = resolvedMimeType == MimeTypes.APPLICATION_M3U8
+        val isDash = resolvedMimeType == MimeTypes.APPLICATION_MPD
 
         val mediaItemBuilder = MediaItem.Builder().setUri(url)
-        when {
-            isHls -> mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-            isDash -> mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MPD)
-        }
+        resolvedMimeType?.let(mediaItemBuilder::setMimeType)
 
         if (subtitleConfigurations.isNotEmpty()) {
             mediaItemBuilder.setSubtitleConfigurations(subtitleConfigurations)
@@ -141,36 +160,16 @@ internal class PlayerMediaSourceFactory(
         }
 
         return when {
-            isHls && !forceDefaultFactory -> HlsMediaSource.Factory(okHttpFactory)
+            isHls && !forceDefaultFactory -> HlsMediaSource.Factory(httpDataSourceFactory)
                 .setAllowChunklessPreparation(true)
                 .createMediaSource(mediaItem)
-            isDash && !forceDefaultFactory -> DashMediaSource.Factory(okHttpFactory)
+            isDash && !forceDefaultFactory -> DashMediaSource.Factory(httpDataSourceFactory)
                 .createMediaSource(mediaItem)
             else -> defaultFactory.createMediaSource(mediaItem)
         }
     }
 
-    fun shutdown() {
-        okHttpClient?.let { client ->
-            Thread {
-                client.connectionPool.evictAll()
-                client.dispatcher.executorService.shutdown()
-            }.start()
-            okHttpClient = null
-        }
-    }
-
-    private fun getOrCreateOkHttpClient(): OkHttpClient {
-        return okHttpClient ?: OkHttpClient.Builder()
-            .connectTimeout(8000, TimeUnit.MILLISECONDS)
-            .readTimeout(8000, TimeUnit.MILLISECONDS)
-            .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
-            .retryOnConnectionFailure(true)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .build()
-            .also { okHttpClient = it }
-    }
+    fun shutdown() = Unit
 
     private fun createDefaultExtractorsFactory(): ExtractorsFactory {
         return DefaultExtractorsFactory()
@@ -248,7 +247,7 @@ internal class PlayerMediaSourceFactory(
         val request = requestBuilder.build()
 
         return try {
-            getOrCreateOkHttpClient().newCall(request).execute().use { response ->
+            playbackHttpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return false
 
                 val contentType = response.header("Content-Type").orEmpty().lowercase(Locale.US)
@@ -383,7 +382,7 @@ internal class PlayerMediaSourceFactory(
         headers.forEach { (key, value) -> requestBuilder.addHeader(key, value) }
         val request = requestBuilder.build()
         return try {
-            getOrCreateOkHttpClient().newCall(request).execute().use { response ->
+            playbackHttpClient.newCall(request).execute().use { response ->
                 val responseCode = response.code
                 val contentType = response.header("Content-Type").orEmpty()
                 val contentLength = response.header("Content-Length").orEmpty()
@@ -588,6 +587,11 @@ internal class PlayerMediaSourceFactory(
 
     companion object {
         private const val TAG = "PlayerMediaSourceFactory"
+        private const val PROBE_TIMEOUT_MS = 4000
+        private const val PROBE_BYTES = 1024
+        private const val DEFAULT_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
         fun sanitizeHeaders(headers: Map<String, String>?): Map<String, String> {
             val raw: Map<*, *> = headers ?: return emptyMap()
@@ -620,6 +624,140 @@ internal class PlayerMediaSourceFactory(
             } catch (_: Exception) {
                 emptyMap()
             }
+        }
+
+        internal fun inferMimeType(url: String, filename: String?): String? {
+            return inferMimeTypeFromPath(filename)
+                ?: inferMimeTypeFromPath(url)
+        }
+
+        internal fun normalizeMimeType(contentType: String?): String? {
+            val normalized = contentType
+                ?.substringBefore(';')
+                ?.trim()
+                ?.lowercase(Locale.US)
+                ?: return null
+
+            return when (normalized) {
+                "application/vnd.apple.mpegurl",
+                "application/x-mpegurl",
+                "audio/mpegurl",
+                "audio/x-mpegurl" -> MimeTypes.APPLICATION_M3U8
+
+                "application/dash+xml" -> MimeTypes.APPLICATION_MPD
+                else -> null
+            }
+        }
+
+        internal fun sniffManifestMimeType(snippet: String?): String? {
+            val normalized = snippet
+                ?.trimStart()
+                ?.lowercase(Locale.US)
+                ?: return null
+
+            return when {
+                normalized.startsWith("#extm3u") -> MimeTypes.APPLICATION_M3U8
+                normalized.startsWith("<?xml") && normalized.contains("<mpd") -> MimeTypes.APPLICATION_MPD
+                normalized.startsWith("<mpd") -> MimeTypes.APPLICATION_MPD
+                else -> null
+            }
+        }
+
+        suspend fun probeMimeType(
+            url: String,
+            headers: Map<String, String>,
+            filename: String? = null
+        ): String? {
+            inferMimeType(url = url, filename = filename)?.let { return it }
+
+            val sanitizedHeaders = sanitizeHeaders(headers)
+
+            return withContext(Dispatchers.IO) {
+                probeMimeTypeWithHead(url, sanitizedHeaders)
+                    ?: probeMimeTypeWithRangeGet(url, sanitizedHeaders)
+            }
+        }
+
+        private fun inferMimeTypeFromPath(path: String?): String? {
+            val normalized = path
+                ?.substringBefore('#')
+                ?.substringBefore('?')
+                ?.lowercase(Locale.US)
+                ?.trim()
+                ?: return null
+
+            return when {
+                normalized.endsWith(".m3u8") ||
+                    normalized.contains("/playlist") ||
+                    normalized.contains("/hls") ||
+                    normalized.contains("m3u8") -> MimeTypes.APPLICATION_M3U8
+
+                normalized.endsWith(".mpd") ||
+                    normalized.contains("/dash") -> MimeTypes.APPLICATION_MPD
+
+                else -> null
+            }
+        }
+
+        private fun probeMimeTypeWithHead(url: String, headers: Map<String, String>): String? {
+            val connection = openConnection(url = url, headers = headers, method = "HEAD")
+            return try {
+                connection.responseCode
+                normalizeMimeType(connection.contentType)
+                    ?: inferMimeType(url = connection.url?.toString().orEmpty(), filename = null)
+            } catch (_: Exception) {
+                null
+            } finally {
+                connection.disconnect()
+            }
+        }
+
+        private fun probeMimeTypeWithRangeGet(url: String, headers: Map<String, String>): String? {
+            val connection = openConnection(
+                url = url,
+                headers = headers,
+                method = "GET",
+                range = "bytes=0-${PROBE_BYTES - 1}"
+            )
+            return try {
+                connection.responseCode
+                normalizeMimeType(connection.contentType)
+                    ?: inferMimeType(url = connection.url?.toString().orEmpty(), filename = null)
+                    ?: sniffManifestMimeType(readProbeSnippet(connection.inputStream))
+            } catch (_: Exception) {
+                null
+            } finally {
+                connection.disconnect()
+            }
+        }
+
+        private fun openConnection(
+            url: String,
+            headers: Map<String, String>,
+            method: String,
+            range: String? = null
+        ): HttpURLConnection {
+            return (URL(url).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                connectTimeout = PROBE_TIMEOUT_MS
+                readTimeout = PROBE_TIMEOUT_MS
+                requestMethod = method
+                setRequestProperty("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
+                headers.forEach { (key, value) ->
+                    if (key.equals("Range", ignoreCase = true)) return@forEach
+                    if (key.equals("User-Agent", ignoreCase = true)) return@forEach
+                    setRequestProperty(key, value)
+                }
+                range?.let { setRequestProperty("Range", it) }
+            }
+        }
+
+        private fun readProbeSnippet(inputStream: InputStream?): String? {
+            if (inputStream == null) return null
+            val buffer = ByteArray(PROBE_BYTES)
+            val read = inputStream.read(buffer)
+            if (read <= 0) return null
+            return String(buffer, 0, read, Charsets.UTF_8)
         }
     }
 }

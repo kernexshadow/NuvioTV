@@ -66,32 +66,61 @@ class AddonManagerViewModel @Inject constructor(
         _uiState.update { it.copy(installUrl = url, error = null) }
     }
 
+    fun clearTransientMessage() {
+        _uiState.update { it.copy(transientMessage = null, transientMessageIsError = false) }
+    }
+
     fun installAddon() {
         val rawUrl = uiState.value.installUrl.trim()
         if (rawUrl.isBlank()) {
-            _uiState.update { it.copy(error = "Enter a valid addon URL") }
+            val message = context.getString(R.string.addon_error_invalid_url)
+            _uiState.update {
+                it.copy(
+                    error = message,
+                    transientMessage = message,
+                    transientMessageIsError = true
+                )
+            }
             return
         }
 
         val normalizedUrl = normalizeAddonUrl(rawUrl)
         if (normalizedUrl == null) {
-            _uiState.update { it.copy(error = "Addon URL must start with http or https") }
+            val message = context.getString(R.string.addon_error_invalid_scheme)
+            _uiState.update {
+                it.copy(
+                    error = message,
+                    transientMessage = message,
+                    transientMessageIsError = true
+                )
+            }
             return
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isInstalling = true, error = null) }
+            _uiState.update { it.copy(isInstalling = true, error = null, transientMessage = null) }
 
             when (val result = addonRepository.fetchAddon(normalizedUrl)) {
                 is NetworkResult.Success -> {
                     addonRepository.addAddon(normalizedUrl)
-                    _uiState.update { it.copy(isInstalling = false, installUrl = "") }
-                }
-                is NetworkResult.Error -> {
+                    val addonName = result.data.displayName.ifBlank { result.data.baseUrl }
                     _uiState.update {
                         it.copy(
                             isInstalling = false,
-                            error = result.message ?: "Unable to install addon"
+                            installUrl = "",
+                            transientMessage = context.getString(R.string.addon_install_success, addonName),
+                            transientMessageIsError = false
+                        )
+                    }
+                }
+                is NetworkResult.Error -> {
+                    val message = result.message
+                    _uiState.update {
+                        it.copy(
+                            isInstalling = false,
+                            error = message,
+                            transientMessage = message,
+                            transientMessageIsError = true
                         )
                     }
                 }
@@ -159,13 +188,14 @@ class AddonManagerViewModel @Inject constructor(
     fun startQrMode() {
         val ip = DeviceIpAddress.get(context)
         if (ip == null) {
-            _uiState.update { it.copy(error = "Connect to Wi-Fi or Ethernet to use this feature") }
+            _uiState.update { it.copy(error = context.getString(R.string.error_network_required)) }
             return
         }
 
         stopServerInternal()
 
         server = AddonConfigServer.startOnAvailablePort(
+            context = context,
             currentPageStateProvider = {
                 val addons = _uiState.value.installedAddons
                 val orderedCatalogs = buildOrderedCatalogEntries(
@@ -199,7 +229,7 @@ class AddonManagerViewModel @Inject constructor(
 
         val activeServer = server
         if (activeServer == null) {
-            _uiState.update { it.copy(error = "Could not start server. All ports in use.") }
+            _uiState.update { it.copy(error = context.getString(R.string.error_server_ports_unavailable)) }
             return
         }
 

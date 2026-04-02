@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.search
 
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -61,12 +63,15 @@ import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.util.formatAddonTypeLabel
+import com.nuvio.tv.ui.util.localizedGenreLabel
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 internal fun DiscoverSection(
     uiState: SearchUiState,
     posterCardStyle: PosterCardStyle,
+    watchedMovieIds: Set<String> = emptySet(),
+    watchedSeriesIds: Set<String> = emptySet(),
     focusResults: Boolean,
     firstItemFocusRequester: FocusRequester,
     focusedItemIndex: Int,
@@ -98,7 +103,7 @@ internal fun DiscoverSection(
     }
     val selectedTypeLabel = localizedTypeLabel(uiState.selectedDiscoverType)
     val selectedCatalogLabel = selectedCatalog?.catalogName ?: stringResource(R.string.discover_select_catalog)
-    val selectedGenreLabel = uiState.selectedDiscoverGenre ?: stringResource(R.string.discover_genre_default)
+    val selectedGenreLabel = uiState.selectedDiscoverGenre?.let { localizedGenreLabel(it) } ?: stringResource(R.string.discover_genre_default)
 
     Column(
         modifier = modifier
@@ -120,6 +125,7 @@ internal fun DiscoverSection(
                 modifier = Modifier.weight(1f),
                 title = stringResource(R.string.discover_filter_type),
                 value = selectedTypeLabel,
+                selectedValue = uiState.selectedDiscoverType,
                 expanded = expandedPicker == "type",
                 options = availableTypes.map { type ->
                     val label = localizedTypeLabel(type)
@@ -138,6 +144,7 @@ internal fun DiscoverSection(
                 modifier = Modifier.weight(1f),
                 title = stringResource(R.string.discover_filter_catalog),
                 value = selectedCatalogLabel,
+                selectedValue = uiState.selectedDiscoverCatalogKey,
                 expanded = expandedPicker == "catalog",
                 options = filteredCatalogs.map { DiscoverOption(it.catalogName, it.key) },
                 onExpandedChange = { shouldExpand ->
@@ -153,10 +160,11 @@ internal fun DiscoverSection(
                 modifier = Modifier.weight(1f),
                 title = stringResource(R.string.discover_filter_genre),
                 value = selectedGenreLabel,
+                selectedValue = uiState.selectedDiscoverGenre ?: "__default__",
                 expanded = expandedPicker == "genre",
                 options = buildList {
                     add(DiscoverOption(stringResource(R.string.discover_genre_default), "__default__"))
-                    addAll(genres.map { DiscoverOption(it, it) })
+                    addAll(genres.map { DiscoverOption(localizedGenreLabel(it), it) })
                 },
                 onExpandedChange = { shouldExpand ->
                     expandedPicker = if (shouldExpand) "genre" else null
@@ -176,7 +184,7 @@ internal fun DiscoverSection(
                         .takeIf { it.isNotEmpty() }
                         ?.let(::add)
                 }
-                uiState.selectedDiscoverGenre?.let(::add)
+                uiState.selectedDiscoverGenre?.let { add(localizedGenreLabel(it)) }
             }
             Text(
                 text = metadataSegments.joinToString(" • "),
@@ -201,6 +209,8 @@ internal fun DiscoverSection(
                 DiscoverGrid(
                     items = uiState.discoverResults,
                     posterCardStyle = posterCardStyle,
+                    watchedMovieIds = watchedMovieIds,
+                    watchedSeriesIds = watchedSeriesIds,
                     focusResults = focusResults,
                     firstItemFocusRequester = firstItemFocusRequester,
                     focusedItemIndex = focusedItemIndex,
@@ -247,6 +257,7 @@ private fun DiscoverDropdownPicker(
     modifier: Modifier = Modifier,
     title: String,
     value: String,
+    selectedValue: String?,
     expanded: Boolean,
     options: List<DiscoverOption>,
     onExpandedChange: (Boolean) -> Unit,
@@ -254,6 +265,7 @@ private fun DiscoverDropdownPicker(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     var anchorSize by remember { mutableStateOf(IntSize.Zero) }
+    var focusedOptionValue by remember(expanded) { mutableStateOf<String?>(null) }
 
     Box(modifier = modifier) {
         Card(
@@ -309,7 +321,7 @@ private fun DiscoverDropdownPicker(
                     )
                     Icon(
                         imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (expanded) "Collapse $title" else "Expand $title",
+                        contentDescription = if (expanded) stringResource(R.string.cd_collapse, title) else stringResource(R.string.cd_expand, title),
                         modifier = Modifier.size(20.dp),
                         tint = if (isFocused) NuvioColors.FocusRing else NuvioColors.TextSecondary
                     )
@@ -319,7 +331,10 @@ private fun DiscoverDropdownPicker(
 
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { onExpandedChange(false) },
+            onDismissRequest = {
+                focusedOptionValue = null
+                onExpandedChange(false)
+            },
             modifier = Modifier
                 .width(with(LocalDensity.current) { anchorSize.width.toDp() })
                 .heightIn(max = 320.dp),
@@ -330,18 +345,45 @@ private fun DiscoverDropdownPicker(
             border = BorderStroke(1.dp, NuvioColors.Border)
         ) {
             options.forEach { option ->
+                val isSelected = option.value == selectedValue
+                val isOptionFocused = option.value == focusedOptionValue
+                val itemTextColor = when {
+                    isOptionFocused -> NuvioColors.OnSecondary
+                    isSelected -> NuvioColors.TextPrimary
+                    else -> NuvioColors.TextPrimary
+                }
+                val itemBackgroundColor = when {
+                    isOptionFocused -> NuvioColors.Secondary
+                    isSelected -> NuvioColors.FocusBackground
+                    else -> Color.Transparent
+                }
+
                 DropdownMenuItem(
+                    modifier = Modifier
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .background(
+                            color = itemBackgroundColor,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .onFocusChanged { state ->
+                            val hasFocus = state.isFocused || state.hasFocus
+                            focusedOptionValue = when {
+                                hasFocus -> option.value
+                                focusedOptionValue == option.value -> null
+                                else -> focusedOptionValue
+                            }
+                        },
                     text = {
                         Text(
                             text = option.label,
-                            color = NuvioColors.TextPrimary,
+                            color = itemTextColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     },
                     onClick = { onSelect(option) },
                     colors = MenuDefaults.itemColors(
-                        textColor = NuvioColors.TextPrimary,
+                        textColor = itemTextColor,
                         disabledTextColor = NuvioColors.TextDisabled
                     )
                 )
@@ -359,6 +401,8 @@ private data class DiscoverOption(
 internal fun DiscoverGrid(
     items: List<MetaPreview>,
     posterCardStyle: PosterCardStyle,
+    watchedMovieIds: Set<String> = emptySet(),
+    watchedSeriesIds: Set<String> = emptySet(),
     focusResults: Boolean,
     firstItemFocusRequester: FocusRequester,
     focusedItemIndex: Int,
@@ -457,6 +501,10 @@ internal fun DiscoverGrid(
                 item = item,
                 onClick = { onItemClick(index, item) },
                 posterCardStyle = adaptiveStyle,
+                isWatched = run {
+                    val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
+                    if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
+                },
                 modifier = Modifier.width(adaptiveStyle.width),
                 focusRequester = focusReq,
                 onFocused = { onItemFocused(index) }

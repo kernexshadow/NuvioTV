@@ -165,9 +165,12 @@ data class PlayerSettings(
     val decoderPriority: Int = 1, // EXTENSION_RENDERER_MODE_ON (0=off, 1=on, 2=prefer)
     val tunnelingEnabled: Boolean = false,
     val skipSilence: Boolean = false,
+    val audioAmplificationDb: Int = 0,
+    val persistAudioAmplification: Boolean = false,
     val preferredAudioLanguage: String = AudioLanguageOption.DEVICE,
     val secondaryPreferredAudioLanguage: String? = null,
     val loadingOverlayEnabled: Boolean = true,
+    val showPlayerLoadingStatus: Boolean = true,
     val pauseOverlayEnabled: Boolean = true,
     val osdClockEnabled: Boolean = true,
     val skipIntroEnabled: Boolean = true,
@@ -184,13 +187,15 @@ data class PlayerSettings(
     val streamAutoPlayRegex: String = "",
     val streamAutoPlayNextEpisodeEnabled: Boolean = false,
     val streamAutoPlayPreferBingeGroupForNextEpisode: Boolean = true,
+    val streamAutoPlayTimeoutSeconds: Int = 3,
     val nextEpisodeThresholdMode: NextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
     val nextEpisodeThresholdPercent: Float = 99f,
     val nextEpisodeThresholdMinutesBeforeEnd: Float = 2f,
     val streamReuseLastLinkEnabled: Boolean = false,
     val streamReuseLastLinkCacheHours: Int = 24,
     val subtitleOrganizationMode: SubtitleOrganizationMode = SubtitleOrganizationMode.NONE,
-    val addonSubtitleStartupMode: AddonSubtitleStartupMode = AddonSubtitleStartupMode.ALL_SUBTITLES
+    val addonSubtitleStartupMode: AddonSubtitleStartupMode = AddonSubtitleStartupMode.ALL_SUBTITLES,
+    val resizeMode: Int = 0 
 )
 
 enum class StreamAutoPlayMode {
@@ -253,6 +258,8 @@ class PlayerSettingsDataStore @Inject constructor(
 ) {
     companion object {
         private const val FEATURE = "player_settings"
+        private const val AUDIO_AMPLIFICATION_DB_MIN = 0
+        private const val AUDIO_AMPLIFICATION_DB_MAX = 10
     }
 
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
@@ -271,9 +278,12 @@ class PlayerSettingsDataStore @Inject constructor(
     private val decoderPriorityKey = intPreferencesKey("decoder_priority")
     private val tunnelingEnabledKey = booleanPreferencesKey("tunneling_enabled")
     private val skipSilenceKey = booleanPreferencesKey("skip_silence")
+    private val audioAmplificationDbKey = intPreferencesKey("audio_amplification_db")
+    private val persistAudioAmplificationKey = booleanPreferencesKey("persist_audio_amplification")
     private val preferredAudioLanguageKey = stringPreferencesKey("preferred_audio_language")
     private val secondaryPreferredAudioLanguageKey = stringPreferencesKey("secondary_preferred_audio_language")
     private val loadingOverlayEnabledKey = booleanPreferencesKey("loading_overlay_enabled")
+    private val showPlayerLoadingStatusKey = booleanPreferencesKey("show_player_loading_status")
     private val pauseOverlayEnabledKey = booleanPreferencesKey("pause_overlay_enabled")
     private val osdClockEnabledKey = booleanPreferencesKey("osd_clock_enabled")
     private val skipIntroEnabledKey = booleanPreferencesKey("skip_intro_enabled")
@@ -288,6 +298,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val streamAutoPlayRegexKey = stringPreferencesKey("stream_auto_play_regex")
     private val streamAutoPlayNextEpisodeEnabledKey = booleanPreferencesKey("stream_auto_play_next_episode_enabled")
     private val streamAutoPlayPreferBingeGroupForNextEpisodeKey = booleanPreferencesKey("stream_auto_play_prefer_bingegroup_next_episode")
+    private val streamAutoPlayTimeoutSecondsKey = intPreferencesKey("stream_auto_play_timeout_seconds")
     private val nextEpisodeThresholdModeKey = stringPreferencesKey("next_episode_threshold_mode")
     private val nextEpisodeThresholdPercentLegacyKey = intPreferencesKey("next_episode_threshold_percent")
     private val nextEpisodeThresholdMinutesBeforeEndLegacyKey = intPreferencesKey("next_episode_threshold_minutes_before_end")
@@ -297,6 +308,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val streamReuseLastLinkCacheHoursKey = intPreferencesKey("stream_reuse_last_link_cache_hours")
     private val subtitleOrganizationModeKey = stringPreferencesKey("subtitle_organization_mode")
     private val addonSubtitleStartupModeKey = stringPreferencesKey("addon_subtitle_startup_mode")
+    private val resizeModeKey = intPreferencesKey("resize_mode")
 
     // Subtitle style settings keys
     private val subtitlePreferredLanguageKey = stringPreferencesKey("subtitle_preferred_language")
@@ -405,12 +417,18 @@ class PlayerSettingsDataStore @Inject constructor(
                 decoderPriority = prefs[decoderPriorityKey] ?: 1,
                 tunnelingEnabled = prefs[tunnelingEnabledKey] ?: false,
                 skipSilence = prefs[skipSilenceKey] ?: false,
+                audioAmplificationDb = (prefs[audioAmplificationDbKey] ?: 0).coerceIn(
+                    AUDIO_AMPLIFICATION_DB_MIN,
+                    AUDIO_AMPLIFICATION_DB_MAX
+                ),
+                persistAudioAmplification = prefs[persistAudioAmplificationKey] ?: false,
                 preferredAudioLanguage = normalizeSelectableLanguageCode(
                     prefs[preferredAudioLanguageKey] ?: AudioLanguageOption.DEVICE
                 ),
                 secondaryPreferredAudioLanguage = prefs[secondaryPreferredAudioLanguageKey]
                     ?.let(::normalizeSecondaryAudioLanguageCode),
                 loadingOverlayEnabled = prefs[loadingOverlayEnabledKey] ?: true,
+                showPlayerLoadingStatus = prefs[showPlayerLoadingStatusKey] ?: true,
                 pauseOverlayEnabled = prefs[pauseOverlayEnabledKey] ?: true,
                 osdClockEnabled = prefs[osdClockEnabledKey] ?: true,
                 skipIntroEnabled = prefs[skipIntroEnabledKey] ?: true,
@@ -435,6 +453,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 streamAutoPlayNextEpisodeEnabled = prefs[streamAutoPlayNextEpisodeEnabledKey] ?: false,
                 streamAutoPlayPreferBingeGroupForNextEpisode =
                     prefs[streamAutoPlayPreferBingeGroupForNextEpisodeKey] ?: true,
+                streamAutoPlayTimeoutSeconds = (prefs[streamAutoPlayTimeoutSecondsKey] ?: 3).coerceIn(0, 11),
                 nextEpisodeThresholdMode = prefs[nextEpisodeThresholdModeKey]?.let {
                     runCatching { NextEpisodeThresholdMode.valueOf(it) }.getOrDefault(NextEpisodeThresholdMode.PERCENTAGE)
                 } ?: NextEpisodeThresholdMode.PERCENTAGE,
@@ -456,6 +475,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 streamReuseLastLinkCacheHours = (prefs[streamReuseLastLinkCacheHoursKey] ?: 24).coerceIn(1, 168),
                 subtitleOrganizationMode = parseSubtitleOrganizationMode(prefs[subtitleOrganizationModeKey]),
                 addonSubtitleStartupMode = parseAddonSubtitleStartupMode(prefs[addonSubtitleStartupModeKey]),
+                resizeMode = (prefs[resizeModeKey] ?: 0).coerceIn(0, 4),
                 subtitleStyle = SubtitleStyleSettings(
                     preferredLanguage = normalizeSelectableLanguageCode(
                         prefs[subtitlePreferredLanguageKey] ?: "en"
@@ -532,6 +552,27 @@ class PlayerSettingsDataStore @Inject constructor(
         }
     }
 
+    suspend fun setAudioAmplificationDb(db: Int) {
+        store().edit { prefs ->
+            prefs[audioAmplificationDbKey] = db.coerceIn(
+                AUDIO_AMPLIFICATION_DB_MIN,
+                AUDIO_AMPLIFICATION_DB_MAX
+            )
+        }
+    }
+
+    suspend fun setPersistAudioAmplification(enabled: Boolean, dbToPersist: Int? = null) {
+        store().edit { prefs ->
+            prefs[persistAudioAmplificationKey] = enabled
+            if (enabled && dbToPersist != null) {
+                prefs[audioAmplificationDbKey] = dbToPersist.coerceIn(
+                    AUDIO_AMPLIFICATION_DB_MIN,
+                    AUDIO_AMPLIFICATION_DB_MAX
+                )
+            }
+        }
+    }
+
     suspend fun setPreferredAudioLanguage(language: String) {
         store().edit { prefs ->
             prefs[preferredAudioLanguageKey] = normalizeSelectableLanguageCode(
@@ -574,6 +615,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setLoadingOverlayEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[loadingOverlayEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setShowPlayerLoadingStatus(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[showPlayerLoadingStatusKey] = enabled
         }
     }
 
@@ -638,6 +685,12 @@ class PlayerSettingsDataStore @Inject constructor(
         }
     }
 
+    suspend fun setStreamAutoPlayTimeoutSeconds(seconds: Int) {
+        store().edit { prefs ->
+            prefs[streamAutoPlayTimeoutSecondsKey] = seconds.coerceIn(0, 11)
+        }
+    }
+
     suspend fun setNextEpisodeThresholdMode(mode: NextEpisodeThresholdMode) {
         store().edit { prefs ->
             prefs[nextEpisodeThresholdModeKey] = mode.name
@@ -690,6 +743,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setAddonSubtitleStartupMode(mode: AddonSubtitleStartupMode) {
         store().edit { prefs ->
             prefs[addonSubtitleStartupModeKey] = mode.name
+        }
+    }
+
+    suspend fun setResizeMode(mode: Int) {
+        store().edit { prefs ->
+            prefs[resizeModeKey] = mode.coerceIn(0, 4)
         }
     }
 

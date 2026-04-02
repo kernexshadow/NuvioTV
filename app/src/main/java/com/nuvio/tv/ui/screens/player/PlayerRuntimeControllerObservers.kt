@@ -29,8 +29,14 @@ internal fun PlayerRuntimeController.buildSubtitleFetchRequest(): SubtitleFetchR
     )
 }
 
-internal suspend fun PlayerRuntimeController.fetchAddonSubtitlesNow(): List<Subtitle> {
+internal suspend fun PlayerRuntimeController.fetchAddonSubtitlesNow(
+    onProgress: ((completed: Int, total: Int, addonName: String?) -> Unit)? = null
+): List<Subtitle> {
     val request = buildSubtitleFetchRequest() ?: return emptyList()
+    val installedAddonOrder = addonRepository.getInstalledAddons().firstOrNull()
+        ?.map { it.displayName }
+        .orEmpty()
+    _uiState.update { it.copy(installedSubtitleAddonOrder = installedAddonOrder) }
 
     // Compute hash lazily for providers that support OpenSubtitles-style matching.
     if (currentVideoHash == null && currentStreamUrl.isNotBlank()) {
@@ -43,14 +49,11 @@ internal suspend fun PlayerRuntimeController.fetchAddonSubtitlesNow(): List<Subt
             val url = currentStreamUrl.takeIf { it.isNotBlank() }
             if (key != null && url != null) {
                 val state = _uiState.value
-                val selectedAudio = state.audioTracks.getOrNull(state.selectedAudioTrackIndex)
                 streamLinkCacheDataStore.save(
                     contentKey = key,
                     url = url,
                     streamName = state.currentStreamName ?: title,
                     headers = currentHeaders,
-                    rememberedAudioLanguage = selectedAudio?.language ?: rememberedAudioLanguage,
-                    rememberedAudioName = selectedAudio?.name ?: rememberedAudioName,
                     filename = currentFilename,
                     videoHash = currentVideoHash,
                     videoSize = currentVideoSize
@@ -65,7 +68,8 @@ internal suspend fun PlayerRuntimeController.fetchAddonSubtitlesNow(): List<Subt
         videoId = request.videoId,
         videoHash = currentVideoHash,
         videoSize = currentVideoSize,
-        filename = currentFilename
+        filename = currentFilename,
+        onProgress = onProgress
     )
 }
 
@@ -77,14 +81,26 @@ internal fun PlayerRuntimeController.fetchAddonSubtitles() {
         
         try {
             val subtitles = fetchAddonSubtitlesNow()
-            
+            Log.d(PlayerRuntimeController.TAG, "fetchAddonSubtitles done: ${subtitles.size} subs, persistedPref=${persistedTrackPreference?.subtitle?.javaClass?.simpleName}")
             _uiState.update { 
                 it.copy(
                     addonSubtitles = subtitles,
                     isLoadingAddonSubtitles = false
                 ) 
             }
-            restorePendingSameSeriesTrackSelection(
+            val pendingAddon = pendingRestoredAddonSubtitle
+            if (pendingAddon != null) {
+                val match = subtitles.firstOrNull { it.id == pendingAddon.id }
+                    ?: subtitles.firstOrNull { PlayerSubtitleUtils.matchesLanguageCode(it.lang, pendingAddon.lang) }
+                if (match != null) {
+                    Log.d(PlayerRuntimeController.TAG, "fetchAddonSubtitles: re-applying restored addon id=${match.id}")
+                    autoSubtitleSelected = true
+                    selectAddonSubtitle(match)
+                    _uiState.update { it.copy(selectedAddonSubtitle = match, selectedSubtitleTrackIndex = -1) }
+                    return@launch
+                }
+            }
+            applyPersistedTrackPreference(
                 audioTracks = _uiState.value.audioTracks,
                 subtitleTracks = _uiState.value.subtitleTracks
             )
@@ -102,6 +118,9 @@ internal fun PlayerRuntimeController.fetchAddonSubtitles() {
 
 internal fun PlayerRuntimeController.refreshSubtitlesForCurrentEpisode() {
     autoSubtitleSelected = false
+    subtitleDisabledByPersistedPreference = false
+    subtitleAddonRestoredByPersistedPreference = false
+    pendingRestoredAddonSubtitle = null
     hasScannedTextTracksOnce = false
     pendingAddonSubtitleLanguage = null
     pendingAddonSubtitleTrackId = null
@@ -147,6 +166,20 @@ internal fun PlayerRuntimeController.observeEpisodeWatchProgress() {
 internal fun PlayerRuntimeController.observeSubtitleSettings() {
     scope.launch {
         playerSettingsDataStore.playerSettings.collect { settings ->
+            val currentState = _uiState.value
+            val resolvedAudioAmplificationDb = when {
+                !hasInitializedAudioAmplificationForSession -> {
+                    hasInitializedAudioAmplificationForSession = true
+                    if (settings.persistAudioAmplification) {
+                        settings.audioAmplificationDb
+                    } else {
+                        AUDIO_AMPLIFICATION_MIN_DB
+                    }
+                }
+                settings.persistAudioAmplification -> settings.audioAmplificationDb
+                else -> currentState.audioAmplificationDb
+            }
+
             _uiState.update { state ->
                 val shouldShowOverlay = if (settings.loadingOverlayEnabled && !hasRenderedFirstFrame) {
                     true
@@ -158,14 +191,21 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
 
                 state.copy(
                     subtitleStyle = settings.subtitleStyle,
-                    subtitleOrganizationMode = settings.subtitleOrganizationMode,
                     loadingOverlayEnabled = settings.loadingOverlayEnabled,
                     showLoadingOverlay = shouldShowOverlay,
                     pauseOverlayEnabled = settings.pauseOverlayEnabled,
                     osdClockEnabled = settings.osdClockEnabled,
-                    frameRateMatchingMode = settings.frameRateMatchingMode
+                    frameRateMatchingMode = settings.frameRateMatchingMode,
+                    tunnelingEnabled = settings.tunnelingEnabled,
+                    persistAudioAmplification = settings.persistAudioAmplification,
+                    audioAmplificationDb = resolvedAudioAmplificationDb
                 )
             }
+
+            if (resolvedAudioAmplificationDb != currentState.audioAmplificationDb) {
+                applyAudioAmplification(resolvedAudioAmplificationDb)
+            }
+
             if (settings.frameRateMatchingMode == FrameRateMatchingMode.OFF) {
                 frameRateProbeJob?.cancel()
                 _uiState.update {
@@ -204,7 +244,7 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
                 lastSubtitlePreferredLanguage != settings.subtitleStyle.preferredLanguage ||
                     lastSubtitleSecondaryLanguage != settings.subtitleStyle.secondaryPreferredLanguage
             if (subtitlePreferenceChanged) {
-                autoSubtitleSelected = false
+                if (!subtitleDisabledByPersistedPreference && !subtitleAddonRestoredByPersistedPreference) autoSubtitleSelected = false
                 lastSubtitlePreferredLanguage = settings.subtitleStyle.preferredLanguage
                 lastSubtitleSecondaryLanguage = settings.subtitleStyle.secondaryPreferredLanguage
                 tryAutoSelectPreferredSubtitleFromAvailableTracks()
@@ -336,25 +376,26 @@ internal fun PlayerRuntimeController.retryCurrentStreamFromStartAfter416() {
         )
     }
     _exoPlayer?.let { player ->
-        scope.launch {
-            runCatching {
-                val mediaSource = withContext(Dispatchers.IO) {
-                    mediaSourceFactory.createMediaSource(currentStreamUrl, currentHeaders)
-                }
-                player.stop()
-                player.clearMediaItems()
-                player.setMediaSource(mediaSource)
-                player.seekTo(0L)
-                player.playWhenReady = true
-                player.prepare()
-            }.onFailure { e ->
-                _uiState.update {
-                    it.copy(
-                        error = e.message ?: "Playback error",
-                        showLoadingOverlay = false,
-                        showPauseOverlay = false
-                    )
-                }
+        runCatching {
+            player.stop()
+            player.clearMediaItems()
+            player.setMediaSource(
+                mediaSourceFactory.createMediaSource(
+                    url = currentStreamUrl,
+                    headers = currentHeaders,
+                    mimeTypeOverride = currentStreamMimeType
+                )
+            )
+            player.seekTo(0L)
+            player.playWhenReady = true
+            player.prepare()
+        }.onFailure { e ->
+            _uiState.update {
+                it.copy(
+                    error = e.message ?: "Playback error",
+                    showLoadingOverlay = false,
+                    showPauseOverlay = false
+                )
             }
         }
     }

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Timer
@@ -96,7 +97,6 @@ internal fun PlaybackSettingsSections(
     onShowDecoderPriorityDialog: () -> Unit,
     onShowLanguageDialog: () -> Unit,
     onShowSecondaryLanguageDialog: () -> Unit,
-    onShowSubtitleOrganizationDialog: () -> Unit,
     onShowSubtitleStartupModeDialog: () -> Unit,
     onShowTextColorDialog: () -> Unit,
     onShowBackgroundColorDialog: () -> Unit,
@@ -112,7 +112,9 @@ internal fun PlaybackSettingsSections(
     onSetStreamAutoPlayPreferBingeGroupForNextEpisode: (Boolean) -> Unit,
     onSetNextEpisodeThresholdPercent: (Float) -> Unit,
     onSetNextEpisodeThresholdMinutesBeforeEnd: (Float) -> Unit,
+    onSetStreamAutoPlayTimeoutSeconds: (Int) -> Unit,
     onSetReuseLastLinkEnabled: (Boolean) -> Unit,
+    onSetShowPlayerLoadingStatus: (Boolean) -> Unit,
     onSetLoadingOverlayEnabled: (Boolean) -> Unit,
     onSetPauseOverlayEnabled: (Boolean) -> Unit,
     onSetOsdClockEnabled: (Boolean) -> Unit,
@@ -315,9 +317,21 @@ internal fun PlaybackSettingsSections(
                 onSetStreamAutoPlayPreferBingeGroupForNextEpisode = onSetStreamAutoPlayPreferBingeGroupForNextEpisode,
                 onSetNextEpisodeThresholdPercent = onSetNextEpisodeThresholdPercent,
                 onSetNextEpisodeThresholdMinutesBeforeEnd = onSetNextEpisodeThresholdMinutesBeforeEnd,
+                onSetStreamAutoPlayTimeoutSeconds = onSetStreamAutoPlayTimeoutSeconds,
                 onSetReuseLastLinkEnabled = onSetReuseLastLinkEnabled,
                 onItemFocused = { focusedSection = PlaybackSection.STREAM_SELECTION }
             )
+
+            item(key = "stream_show_loading_status") {
+                ToggleSettingsItem(
+                    icon = Icons.Default.Info,
+                    title = stringResource(R.string.playback_show_loading_status),
+                    subtitle = stringResource(R.string.playback_show_loading_status_sub),
+                    isChecked = playerSettings.showPlayerLoadingStatus,
+                    onCheckedChange = onSetShowPlayerLoadingStatus,
+                    onFocused = { focusedSection = PlaybackSection.STREAM_SELECTION }
+                )
+            }
         }
 
         playbackCollapsibleSection(
@@ -358,7 +372,6 @@ internal fun PlaybackSettingsSections(
                 playerSettings = playerSettings,
                 onShowLanguageDialog = onShowLanguageDialog,
                 onShowSecondaryLanguageDialog = onShowSecondaryLanguageDialog,
-                onShowSubtitleOrganizationDialog = onShowSubtitleOrganizationDialog,
                 onShowSubtitleStartupModeDialog = onShowSubtitleStartupModeDialog,
                 onShowTextColorDialog = onShowTextColorDialog,
                 onShowBackgroundColorDialog = onShowBackgroundColorDialog,
@@ -498,7 +511,6 @@ internal fun PlaybackSettingsDialogsHost(
     showPlayerPreferenceDialog: Boolean,
     showLanguageDialog: Boolean,
     showSecondaryLanguageDialog: Boolean,
-    showSubtitleOrganizationDialog: Boolean,
     showSubtitleStartupModeDialog: Boolean,
     showTextColorDialog: Boolean,
     showBackgroundColorDialog: Boolean,
@@ -517,7 +529,6 @@ internal fun PlaybackSettingsDialogsHost(
     onDismissPlayerPreferenceDialog: () -> Unit,
     onSetSubtitlePreferredLanguage: (String?) -> Unit,
     onSetSubtitleSecondaryLanguage: (String?) -> Unit,
-    onSetSubtitleOrganizationMode: (com.nuvio.tv.data.local.SubtitleOrganizationMode) -> Unit,
     onSetAddonSubtitleStartupMode: (AddonSubtitleStartupMode) -> Unit,
     onSetSubtitleTextColor: (Color) -> Unit,
     onSetSubtitleBackgroundColor: (Color) -> Unit,
@@ -534,7 +545,6 @@ internal fun PlaybackSettingsDialogsHost(
     onSetReuseLastLinkCacheHours: (Int) -> Unit,
     onDismissLanguageDialog: () -> Unit,
     onDismissSecondaryLanguageDialog: () -> Unit,
-    onDismissSubtitleOrganizationDialog: () -> Unit,
     onDismissSubtitleStartupModeDialog: () -> Unit,
     onDismissTextColorDialog: () -> Unit,
     onDismissBackgroundColorDialog: () -> Unit,
@@ -564,7 +574,6 @@ internal fun PlaybackSettingsDialogsHost(
     SubtitleSettingsDialogs(
         showLanguageDialog = showLanguageDialog,
         showSecondaryLanguageDialog = showSecondaryLanguageDialog,
-        showSubtitleOrganizationDialog = showSubtitleOrganizationDialog,
         showSubtitleStartupModeDialog = showSubtitleStartupModeDialog,
         showTextColorDialog = showTextColorDialog,
         showBackgroundColorDialog = showBackgroundColorDialog,
@@ -572,14 +581,12 @@ internal fun PlaybackSettingsDialogsHost(
         playerSettings = playerSettings,
         onSetPreferredLanguage = onSetSubtitlePreferredLanguage,
         onSetSecondaryLanguage = onSetSubtitleSecondaryLanguage,
-        onSetSubtitleOrganizationMode = onSetSubtitleOrganizationMode,
         onSetAddonSubtitleStartupMode = onSetAddonSubtitleStartupMode,
         onSetTextColor = onSetSubtitleTextColor,
         onSetBackgroundColor = onSetSubtitleBackgroundColor,
         onSetOutlineColor = onSetSubtitleOutlineColor,
         onDismissLanguageDialog = onDismissLanguageDialog,
         onDismissSecondaryLanguageDialog = onDismissSecondaryLanguageDialog,
-        onDismissSubtitleOrganizationDialog = onDismissSubtitleOrganizationDialog,
         onDismissSubtitleStartupModeDialog = onDismissSubtitleStartupModeDialog,
         onDismissTextColorDialog = onDismissTextColorDialog,
         onDismissBackgroundColorDialog = onDismissBackgroundColorDialog,

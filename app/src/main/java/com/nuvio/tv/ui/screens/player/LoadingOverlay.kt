@@ -36,8 +36,10 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.ui.components.LoadingIndicator
+import androidx.compose.ui.res.stringResource
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.R
 
 @Composable
 fun LoadingOverlay(
@@ -50,22 +52,6 @@ fun LoadingOverlay(
 ) {
     var logoLoadFailed by remember(logoUrl) { mutableStateOf(false) }
     val showLogo = !logoUrl.isNullOrBlank() && !logoLoadFailed
-    val logoAlpha by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 700, delayMillis = 400, easing = LinearEasing),
-        label = "loadingLogoAlpha"
-    )
-
-    val infiniteTransition = rememberInfiniteTransition(label = "loadingLogoPulse")
-    val logoScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "loadingLogoScale"
-    )
 
     AnimatedVisibility(
         visible = visible,
@@ -73,18 +59,58 @@ fun LoadingOverlay(
         exit = fadeOut(animationSpec = tween(200)),
         modifier = modifier
     ) {
+        val context = LocalContext.current
+        val logoAlpha by animateFloatAsState(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 700, delayMillis = 400, easing = LinearEasing),
+            label = "loadingLogoAlpha"
+        )
+        val infiniteTransition = rememberInfiniteTransition(label = "loadingLogoPulse")
+        val logoScale by infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.04f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 2000, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "loadingLogoScale"
+        )
+        val backdropRequest = remember(context, backdropUrl) {
+            backdropUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(true)
+                    .build()
+            }
+        }
+        val logoRequest = remember(context, logoUrl) {
+            logoUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(true)
+                    .build()
+            }
+        }
+        val overlayBrush = remember {
+            Brush.verticalGradient(
+                colorStops = arrayOf(
+                    0f to Color(0x4D000000),
+                    0.35f to Color(0x99000000),
+                    0.7f to Color(0xCC000000),
+                    1f to Color(0xE6000000)
+                )
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            if (!backdropUrl.isNullOrBlank()) {
+            if (backdropRequest != null) {
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(backdropUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = "Loading backdrop",
+                    model = backdropRequest,
+                    contentDescription = stringResource(R.string.cd_loading_backdrop),
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
@@ -93,16 +119,7 @@ fun LoadingOverlay(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0f to Color(0x4D000000),
-                                0.35f to Color(0x99000000),
-                                0.7f to Color(0xCC000000),
-                                1f to Color(0xE6000000)
-                            )
-                        )
-                    )
+                    .background(overlayBrush)
             )
 
             Box(
@@ -114,11 +131,8 @@ fun LoadingOverlay(
                 ) {
                     if (showLogo) {
                         AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(logoUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Loading logo",
+                            model = logoRequest,
+                            contentDescription = stringResource(R.string.cd_loading_logo),
                             onError = { logoLoadFailed = true },
                             modifier = Modifier
                                 .width(320.dp)

@@ -56,6 +56,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -112,6 +113,7 @@ import com.nuvio.tv.data.repository.TraktProgressService
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.AuthState
+import com.nuvio.tv.core.sync.ProfileSettingsSyncService
 import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
@@ -140,6 +142,7 @@ import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 
 val LocalSidebarExpanded = compositionLocalOf { false }
+val LocalContentFocusRequester = compositionLocalOf { FocusRequester.Default }
 
 data class DrawerItem(
     val route: String,
@@ -171,6 +174,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var startupSyncService: StartupSyncService
+
+    @Inject
+    lateinit var profileSettingsSyncService: ProfileSettingsSyncService
 
     @Inject
     lateinit var profileSyncService: ProfileSyncService
@@ -211,8 +217,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        window?.setBackgroundDrawable(null)
         setContent {
-            var hasSelectedProfileThisSession by remember { mutableStateOf(false) }
+            var hasSelectedProfileThisSession by rememberSaveable { mutableStateOf(false) }
             var onboardingCompletedThisSession by remember { mutableStateOf(false) }
             var onboardingProfileSyncInProgress by remember { mutableStateOf(false) }
             val hasSeenAuthQrOnFirstLaunch by appOnboardingDataStore
@@ -232,6 +239,21 @@ class MainActivity : ComponentActivity() {
             val profiles by profileManager.profiles.collectAsState()
             val activeProfile = remember(activeProfileId, profiles) {
                 profiles.firstOrNull { it.id == activeProfileId }
+            }
+            var profilePinStates by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
+
+            LaunchedEffect(authState, profiles) {
+                if (authState is AuthState.FullAccount) {
+                    profileSyncService.pullProfileLockStates()
+                        .onSuccess { profilePinStates = it }
+                        .onFailure { profilePinStates = emptyMap() }
+                } else {
+                    profilePinStates = emptyMap()
+                }
+            }
+
+            val activeProfileHasPin = remember(activeProfileId, profilePinStates) {
+                profilePinStates[activeProfileId] == true
             }
             var avatarCatalog by remember { mutableStateOf(emptyList<com.nuvio.tv.data.remote.supabase.AvatarCatalogItem>()) }
 
@@ -332,7 +354,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val shouldShowProfileSelection =
-                        !hasSelectedProfileThisSession && profiles.size > 1
+                        !hasSelectedProfileThisSession && (profiles.size > 1 || activeProfileHasPin)
 
                     if (shouldShowProfileSelection) {
                         ProfileSelectionScreen(
@@ -502,6 +524,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = true
+        startupSyncService.requestSyncNow(includeProfileSettings = false)
+        lifecycleScope.launch {
+            traktProgressService.refreshNow()
+        }
     }
 
     override fun onPause() {
@@ -511,10 +537,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        startupSyncService.requestSyncNow()
-        lifecycleScope.launch {
-            traktProgressService.refreshNow()
-        }
+        profileSettingsSyncService.requestForegroundPull()
     }
 }
 
@@ -550,6 +573,8 @@ private fun LegacySidebarScaffold(
     val openDrawerWidth = 196.dp
 
     val focusManager = LocalFocusManager.current
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    val contentFocusRequester = remember { FocusRequester() }
     var pendingContentFocusTransfer by remember { mutableStateOf(false) }
     var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
 
@@ -567,7 +592,7 @@ private fun LegacySidebarScaffold(
             return@LaunchedEffect
         }
         repeat(2) { withFrameNanos { } }
-        focusManager.moveFocus(FocusDirection.Right)
+        runCatching { contentFocusRequester.requestFocus() }
         pendingContentFocusTransfer = false
     }
 
@@ -601,7 +626,8 @@ private fun LegacySidebarScaffold(
                         .padding(12.dp)
                         .selectableGroup()
                         .onPreviewKeyEvent { keyEvent ->
-                            if (keyEvent.key == Key.DirectionRight && keyEvent.type == KeyEventType.KeyDown) {
+                            val closeKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
+                            if (keyEvent.key == closeKey && keyEvent.type == KeyEventType.KeyDown) {
                                 drawerState.setValue(DrawerValue.Closed)
                                 pendingContentFocusTransfer = false
                                 true
@@ -613,53 +639,62 @@ private fun LegacySidebarScaffold(
                     val isExpanded = drawerValue == DrawerValue.Open
                     val itemWidth = if (isExpanded) 156.dp else 48.dp
 
-                    if (isExpanded && showProfileSelector && activeProfileName.isNotEmpty()) {
+                    if (isExpanded) {
                         Spacer(modifier = Modifier.height(30.dp))
-                        var isProfileFocused by remember { mutableStateOf(false) }
-                        val profileItemShape = RoundedCornerShape(32.dp)
-                        val profileLeadingInset = 18.dp
-                        val profileAvatarSize = 34.dp
-                        val profileLabelStart = 60.dp
-                        val profileGapAfterAvatar =
-                            (profileLabelStart - profileLeadingInset - profileAvatarSize).coerceAtLeast(0.dp)
-                        val profileBgColor by animateColorAsState(
-                            targetValue = if (isProfileFocused) NuvioColors.FocusBackground else Color.Transparent,
-                            label = "legacyProfileItemBg"
-                        )
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .width(itemWidth)
-                                    .height(52.dp)
-                                    .clip(profileItemShape)
-                                    .background(color = profileBgColor, shape = profileItemShape)
-                                    .onFocusChanged { isProfileFocused = it.isFocused }
-                                    .clickable {
-                                        onSwitchProfile()
-                                        drawerState.setValue(DrawerValue.Closed)
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
+                        if (showProfileSelector && activeProfileName.isNotEmpty()) {
+                            var isProfileFocused by remember { mutableStateOf(false) }
+                            val profileItemShape = RoundedCornerShape(32.dp)
+                            val profileLeadingInset = 18.dp
+                            val profileAvatarSize = 34.dp
+                            val profileLabelStart = 60.dp
+                            val profileGapAfterAvatar =
+                                (profileLabelStart - profileLeadingInset - profileAvatarSize).coerceAtLeast(0.dp)
+                            val profileBgColor by animateColorAsState(
+                                targetValue = if (isProfileFocused) NuvioColors.FocusBackground else Color.Transparent,
+                                label = "legacyProfileItemBg"
+                            )
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Spacer(modifier = Modifier.width(profileLeadingInset))
-                                ProfileAvatarCircle(
-                                    name = activeProfileName,
-                                    colorHex = activeProfileColorHex,
-                                    size = profileAvatarSize,
-                                    avatarImageUrl = activeProfileAvatarImageUrl
-                                )
-                                Spacer(modifier = Modifier.width(profileGapAfterAvatar))
-                                Text(
-                                    text = activeProfileName,
-                                    color = if (isProfileFocused) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Start,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .width(itemWidth)
+                                        .height(52.dp)
+                                        .background(color = profileBgColor, shape = profileItemShape)
+                                        .onFocusChanged { isProfileFocused = it.isFocused }
+                                        .clickable {
+                                            onSwitchProfile()
+                                            drawerState.setValue(DrawerValue.Closed)
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Spacer(modifier = Modifier.width(profileLeadingInset))
+                                    ProfileAvatarCircle(
+                                        name = activeProfileName,
+                                        colorHex = activeProfileColorHex,
+                                        size = profileAvatarSize,
+                                        avatarImageUrl = activeProfileAvatarImageUrl
+                                    )
+                                    Spacer(modifier = Modifier.width(profileGapAfterAvatar))
+                                    Text(
+                                        text = activeProfileName,
+                                        color = if (isProfileFocused) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Start,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
+                        } else {
+                            Image(
+                                painter = painterResource(id = R.drawable.app_logo_wordmark),
+                                contentDescription = "NuvioTV",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(42.dp)
+                            )
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                     }
@@ -698,19 +733,24 @@ private fun LegacySidebarScaffold(
             }
         }
     ) {
-        val contentStartPadding = if (showSidebar) closedDrawerWidth else 0.dp
+        val contentStartPadding by animateDpAsState(
+            targetValue = if (showSidebar) closedDrawerWidth else 0.dp,
+            animationSpec = tween(350),
+            label = "contentStartPadding"
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(start = contentStartPadding)
                 .onKeyEvent { keyEvent ->
+                    val openKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
                     if (
                         showSidebar &&
                         drawerState.currentValue == DrawerValue.Closed &&
                         keyEvent.type == KeyEventType.KeyDown &&
-                        keyEvent.key == Key.DirectionLeft
+                        keyEvent.key == openKey
                     ) {
-                        if (focusManager.moveFocus(FocusDirection.Left)) {
+                        if (focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)) {
                             true
                         } else {
                             pendingSidebarFocusRequest = true
@@ -723,7 +763,8 @@ private fun LegacySidebarScaffold(
                 }
         ) {
             CompositionLocalProvider(
-                LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open)
+                LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
+                LocalContentFocusRequester provides contentFocusRequester
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -778,7 +819,6 @@ private fun LegacySidebarButton(
         modifier = modifier
             .height(52.dp)
             .focusProperties { canFocus = expanded }
-            .clip(itemShape)
             .background(color = backgroundColor, shape = itemShape)
             .onFocusChanged { isFocused = it.isFocused }
             .clickable(onClick = onClick),
@@ -838,6 +878,8 @@ private fun ModernSidebarScaffold(
     val openSidebarWidth = 262.dp
 
     val focusManager = LocalFocusManager.current
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    val contentFocusRequester = remember { FocusRequester() }
     val drawerItemFocusRequesters = remember(drawerItems) {
         drawerItems.associate { item -> item.route to FocusRequester() }
     }
@@ -851,6 +893,8 @@ private fun ModernSidebarScaffold(
     val keepFloatingPillExpanded = selectedDrawerRoute == Screen.Settings.route
     val keepSidebarFocusDuringCollapse =
         isSidebarExpanded || sidebarCollapsePending || pendingContentFocusTransfer
+    val hasSidebarProfileItem = showProfileSelector && activeProfileName.isNotEmpty()
+    val sidebarTopBoundaryIndex = if (hasSidebarProfileItem) drawerItems.size else 0
 
     LaunchedEffect(showSidebar) {
         if (!showSidebar) {
@@ -1005,7 +1049,7 @@ private fun ModernSidebarScaffold(
             return@LaunchedEffect
         }
         repeat(2) { withFrameNanos { } }
-        focusManager.moveFocus(FocusDirection.Right)
+        runCatching { contentFocusRequester.requestFocus() }
         pendingContentFocusTransfer = false
     }
 
@@ -1030,13 +1074,6 @@ private fun ModernSidebarScaffold(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(
-                    if (shouldApplySidebarHaze) {
-                        Modifier.haze(sidebarHazeState)
-                    } else {
-                        Modifier
-                    }
-                )
                 .onPreviewKeyEvent { keyEvent ->
                     if (
                         isSidebarExpanded &&
@@ -1059,8 +1096,9 @@ private fun ModernSidebarScaffold(
                                 else -> Unit
                             }
                         }
-                        if (keyEvent.key == Key.DirectionLeft) {
-                            if (focusManager.moveFocus(FocusDirection.Left)) {
+                        val openKey = if (isRtl) Key.DirectionRight else Key.DirectionLeft
+                        if (keyEvent.key == openKey) {
+                            if (focusManager.moveFocus(if (isRtl) FocusDirection.Right else FocusDirection.Left)) {
                                 true
                             } else {
                                 isSidebarExpanded = true
@@ -1077,7 +1115,8 @@ private fun ModernSidebarScaffold(
                 }
         ) {
             CompositionLocalProvider(
-                LocalSidebarExpanded provides isSidebarExpanded
+                LocalSidebarExpanded provides isSidebarExpanded,
+                LocalContentFocusRequester provides contentFocusRequester
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -1115,17 +1154,22 @@ private fun ModernSidebarScaffold(
                         }
                         when (keyEvent.key) {
                             Key.DirectionUp -> {
-                                focusedDrawerIndex == 0
+                                focusedDrawerIndex == sidebarTopBoundaryIndex
                             }
 
                             Key.DirectionDown -> {
-                                focusedDrawerIndex > drawerItems.lastIndex
+                                focusedDrawerIndex == drawerItems.lastIndex
                             }
 
-                            Key.DirectionRight -> {
-                                pendingContentFocusTransfer = false
-                                sidebarCollapsePending = true
-                                true
+                            Key.DirectionRight, Key.DirectionLeft -> {
+                                val collapseKey = if (isRtl) Key.DirectionLeft else Key.DirectionRight
+                                if (keyEvent.key == collapseKey) {
+                                    pendingContentFocusTransfer = false
+                                    sidebarCollapsePending = true
+                                    true
+                                } else {
+                                    false
+                                }
                             }
 
                             else -> false
@@ -1182,7 +1226,7 @@ private fun ModernSidebarScaffold(
                         .align(Alignment.TopStart)
                         .offset {
                             IntOffset(
-                                (40.dp + sidebarSlideX + sidebarDeflateOffsetX).roundToPx(),
+                                14.dp.roundToPx(),
                                 (16.dp + sidebarDeflateOffsetY).roundToPx()
                             )
                         }
@@ -1256,7 +1300,6 @@ private fun CollapsedSidebarPill(
                 .graphicsLayer {
                     shape = pillShape
                     clip = true
-                    compositingStrategy = CompositingStrategy.Offscreen
                 }
                 .clip(pillShape)
                 .background(brush = pillBackgroundBrush, shape = pillShape)

@@ -73,6 +73,7 @@ import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
+import android.text.format.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -109,11 +110,23 @@ fun SeasonTabs(
     val typography = MaterialTheme.typography
     val tabTextStyle = remember(typography) { typography.titleMedium }
     val textSecondary = NuvioTheme.extendedColors.textSecondary
+    val lazyListState = rememberLazyListState()
+
+    LaunchedEffect(sortedSeasons, selectedSeason) {
+        val selectedIndex = sortedSeasons.indexOf(selectedSeason)
+        if (selectedIndex < 0) return@LaunchedEffect
+
+        val visibleIndices = lazyListState.layoutInfo.visibleItemsInfo.map { it.index }
+        if (selectedIndex in visibleIndices) return@LaunchedEffect
+
+        lazyListState.scrollToItem(selectedIndex)
+    }
 
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
             .focusRestorer(selectedTabFocusRequester),
+        state = lazyListState,
         contentPadding = PaddingValues(horizontal = 48.dp, vertical = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -216,8 +229,10 @@ fun EpisodesRow(
     restoreFocusToken: Int = 0,
     onRestoreFocusHandled: () -> Unit = {},
     onEpisodeFocused: (episodeId: String) -> Unit = {},
-    scrollToEpisodeId: String? = null
+    scrollToEpisodeId: String? = null,
+    onScrollToEpisodeHandled: () -> Unit = {}
 ) {
+    val dedupedEpisodes = remember(episodes) { episodes.distinctBy { it.id } }
     val restoreTargetRequester = restoreEpisodeId?.let { episodeFocusRequesters[it] }
     var optionsEpisode by remember { mutableStateOf<Video?>(null) }
     val cardMetrics = rememberEpisodeCardMetrics()
@@ -225,7 +240,7 @@ fun EpisodesRow(
     val rowPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
     val lazyListState = rememberLazyListState(prefetchStrategy = rowPrefetchStrategy)
     var lastHorizontalKeyRepeatTime by remember { mutableStateOf(0L) }
-    val episodeIds = remember(episodes) { episodes.mapTo(mutableSetOf()) { it.id } }
+    val episodeIds = remember(dedupedEpisodes) { dedupedEpisodes.mapTo(mutableSetOf()) { it.id } }
     val context = LocalContext.current
     val imdbLogoRequest = remember(context) {
         ImageRequest.Builder(context)
@@ -238,10 +253,10 @@ fun EpisodesRow(
         episodeFocusRequesters.keys.retainAll(episodeIds)
     }
 
-    LaunchedEffect(restoreFocusToken, restoreEpisodeId, restoreTargetRequester, episodes) {
+    LaunchedEffect(restoreFocusToken, restoreEpisodeId, restoreTargetRequester, dedupedEpisodes) {
         if (restoreFocusToken <= 0 || restoreEpisodeId.isNullOrBlank()) return@LaunchedEffect
-        if (episodes.none { it.id == restoreEpisodeId }) return@LaunchedEffect
-        val index = episodes.indexOfFirst { it.id == restoreEpisodeId }
+        if (dedupedEpisodes.none { it.id == restoreEpisodeId }) return@LaunchedEffect
+        val index = dedupedEpisodes.indexOfFirst { it.id == restoreEpisodeId }
         if (index >= 0) {
             val offsetPx = with(density) { (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx() }
             lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
@@ -249,12 +264,13 @@ fun EpisodesRow(
         restoreTargetRequester?.requestFocusAfterFrames()
     }
 
-    LaunchedEffect(scrollToEpisodeId, episodes) {
+    LaunchedEffect(scrollToEpisodeId, dedupedEpisodes) {
         if (scrollToEpisodeId.isNullOrBlank()) return@LaunchedEffect
-        val index = episodes.indexOfFirst { it.id == scrollToEpisodeId }
+        val index = dedupedEpisodes.indexOfFirst { it.id == scrollToEpisodeId }
         if (index < 0) return@LaunchedEffect
         val offsetPx = with(density) { (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx() }
         lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
+        onScrollToEpisodeHandled()
     }
 
     LazyRow(
@@ -285,7 +301,7 @@ fun EpisodesRow(
         horizontalArrangement = Arrangement.spacedBy(cardMetrics.itemSpacing)
     ) {
         items(
-            items = episodes,
+            items = dedupedEpisodes,
             key = { it.id },
             contentType = { EPISODE_CARD_CONTENT_TYPE }
         ) { episode ->
@@ -328,7 +344,7 @@ fun EpisodesRow(
             }
         } ?: false
         val isPending = episodeWatchedPendingKeys.contains(episodePendingKey(selectedEpisode))
-        val firstEpisodeInSeason = episodes.minByOrNull { it.episode ?: Int.MAX_VALUE }
+        val firstEpisodeInSeason = dedupedEpisodes.minByOrNull { it.episode ?: Int.MAX_VALUE }
         val hasPreviousEpisodes = selectedEpisode.episode != null &&
             firstEpisodeInSeason?.episode != null &&
             selectedEpisode.episode > firstEpisodeInSeason.episode
@@ -423,11 +439,12 @@ private fun EpisodeCard(
     val overlayBrush = remember {
         Brush.verticalGradient(
             colorStops = arrayOf(
-                0.0f to Color.Black.copy(alpha = 0.06f),
-                0.22f to Color.Black.copy(alpha = 0.18f),
-                0.52f to Color.Black.copy(alpha = 0.62f),
-                0.82f to Color.Black.copy(alpha = 0.86f),
-                1.0f to Color.Black.copy(alpha = 0.95f)
+                0.0f to Color.Transparent,
+                0.15f to Color.Black.copy(alpha = 0.08f),
+                0.35f to Color.Black.copy(alpha = 0.28f),
+                0.60f to Color.Black.copy(alpha = 0.72f),
+                0.85f to Color.Black.copy(alpha = 0.90f),
+                1.0f to Color.Black.copy(alpha = 0.96f)
             )
         )
     }
@@ -560,26 +577,42 @@ private fun EpisodeCard(
             modifier = Modifier
                 .width(cardMetrics.cardWidth)
                 .height(cardMetrics.cardHeight)
-                .drawWithCache {
-                    val cr = androidx.compose.ui.geometry.CornerRadius(cardCornerRadius)
-                    onDrawBehind {
-                        drawRoundRect(color = cardBgColor, cornerRadius = cr)
-                    }
-                }
         ) {
+            val bgPainter = remember(cardBgColor) { androidx.compose.ui.graphics.painter.ColorPainter(cardBgColor) }
             AsyncImage(
                 model = thumbnailRequest,
                 contentDescription = episode.title.localizeEpisodeTitle(context),
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                placeholder = bgPainter,
+                error = bgPainter,
+                fallback = bgPainter
             )
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .drawWithCache {
+                        val startY = size.height * 0.40f
+                        val localBrush = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color.Transparent,
+                                0.15f to Color.Black.copy(alpha = 0.08f),
+                                0.35f to Color.Black.copy(alpha = 0.28f),
+                                0.60f to Color.Black.copy(alpha = 0.72f),
+                                0.85f to Color.Black.copy(alpha = 0.90f),
+                                1.0f to Color.Black.copy(alpha = 0.96f)
+                            ),
+                            startY = startY,
+                            endY = size.height
+                        )
                         onDrawBehind {
-                            drawRect(brush = overlayBrush, alpha = if (isFocusedState.value) 1f else 0.94f)
+                            drawRect(
+                                brush = localBrush,
+                                topLeft = androidx.compose.ui.geometry.Offset(0f, startY),
+                                size = androidx.compose.ui.geometry.Size(size.width, size.height - startY),
+                                alpha = if (isFocusedState.value) 1f else 0.94f
+                            )
                         }
                     }
             )
@@ -1070,7 +1103,8 @@ private fun formatEpisodeRuntime(runtimeMinutes: Int): String {
 
 private fun formatEpisodeCardDate(isoDate: String): String {
     val locale = Locale.getDefault()
-    val outputFormat = SimpleDateFormat("MMM d, yyyy", locale)
+    val bestPattern = DateFormat.getBestDateTimePattern(locale, "dMMMMy")
+    val outputFormat = SimpleDateFormat(bestPattern, locale)
     return try {
         val inputFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
