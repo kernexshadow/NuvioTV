@@ -1104,8 +1104,7 @@ private const val CW_NEXT_UP_NEW_SEASON_UNAIRED_WINDOW_DAYS = 7
 private fun resolveNextUpVideoFromMeta(
     progress: WatchProgress,
     meta: Meta,
-    showUnairedNextUp: Boolean,
-    watchedEpisodes: Set<Pair<Int, Int>>? = null
+    showUnairedNextUp: Boolean
 ): Video? {
     val episodes = meta.videos
         .filter { video ->
@@ -1131,13 +1130,6 @@ private fun resolveNextUpVideoFromMeta(
 
     val todayLocal = LocalDate.now(ZoneId.systemDefault())
     val nextVideo = episodes.drop(watchedIndex + 1).firstOrNull { video ->
-        // Skip already-watched episodes (matching mobile's isAlreadyWatched)
-        if (watchedEpisodes != null && video.season != null && video.episode != null) {
-            if ((video.season!! to video.episode!!) in watchedEpisodes) {
-                return@firstOrNull false
-            }
-        }
-
         val releaseDate = parseEpisodeReleaseDate(video.released)
         val isSeasonRollover = video.season != seedSeason
         if (isSeasonRollover) {
