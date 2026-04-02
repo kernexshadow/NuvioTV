@@ -171,10 +171,16 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         if (!initialized) return
         runCatching {
             val scale = (style.size / 100.0).coerceIn(0.5, 3.0)
-            // Keep the user-facing offset unchanged while lowering the MPV baseline.
-            val effectiveVerticalOffset = style.verticalOffset - MPV_SUBTITLE_VERTICAL_OFFSET_BASELINE_SHIFT
-            val normalizedOffset = ((effectiveVerticalOffset + 20).coerceIn(0, 70)) / 70.0
-            val subPos = (95.0 - (normalizedOffset * 25.0)).coerceIn(65.0, 100.0)
+            val clampedOffset = style.verticalOffset.coerceIn(
+                SUBTITLE_VERTICAL_OFFSET_MIN,
+                SUBTITLE_VERTICAL_OFFSET_MAX
+            )
+            val normalizedOffset = (clampedOffset - SUBTITLE_VERTICAL_OFFSET_MIN).toDouble() /
+                (SUBTITLE_VERTICAL_OFFSET_MAX - SUBTITLE_VERTICAL_OFFSET_MIN).toDouble()
+            val subPos = MPV_SUB_POS_AT_BOTTOM -
+                (normalizedOffset * (MPV_SUB_POS_AT_BOTTOM - MPV_SUB_POS_AT_TOP))
+            val subMarginY = (MPV_SUB_MARGIN_Y_MIN +
+                (normalizedOffset * (MPV_SUB_MARGIN_Y_MAX - MPV_SUB_MARGIN_Y_MIN))).toInt()
             val outlineSize = if (style.outlineEnabled) {
                 style.outlineWidth.coerceIn(1, 6).toDouble()
             } else {
@@ -187,6 +193,7 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
             mpv.setPropertyBoolean("sub-bold", style.bold)
             mpv.setPropertyDouble("sub-outline-size", outlineSize)
             mpv.setPropertyDouble("sub-pos", subPos)
+            mpv.setPropertyInt("sub-margin-y", subMarginY)
             mpv.setPropertyDouble("sub-shadow-offset", 0.0)
             mpv.setPropertyString("sub-border-style", borderStyle)
             mpv.setPropertyString("sub-color", toMpvColor(style.textColor))
@@ -368,6 +375,8 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         mpv.setOptionString("opengl-es", "yes")
         // Keep style controls consistent with Exo by overriding embedded ASS styling.
         mpv.setOptionString("sub-ass-override", "force")
+        mpv.setOptionString("sub-use-margins", "yes")
+        mpv.setOptionString("sub-ass-force-margins", "yes")
         mpv.setOptionString("hwdec", "mediacodec,mediacodec-copy")
         mpv.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
         mpv.setOptionString("ao", "audiotrack,opensles")
@@ -460,9 +469,14 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "NuvioMpvSurfaceView"
-        private const val MPV_SUBTITLE_VERTICAL_OFFSET_BASELINE_SHIFT = 24
         private const val MPV_COVER_FALLBACK_SCALE = 1.15f
         private const val MPV_MAX_VOLUME_PERCENT = 400.0
+        private const val SUBTITLE_VERTICAL_OFFSET_MIN = -20
+        private const val SUBTITLE_VERTICAL_OFFSET_MAX = 50
+        private const val MPV_SUB_POS_AT_BOTTOM = 98.0
+        private const val MPV_SUB_POS_AT_TOP = 65.0
+        private const val MPV_SUB_MARGIN_Y_MIN = 4
+        private const val MPV_SUB_MARGIN_Y_MAX = 64
     }
 }
 
