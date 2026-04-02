@@ -373,8 +373,8 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         setVo("gpu")
         mpv.setOptionString("gpu-context", "android")
         mpv.setOptionString("opengl-es", "yes")
-        // Keep style controls consistent with Exo by overriding embedded ASS styling.
-        mpv.setOptionString("sub-ass-override", "force")
+        // Preserve native ASS/SSA styling behavior on MPV.
+        mpv.setOptionString("sub-ass-override", "no")
         mpv.setOptionString("sub-use-margins", "yes")
         mpv.setOptionString("sub-ass-force-margins", "yes")
         mpv.setOptionString("hwdec", "mediacodec,mediacodec-copy")
