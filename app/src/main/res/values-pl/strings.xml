@@ -162,6 +162,8 @@
     <string name="playback_section_general_desc">Podstawowe zachowanie odtwarzacza.</string>
     <string name="playback_loading_overlay">Ekan ładowania</string>
     <string name="playback_loading_overlay_sub">Pokaż ekran ładowania do pojawienia się pierwszej klatki.</string>
+    <string name="playback_show_loading_status">Pokaż status ładowania</string>
+    <string name="playback_show_loading_status_sub">Wyświetlaj postęp krok po kroku podczas inicjalizacji odtwarzacza.</string>
     <string name="playback_pause_overlay">Ekran pauzy</string>
     <string name="playback_pause_overlay_sub">Pokaż ekran ze szczegółami po 5 sekundach pauzy.</string>
     <string name="playback_show_clock_sub">Pokaż aktualny czas i czas zakończenia podczas wyświetlania kontrolek.</string>
@@ -633,6 +635,15 @@
     <string name="parental_severity_mild">Łagodne</string>
     <string name="player_via">przez %1$s</string>
     <string name="player_subtitle_delay">Opóźnienie napisów</string>
+    <string name="player_loading_preparing">Przygotowywanie strumienia…</string>
+    <string name="player_loading_detecting_format">Wykrywanie formatu strumienia…</string>
+    <string name="player_loading_subtitles">Pobieranie napisów…</string>
+    <string name="player_loading_subtitles_from">Pobieranie napisów z %1$d dodatków…</string>
+    <string name="player_loading_subtitles_progress">Pobieranie napisów… (%1$d / %2$d)</string>
+    <string name="player_loading_subtitles_addon">Napisy: %1$s (%2$d / %3$d)</string>
+    <string name="player_loading_building">Budowanie odtwarzacza…</string>
+    <string name="player_loading_starting">Uruchamianie strumienia…</string>
+    <string name="player_loading_buffering">Buforowanie…</string>
     <string name="player_error_title">Błąd odtwarzania</string>
     <string name="player_go_back">Wróć</string>
     <string name="player_speed_title">Prędkość odtwarzania</string>
