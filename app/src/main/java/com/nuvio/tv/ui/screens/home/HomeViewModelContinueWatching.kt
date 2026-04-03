@@ -1213,6 +1213,7 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
     }.distinct()
 
     val typeCandidates = listOf(progress.contentType, "series", "tv").distinct()
+    val useAllAddons = externalMetaPrefetchEnabled
     val resolved = run {
         var meta: Meta? = null
         var attempts = 0
@@ -1221,10 +1222,17 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
                 attempts += 1
                 val attemptStartedAtMs = SystemClock.elapsedRealtime()
                 val result = withTimeoutOrNull(2_500L) {
-                    metaRepository.getMetaFromPrimaryAddon(
-                        type = type,
-                        id = candidateId
-                    ).first { it !is NetworkResult.Loading }
+                    if (useAllAddons) {
+                        metaRepository.getMetaFromAllAddons(
+                            type = type,
+                            id = candidateId
+                        ).first { it !is NetworkResult.Loading }
+                    } else {
+                        metaRepository.getMetaFromPrimaryAddon(
+                            type = type,
+                            id = candidateId
+                        ).first { it !is NetworkResult.Loading }
+                    }
                 }
                 val attemptElapsedMs = SystemClock.elapsedRealtime() - attemptStartedAtMs
                 if (result == null) {
