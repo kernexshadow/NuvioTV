@@ -876,7 +876,7 @@ private fun StreamsList(
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
     ) {
         itemsIndexed(streams, key = { index, stream ->
-            "${stream.addonName}_${stream.url ?: stream.infoHash ?: stream.ytId ?: "unknown"}_$index"
+            stream.stableKey(index)
         }) { index, stream ->
             StreamCard(
                 stream = stream,

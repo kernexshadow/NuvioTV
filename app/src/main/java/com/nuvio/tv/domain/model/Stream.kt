@@ -48,6 +48,26 @@ data class Stream(
      * Returns a display description for the stream
      */
     fun getDisplayDescription(): String? = description ?: title
+
+    /**
+     * Returns a stable key for use in LazyColumn/LazyRow.
+     * Incorporates all content-identifying fields so the key doesn't change
+     * when the list recomposes or items shift position. The [occurrence] parameter
+     * disambiguates genuine duplicates (same addon+url+name+title).
+     */
+    fun stableKey(occurrence: Int = 0): String = buildString {
+        append(addonName)
+        append('\u0000')
+        append(url ?: infoHash ?: ytId ?: externalUrl ?: "")
+        append('\u0000')
+        append(name ?: "")
+        append('\u0000')
+        append(title ?: "")
+        if (occurrence > 0) {
+            append('\u0000')
+            append(occurrence)
+        }
+    }
 }
 
 @Immutable
