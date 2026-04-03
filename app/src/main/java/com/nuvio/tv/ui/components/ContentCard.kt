@@ -1,9 +1,11 @@
 package com.nuvio.tv.ui.components
 
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.LaunchedEffect
@@ -26,7 +29,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -37,16 +39,18 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import com.nuvio.tv.R
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.MetaPreview
@@ -58,6 +62,7 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 
 private const val BACKDROP_ASPECT_RATIO = 16f / 9f
+private const val TRAILER_PREVIEW_REQUEST_FOCUS_DEBOUNCE_MS = 140L
 private val YEAR_REGEX = Regex("""\b(19|20)\d{2}\b""")
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -73,11 +78,14 @@ fun ContentCard(
     focusedPosterBackdropTrailerEnabled: Boolean = false,
     focusedPosterBackdropTrailerMuted: Boolean = true,
     trailerPreviewUrl: String? = null,
+    trailerPreviewAudioUrl: String? = null,
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
+    isWatched: Boolean = false,
     onFocus: (MetaPreview) -> Unit = {},
+    onLongPress: (() -> Unit)? = null,
     onClick: () -> Unit = {}
 ) {
-    val cardShape = RoundedCornerShape(posterCardStyle.cornerRadius)
+    val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
     val baseCardWidth = when (item.posterShape) {
         PosterShape.POSTER -> posterCardStyle.width
         PosterShape.LANDSCAPE -> 260.dp
@@ -91,9 +99,12 @@ fun ContentCard(
     val expandedCardWidth = baseCardHeight * BACKDROP_ASPECT_RATIO
 
     var isFocused by remember { mutableStateOf(false) }
+    var longPressTriggered by remember { mutableStateOf(false) }
     var interactionNonce by remember { mutableIntStateOf(0) }
     var isBackdropExpanded by remember { mutableStateOf(false) }
     var trailerFirstFrameRendered by remember(trailerPreviewUrl) { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
 
     val needsFocusState = focusedPosterBackdropExpandEnabled || focusedPosterBackdropTrailerEnabled
     val lastFocusedRef = remember { booleanArrayOf(false) }
@@ -110,12 +121,14 @@ fun ContentCard(
                 return@LaunchedEffect
             }
 
-            val delaySeconds = focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(1)
+            val delaySeconds = focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0)
 
             isBackdropExpanded = false
             val backdropDelayMs = delaySeconds * 1000L
             delay(backdropDelayMs)
-            if (isFocused && focusedPosterBackdropExpandEnabled) {
+            if (isFocused && focusedPosterBackdropExpandEnabled &&
+                lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+            ) {
                 isBackdropExpanded = true
             }
         }
@@ -129,16 +142,23 @@ fun ContentCard(
         ) {
             if (!isFocused) return@LaunchedEffect
             if (trailerPreviewUrl != null) return@LaunchedEffect
+            delay(TRAILER_PREVIEW_REQUEST_FOCUS_DEBOUNCE_MS)
+            if (!isFocused) return@LaunchedEffect
+            if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@LaunchedEffect
             onRequestTrailerPreview(item)
         }
     }
 
-    val animatedCardWidth = if (focusedPosterBackdropExpandEnabled) {
-        val targetCardWidth = if (isBackdropExpanded) expandedCardWidth else baseCardWidth
-        val width by animateDpAsState(targetValue = targetCardWidth, label = "contentCardWidth")
-        width
-    } else {
-        baseCardWidth
+    // Only pay the animation cost on the card that is actually focused/expanding.
+    // Unfocused cards snap directly to baseCardWidth — no animation state overhead.
+    val animatedCardWidth = when {
+        !focusedPosterBackdropExpandEnabled -> baseCardWidth
+        !isFocused && !isBackdropExpanded -> baseCardWidth
+        else -> {
+            val targetCardWidth = if (isBackdropExpanded) expandedCardWidth else baseCardWidth
+            val width by animateDpAsState(targetValue = targetCardWidth, label = "contentCardWidth")
+            width
+        }
     }
     val metaTokens = if (isBackdropExpanded) {
         remember(item.type, item.genres, item.releaseInfo, item.imdbRating) {
@@ -163,19 +183,20 @@ fun ContentCard(
     ) {
         val context = LocalContext.current
         val density = LocalDensity.current
-        val requestCardWidth = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
-            expandedCardWidth
+        // Keep decode size stable during width animation to avoid recreating requests/painters every frame.
+        val maxRequestCardWidth = if (focusedPosterBackdropExpandEnabled) {
+            maxOf(baseCardWidth, expandedCardWidth)
         } else {
             baseCardWidth
         }
-        val requestWidthPx = remember(requestCardWidth, density) {
-            with(density) { requestCardWidth.roundToPx() }
+        val requestWidthPx = remember(maxRequestCardWidth, density) {
+            with(density) { maxRequestCardWidth.roundToPx() }
         }
         val requestHeightPx = remember(baseCardHeight, density) {
             with(density) { baseCardHeight.roundToPx() }
         }
         val imageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
-            item.background ?: item.poster
+            item.backdropUrl ?: item.poster
         } else {
             item.poster
         }
@@ -183,12 +204,37 @@ fun ContentCard(
             ImageRequest.Builder(context)
                 .data(imageUrl)
                 .crossfade(false)
+                .memoryCacheKey("${imageUrl}_${requestWidthPx}x${requestHeightPx}")
                 .size(width = requestWidthPx, height = requestHeightPx)
                 .build()
         }
+        val logoRequestHeightPx = remember(density) {
+            with(density) { 48.dp.roundToPx() }
+        }
+        val logoModel = remember(item.logo, requestWidthPx, logoRequestHeightPx) {
+            item.logo?.let { logoUrl ->
+                ImageRequest.Builder(context)
+                    .data(logoUrl)
+                    .crossfade(false)
+                    .memoryCacheKey("${logoUrl}_${requestWidthPx}x${logoRequestHeightPx}")
+                    .size(width = requestWidthPx, height = logoRequestHeightPx)
+                    .build()
+            }
+        }
+        var logoLoadFailed by remember(item.logo) { mutableStateOf(false) }
+        val showExpandedLogo = !item.logo.isNullOrBlank() && !logoLoadFailed
+
+        val bgCardColor = NuvioColors.BackgroundCard
+        val backgroundPainter = remember(bgCardColor) { androidx.compose.ui.graphics.painter.ColorPainter(bgCardColor) }
 
         Card(
-            onClick = onClick,
+            onClick = {
+                if (longPressTriggered) {
+                    longPressTriggered = false
+                } else {
+                    onClick()
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { state ->
@@ -210,23 +256,42 @@ fun ContentCard(
                         }
                     }
                 }
-                .then(
-                    if (focusedPosterBackdropExpandEnabled) {
-                        Modifier.onPreviewKeyEvent { keyEvent ->
-                            if (isFocused && shouldResetBackdropTimer(keyEvent.nativeKeyEvent)) {
-                                interactionNonce++
-                            }
-                            false
+                .onPreviewKeyEvent { keyEvent ->
+                    val native = keyEvent.nativeKeyEvent
+                    if (native.action == AndroidKeyEvent.ACTION_DOWN) {
+                        if (focusedPosterBackdropExpandEnabled && isFocused && shouldResetBackdropTimer(native)) {
+                            interactionNonce++
                         }
-                    } else Modifier
-                )
+                        if (onLongPress != null) {
+                            if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
+                                longPressTriggered = true
+                                onLongPress()
+                                return@onPreviewKeyEvent true
+                            }
+                            val isLongPress = native.isLongPress || native.repeatCount > 0
+                            if (isLongPress && isSelectKey(native.keyCode)) {
+                                longPressTriggered = true
+                                onLongPress()
+                                return@onPreviewKeyEvent true
+                            }
+                        }
+                    }
+                    if (native.action == AndroidKeyEvent.ACTION_UP &&
+                        longPressTriggered &&
+                        isSelectKey(native.keyCode)
+                    ) {
+                        longPressTriggered = false
+                        return@onPreviewKeyEvent true
+                    }
+                    false
+                }
                 .then(
                     if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
                 ),
             shape = CardDefaults.shape(shape = cardShape),
             colors = CardDefaults.colors(
-                containerColor = NuvioColors.BackgroundCard,
-                focusedContainerColor = NuvioColors.BackgroundCard
+                containerColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent
             ),
             border = CardDefaults.border(
                 focusedBorder = Border(
@@ -242,13 +307,18 @@ fun ContentCard(
                     .height(baseCardHeight)
                     .clip(cardShape)
             ) {
-                if (imageUrl != null) {
+                if (!imageUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = imageModel,
                         contentDescription = item.name,
                         modifier = Modifier.fillMaxSize(),
+                        placeholder = backgroundPainter,
+                        error = backgroundPainter,
+                        fallback = backgroundPainter,
                         contentScale = ContentScale.Crop
                     )
+                } else {
+                    MonochromePosterPlaceholder()
                 }
 
                 val shouldPlayTrailerPreview = isBackdropExpanded &&
@@ -264,9 +334,10 @@ fun ContentCard(
                     }
                 }
 
-                val trailerCoverAlpha = if (focusedPosterBackdropTrailerEnabled) {
+                // Only allocate animation state when trailer is actually playing.
+                val trailerCoverAlpha = if (shouldPlayTrailerPreview) {
                     val alpha by animateFloatAsState(
-                        targetValue = if (shouldPlayTrailerPreview && !trailerFirstFrameRendered) 1f else 0f,
+                        targetValue = if (!trailerFirstFrameRendered) 1f else 0f,
                         animationSpec = tween(durationMillis = 250),
                         label = "trailerCoverAlpha"
                     )
@@ -278,6 +349,7 @@ fun ContentCard(
                 if (shouldPlayTrailerPreview) {
                     TrailerPlayer(
                         trailerUrl = trailerPreviewUrl,
+                        trailerAudioUrl = trailerPreviewAudioUrl,
                         isPlaying = true,
                         onEnded = {
                             trailerFirstFrameRendered = false
@@ -291,7 +363,7 @@ fun ContentCard(
                     )
                 }
 
-                if (shouldPlayTrailerPreview && imageUrl != null) {
+                if (shouldPlayTrailerPreview && !imageUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = imageModel,
                         contentDescription = null,
@@ -303,21 +375,22 @@ fun ContentCard(
                 }
 
                 if (isBackdropExpanded) {
-                    val logoAreaGradient = remember {
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.76f)
-                            )
-                        )
-                    }
-
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .fillMaxWidth()
                             .height(96.dp)
-                            .background(logoAreaGradient)
+                            .drawWithCache {
+                                val gradient = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.76f)
+                                    ),
+                                    startY = 0f,
+                                    endY = size.height
+                                )
+                                onDrawBehind { drawRect(gradient) }
+                            }
                     )
 
                     Column(
@@ -326,17 +399,11 @@ fun ContentCard(
                             .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
                             .fillMaxWidth(0.75f)
                     ) {
-                        if (item.logo != null) {
+                        if (showExpandedLogo) {
                             AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(item.logo)
-                                    .crossfade(false)
-                                    .size(
-                                        width = requestWidthPx,
-                                        height = with(density) { 48.dp.roundToPx() }
-                                    )
-                                    .build(),
+                                model = logoModel,
                                 contentDescription = item.name,
+                                onError = { logoLoadFailed = true },
                                 modifier = Modifier
                                     .height(48.dp)
                                     .fillMaxWidth(),
@@ -353,6 +420,25 @@ fun ContentCard(
                             )
                         }
                     }
+                }
+
+                if (isWatched) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = stringResource(R.string.episodes_cd_watched),
+                        tint = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(end = 8.dp, top = 8.dp)
+                            .zIndex(2f)
+                            .size(21.dp)
+                            .drawBehind {
+                                drawCircle(
+                                    color = androidx.compose.ui.graphics.Color.Black,
+                                    radius = size.minDimension / 2f + 1.5f
+                                )
+                            }
+                    )
                 }
             }
         }
@@ -387,43 +473,28 @@ fun ContentCard(
         }
 
         if (showLabels && !isBackdropExpanded) {
-            val textMeasurer = rememberTextMeasurer()
-            val titleStyle = MaterialTheme.typography.titleMedium.copy(color = NuvioColors.TextPrimary)
-            val subtitleStyle = MaterialTheme.typography.labelMedium.copy(color = NuvioTheme.extendedColors.textSecondary)
-            val releaseInfo = item.releaseInfo
-            val itemName = item.name
-            val labelHeight = if (releaseInfo != null) 52.dp else 32.dp
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
-                    .height(labelHeight)
-                    .drawWithCache {
-                        val widthPx = size.width.toInt()
-                        val titleLayout = textMeasurer.measure(
-                            text = itemName,
-                            style = titleStyle,
-                            overflow = TextOverflow.Ellipsis,
-                            maxLines = 1,
-                            constraints = Constraints(maxWidth = widthPx)
-                        )
-                        val subtitleLayout = if (releaseInfo != null) {
-                            textMeasurer.measure(
-                                text = releaseInfo,
-                                style = subtitleStyle,
-                                overflow = TextOverflow.Ellipsis,
-                                maxLines = 1,
-                                constraints = Constraints(maxWidth = widthPx)
-                            )
-                        } else null
-                        onDrawBehind {
-                            drawText(titleLayout)
-                            if (subtitleLayout != null) {
-                                drawText(subtitleLayout, topLeft = androidx.compose.ui.geometry.Offset(0f, titleLayout.size.height + 4.dp.toPx()))
-                            }
-                        }
-                    }
-            )
+            ) {
+                Text(
+                    text = item.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = NuvioColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                item.releaseInfo?.let { info ->
+                    Text(
+                        text = info,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NuvioTheme.extendedColors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }
@@ -443,4 +514,10 @@ private fun shouldResetBackdropTimer(nativeEvent: AndroidKeyEvent): Boolean {
         AndroidKeyEvent.KEYCODE_BACK -> true
         else -> false
     }
+}
+
+private fun isSelectKey(keyCode: Int): Boolean {
+    return keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+        keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+        keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
 }

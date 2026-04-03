@@ -24,12 +24,12 @@ internal fun PlayerRuntimeController.showSubtitleTimingDialog() {
     _uiState.update {
         it.copy(
             showSubtitleTimingDialog = true,
-            showSubtitleDialog = false,
+            showSubtitleOverlay = false,
             showSubtitleStylePanel = false,
             showSubtitleDelayOverlay = false,
             showMoreDialog = false,
             showSpeedDialog = false,
-            showAudioDialog = false,
+            showAudioOverlay = false,
             showControls = true,
             subtitleAutoSyncCapturedVideoMs = null,
             subtitleAutoSyncStatus = null

@@ -20,12 +20,18 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.theme.NuvioColors
 
@@ -36,24 +42,28 @@ fun GridContinueWatchingSection(
     onItemClick: (ContinueWatchingItem) -> Unit,
     onDetailsClick: (ContinueWatchingItem) -> Unit = onItemClick,
     onRemoveItem: (ContinueWatchingItem) -> Unit,
+    onStartFromBeginning: (ContinueWatchingItem) -> Unit = {},
+    showManualPlayOption: Boolean = false,
+    onPlayManually: (ContinueWatchingItem) -> Unit = {},
     modifier: Modifier = Modifier,
-    focusedItemIndex: Int = -1
+    fullWidth: Dp = Dp.Unspecified,
+    focusedItemIndex: Int = -1,
+    blurUnwatchedEpisodes: Boolean = false
 ) {
     if (items.isEmpty()) return
     var optionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
-    val itemFocusRequester = remember { FocusRequester() }
     val focusRequesters = remember(items.size) { List(items.size) { FocusRequester() } }
     var lastFocusedIndex by remember { mutableIntStateOf(-1) }
     var lastRequestedFocusIndex by remember { mutableIntStateOf(-1) }
     var pendingFocusIndex by remember { mutableStateOf<Int?>(null) }
 
-    LaunchedEffect(focusedItemIndex, items) {
+    LaunchedEffect(focusedItemIndex) {
         if (focusedItemIndex >= 0 && focusedItemIndex < items.size) {
             if (lastRequestedFocusIndex == focusedItemIndex) return@LaunchedEffect
             var focused = false
             for (attempt in 0 until 3) {
                 withFrameNanos { }
-                focused = runCatching { itemFocusRequester.requestFocus() }.isSuccess
+                focused = runCatching { focusRequesters[focusedItemIndex].requestFocus() }.isSuccess
                 if (focused) break
             }
             if (focused) {
@@ -68,11 +78,11 @@ fun GridContinueWatchingSection(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 24.dp, bottom = 12.dp, start = 24.dp, end = 24.dp)
+                .padding(top = 24.dp, bottom = 12.dp)
         ) {
             Column {
                 Text(
-                    text = "Continue Watching",
+                    text = stringResource(R.string.continue_watching),
                     style = MaterialTheme.typography.headlineMedium,
                     color = NuvioColors.TextPrimary
                 )
@@ -81,9 +91,18 @@ fun GridContinueWatchingSection(
 
         LazyRow(
             modifier = Modifier
-                .fillMaxWidth()
-                .focusRestorer(),
-            contentPadding = PaddingValues(horizontal = 24.dp),
+                .then(
+                    if (fullWidth != Dp.Unspecified)
+                        Modifier.requiredWidth(fullWidth)
+                    else
+                        Modifier.fillMaxWidth()
+                )
+                .focusRestorer {
+                    val idx = if (lastFocusedIndex >= 0 && lastFocusedIndex < focusRequesters.size)
+                        lastFocusedIndex else 0
+                    focusRequesters.getOrNull(idx) ?: FocusRequester.Default
+                },
+            contentPadding = PaddingValues(horizontal = 36.dp, vertical = 0.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             itemsIndexed(
@@ -97,10 +116,8 @@ fun GridContinueWatchingSection(
                     }
                 }
             ) { index, progress ->
-                val focusModifier = if (pendingFocusIndex == index && index < focusRequesters.size) {
+                val focusModifier = if (index < focusRequesters.size) {
                     Modifier.focusRequester(focusRequesters[index])
-                } else if (index == focusedItemIndex) {
-                    Modifier.focusRequester(itemFocusRequester)
                 } else {
                     Modifier
                 }
@@ -109,6 +126,7 @@ fun GridContinueWatchingSection(
                     item = progress,
                     onClick = { onItemClick(progress) },
                     onLongPress = { optionsItem = progress },
+                    blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                     modifier = focusModifier
                         .onFocusChanged { focusState ->
                             if (focusState.isFocused && lastFocusedIndex != index) {
@@ -135,6 +153,15 @@ fun GridContinueWatchingSection(
             },
             onDetails = {
                 onDetailsClick(menuItem)
+                optionsItem = null
+            },
+            onStartFromBeginning = {
+                onStartFromBeginning(menuItem)
+                optionsItem = null
+            },
+            showPlayManually = showManualPlayOption,
+            onPlayManually = {
+                onPlayManually(menuItem)
                 optionsItem = null
             }
         )

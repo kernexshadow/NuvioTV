@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.player
 
 import android.util.Log
 import androidx.media3.common.Player
+import com.nuvio.tv.R
 import com.nuvio.tv.data.local.SubtitleStyleSettings
 import com.nuvio.tv.data.repository.TraktScrobbleItem
 import com.nuvio.tv.data.repository.extractYear
@@ -12,6 +13,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+internal const val AUDIO_AMPLIFICATION_MIN_DB = 0
+internal const val AUDIO_AMPLIFICATION_MAX_DB = 10
+
+internal fun PlayerRuntimeController.applyAudioAmplification(db: Int) {
+    val clampedDb = db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
+    gainAudioProcessor.setGainDb(clampedDb)
+    _uiState.update {
+        it.copy(
+            audioAmplificationDb = clampedDb,
+            isAudioAmplificationAvailable = true
+        )
+    }
+}
 
 internal fun PlayerRuntimeController.startProgressUpdates() {
     progressJob?.cancel()
@@ -76,6 +91,7 @@ internal fun PlayerRuntimeController.stopWatchProgressSaving() {
 }
 
 internal fun PlayerRuntimeController.saveWatchProgressIfNeeded() {
+    if (!hasRenderedFirstFrame) return
     val currentPosition = _exoPlayer?.currentPosition ?: return
     val duration = getEffectiveDuration(currentPosition)
     
@@ -87,6 +103,7 @@ internal fun PlayerRuntimeController.saveWatchProgressIfNeeded() {
 }
 
 internal fun PlayerRuntimeController.saveWatchProgress() {
+    if (!hasRenderedFirstFrame) return
     val currentPosition = _exoPlayer?.currentPosition ?: return
     val duration = getEffectiveDuration(currentPosition)
     saveWatchProgressInternal(currentPosition, duration)
@@ -134,6 +151,7 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
 }
 
 internal fun PlayerRuntimeController.currentPlaybackProgressPercent(): Float {
+    if (!hasRenderedFirstFrame) return 0f
     val player = _exoPlayer ?: return 0f
     val duration = player.duration.takeIf { it > 0 } ?: lastKnownDuration
     if (duration <= 0L) return 0f
@@ -143,6 +161,8 @@ internal fun PlayerRuntimeController.currentPlaybackProgressPercent(): Float {
 internal fun PlayerRuntimeController.refreshScrobbleItem() {
     currentScrobbleItem = buildScrobbleItem()
     hasSentScrobbleStartForCurrentItem = false
+    hasRequestedScrobbleStartForCurrentItem = false
+    scrobbleStartRequestGeneration++
     hasSentCompletionScrobbleForCurrentItem = false
 }
 
@@ -152,17 +172,25 @@ internal fun PlayerRuntimeController.buildScrobbleItem(): TraktScrobbleItem? {
     val ids = toTraktIds(parsedIds)
     val parsedYear = extractYear(year)
     val normalizedType = contentType?.lowercase()
+    val currentMappingKey = currentEpisodeMappingCacheKey()
+    val mappedEpisode = if (currentTraktEpisodeMappingKey == currentMappingKey) {
+        currentTraktEpisodeMapping
+    } else {
+        null
+    }
+    val effectiveSeason = mappedEpisode?.season ?: currentSeason
+    val effectiveEpisode = mappedEpisode?.episode ?: currentEpisode
 
     val isEpisode = normalizedType in listOf("series", "tv") &&
-        currentSeason != null && currentEpisode != null
+        effectiveSeason != null && effectiveEpisode != null
 
-    return if (isEpisode) {
+    val item = if (isEpisode) {
         TraktScrobbleItem.Episode(
             showTitle = contentName ?: title,
             showYear = parsedYear,
             showIds = ids,
-            season = currentSeason ?: return null,
-            number = currentEpisode ?: return null,
+            season = effectiveSeason ?: return null,
+            number = effectiveEpisode ?: return null,
             episodeTitle = currentEpisodeTitle
         )
     } else {
@@ -172,46 +200,60 @@ internal fun PlayerRuntimeController.buildScrobbleItem(): TraktScrobbleItem? {
             ids = ids
         )
     }
+    return item
 }
 
 internal fun PlayerRuntimeController.emitScrobbleStart() {
-    val item = currentScrobbleItem ?: buildScrobbleItem().also { currentScrobbleItem = it } ?: return
-    if (hasSentScrobbleStartForCurrentItem) return
+    val item = currentScrobbleItem ?: buildScrobbleItem().also { currentScrobbleItem = it }
+    if (item == null) return
+    if (hasRequestedScrobbleStartForCurrentItem) return
 
+    hasRequestedScrobbleStartForCurrentItem = true
+    val requestGeneration = ++scrobbleStartRequestGeneration
     scope.launch {
+        val progressPercent = currentPlaybackProgressPercent()
         traktScrobbleService.scrobbleStart(
             item = item,
-            progressPercent = currentPlaybackProgressPercent()
+            progressPercent = progressPercent
         )
+        if (requestGeneration != scrobbleStartRequestGeneration || !hasRequestedScrobbleStartForCurrentItem) return@launch
         hasSentScrobbleStartForCurrentItem = true
     }
 }
 
 internal fun PlayerRuntimeController.emitScrobbleStop(progressPercent: Float? = null) {
-    val item = currentScrobbleItem ?: return
-    if (!hasSentScrobbleStartForCurrentItem && (progressPercent ?: 0f) < 80f) return
+    val item = currentScrobbleItem
+    if (item == null) return
 
-    val percent = progressPercent ?: currentPlaybackProgressPercent()
+    val provided = progressPercent
+    if (!hasRequestedScrobbleStartForCurrentItem && (provided ?: 0f) < 80f) return
+
+    val percent = provided ?: currentPlaybackProgressPercent()
     scope.launch {
         traktScrobbleService.scrobbleStop(
             item = item,
             progressPercent = percent
         )
     }
+    scrobbleStartRequestGeneration++
+    hasRequestedScrobbleStartForCurrentItem = false
     hasSentScrobbleStartForCurrentItem = false
 }
 
 internal fun PlayerRuntimeController.emitPauseScrobbleStop(progressPercent: Float) {
     if (progressPercent < 1f || progressPercent >= 80f) return
-    val item = currentScrobbleItem ?: return
-    if (!hasSentScrobbleStartForCurrentItem) return
+    val item = currentScrobbleItem
+    if (item == null) return
+    if (!hasRequestedScrobbleStartForCurrentItem) return
 
     scope.launch {
-        traktScrobbleService.scrobblePause(
+        traktScrobbleService.scrobbleStop(
             item = item,
             progressPercent = progressPercent
         )
     }
+    scrobbleStartRequestGeneration++
+    hasRequestedScrobbleStartForCurrentItem = false
     hasSentScrobbleStartForCurrentItem = false
 }
 
@@ -251,11 +293,13 @@ fun PlayerRuntimeController.scheduleHideControls() {
     hideControlsJob?.cancel()
     hideControlsJob = scope.launch {
         delay(3000)
-        if (_uiState.value.isPlaying && !_uiState.value.showAudioDialog &&
-            !_uiState.value.showSubtitleDialog && !_uiState.value.showSubtitleStylePanel &&
+        if (_uiState.value.isPlaying && !_uiState.value.showAudioOverlay &&
+            !_uiState.value.showSubtitleOverlay && !_uiState.value.showSubtitleStylePanel &&
             !_uiState.value.showSpeedDialog && !_uiState.value.showMoreDialog &&
-            !_uiState.value.showSubtitleDelayOverlay && !_uiState.value.showSubtitleTimingDialog &&
-            !_uiState.value.showEpisodesPanel && !_uiState.value.showSourcesPanel) {
+            !_uiState.value.showSubtitleDelayOverlay &&
+            !_uiState.value.showSubtitleTimingDialog &&
+            !_uiState.value.showEpisodesPanel && !_uiState.value.showSourcesPanel &&
+            !_uiState.value.showStreamInfoOverlay) {
             _uiState.update { it.copy(showControls = false) }
         }
     }
@@ -267,8 +311,8 @@ internal fun PlayerRuntimeController.showSubtitleDelayOverlay() {
         it.copy(
             showControls = false,
             showSubtitleDelayOverlay = true,
-            showAudioDialog = false,
-            showSubtitleDialog = false,
+            showAudioOverlay = false,
+            showSubtitleOverlay = false,
             showSubtitleStylePanel = false,
             showSubtitleTimingDialog = false,
             showSpeedDialog = false
@@ -288,22 +332,23 @@ internal fun PlayerRuntimeController.adjustSubtitleDelay(deltaMs: Int) {
 }
 
 internal fun PlayerRuntimeController.adjustSubtitleDelay(deltaMs: Int, showOverlay: Boolean) {
-    val currentDelayMs = _uiState.value.subtitleDelayMs
+    val currentState = _uiState.value
+    val currentDelayMs = currentState.subtitleDelayMs
     val newDelayMs = (currentDelayMs + deltaMs).coerceIn(
         minimumValue = SUBTITLE_DELAY_MIN_MS,
         maximumValue = SUBTITLE_DELAY_MAX_MS
     )
+    val keepInlineInSubtitleOverlay = showOverlay && currentState.showSubtitleOverlay
 
     subtitleDelayUs.set(newDelayMs.toLong() * 1000L)
     if (showOverlay) {
         _uiState.update {
             it.copy(
                 subtitleDelayMs = newDelayMs,
-                showControls = false,
-                showSubtitleDelayOverlay = true
+                showControls = if (keepInlineInSubtitleOverlay) it.showControls else false,
+                showSubtitleDelayOverlay = if (keepInlineInSubtitleOverlay) false else true
             )
         }
-        scheduleHideSubtitleDelayOverlay()
     } else {
         hideSubtitleDelayOverlayJob?.cancel()
         _uiState.update {
@@ -313,6 +358,19 @@ internal fun PlayerRuntimeController.adjustSubtitleDelay(deltaMs: Int, showOverl
                 showControls = true
             )
         }
+    }
+
+    _exoPlayer?.let { player ->
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .build()
+    }
+    
+    if (!showOverlay || keepInlineInSubtitleOverlay) {
+        hideSubtitleDelayOverlayJob?.cancel()
+        hideSubtitleDelayOverlayJob = null
+    } else {
+        scheduleHideSubtitleDelayOverlay()
     }
 }
 
@@ -335,7 +393,12 @@ internal fun PlayerRuntimeController.schedulePauseOverlay() {
     _uiState.update { it.copy(showPauseOverlay = false) }
     pauseOverlayJob = scope.launch {
         delay(pauseOverlayDelayMs)
-        if (!_uiState.value.isPlaying && _uiState.value.pauseOverlayEnabled && _uiState.value.error == null) {
+        val s = _uiState.value
+        val anyPanelOpen = s.showSubtitleOverlay || s.showSubtitleStylePanel ||
+            s.showSpeedDialog || s.showMoreDialog || s.showEpisodesPanel ||
+            s.showSourcesPanel || s.showAudioOverlay || s.showStreamInfoOverlay ||
+            s.showSubtitleTimingDialog
+        if (!s.isPlaying && s.pauseOverlayEnabled && s.error == null && !anyPanelOpen) {
             _uiState.update { it.copy(showPauseOverlay = true, showControls = false) }
         }
     }
@@ -348,15 +411,17 @@ internal fun PlayerRuntimeController.cancelPauseOverlay() {
 }
 
 fun PlayerRuntimeController.onUserInteraction() {
-    
-    if (_uiState.value.showPauseOverlay || pauseOverlayJob != null) {
+    if (_uiState.value.showPauseOverlay) {
         cancelPauseOverlay()
+        showControlsTemporarily()
+    } else if (pauseOverlayJob != null && !_uiState.value.isPlaying && userPausedManually) {
+        schedulePauseOverlay()
     }
 }
 
 fun PlayerRuntimeController.hideControls() {
     hideControlsJob?.cancel()
-    _uiState.update { it.copy(showControls = false, showSeekOverlay = false) }
+    _uiState.update { it.copy(showControls = false, showSeekOverlay = false, showMoreDialog = false) }
 }
 
 fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
@@ -441,12 +506,32 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             }
         }
         is PlayerEvent.OnSelectAudioTrack -> {
+            rememberAudioSelection(event.index)
             selectAudioTrack(event.index)
             _uiState.update {
                 it.copy(
-                    showAudioDialog = false,
+                    showAudioOverlay = false,
                     showSubtitleDelayOverlay = false,
                     showSubtitleTimingDialog = false
+                )
+            }
+        }
+        is PlayerEvent.OnSetAudioAmplificationDb -> {
+            val clampedDb = event.db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
+            applyAudioAmplification(clampedDb)
+            if (_uiState.value.persistAudioAmplification) {
+                scope.launch {
+                    playerSettingsDataStore.setAudioAmplificationDb(clampedDb)
+                }
+            }
+        }
+        is PlayerEvent.OnSetPersistAudioAmplification -> {
+            val currentDb = _uiState.value.audioAmplificationDb
+            _uiState.update { it.copy(persistAudioAmplification = event.enabled) }
+            scope.launch {
+                playerSettingsDataStore.setPersistAudioAmplification(
+                    enabled = event.enabled,
+                    dbToPersist = if (event.enabled) currentDb else null
                 )
             }
         }
@@ -456,13 +541,15 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             pendingAddonSubtitleTrackId = null
             pendingAudioSelectionAfterSubtitleRefresh = null
             resetSubtitleAutoSyncState()
+            rememberInternalSubtitleSelection(event.index)
             selectSubtitleTrack(event.index)
             _uiState.update { 
                 it.copy(
-                    showSubtitleDialog = false,
+                    showSubtitleOverlay = true,
                     showSubtitleStylePanel = false,
                     showSubtitleTimingDialog = false,
                     showSubtitleDelayOverlay = false,
+                    showControls = true,
                     selectedAddonSubtitle = null 
                 ) 
             }
@@ -473,13 +560,15 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             pendingAddonSubtitleTrackId = null
             pendingAudioSelectionAfterSubtitleRefresh = null
             resetSubtitleAutoSyncState()
+            rememberSubtitleDisabled()
             disableSubtitles()
             _uiState.update { 
                 it.copy(
-                    showSubtitleDialog = false,
+                    showSubtitleOverlay = true,
                     showSubtitleStylePanel = false,
                     showSubtitleTimingDialog = false,
                     showSubtitleDelayOverlay = false,
+                    showControls = true,
                     selectedAddonSubtitle = null,
                     selectedSubtitleTrackIndex = -1
                 ) 
@@ -487,19 +576,27 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         is PlayerEvent.OnSelectAddonSubtitle -> {
             autoSubtitleSelected = true
-            resetSubtitleAutoSyncState()
+            rememberAddonSubtitleSelection(event.subtitle)
             selectAddonSubtitle(event.subtitle)
             _uiState.update {
                 it.copy(
-                    showSubtitleDialog = false,
+                    showSubtitleOverlay = true,
                     showSubtitleStylePanel = false,
                     showSubtitleTimingDialog = false,
-                    showSubtitleDelayOverlay = false
+                    showSubtitleDelayOverlay = false,
+                    showControls = true
                 )
             }
         }
         is PlayerEvent.OnSetPlaybackSpeed -> {
-            _exoPlayer?.setPlaybackSpeed(event.speed)
+            val requiresPcm = _exoPlayer?.let(::selectedAudioRequiresPcmForSpeed) == true
+            playbackSpeedAwareAudioOutputProvider?.updatePlaybackSpeed(
+                event.speed,
+                selectedAudioRequiresPcmForSpeed = requiresPcm
+            )
+            _exoPlayer?.let { player ->
+                player.setPlaybackSpeed(event.speed)
+            }
             _uiState.update { 
                 it.copy(
                     playbackSpeed = event.speed,
@@ -510,18 +607,29 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             }
         }
         PlayerEvent.OnToggleControls -> {
+            if (_uiState.value.showSubtitleTimingDialog) {
+                dismissSubtitleTimingDialog()
+            }
             if (_uiState.value.showSubtitleDelayOverlay) {
                 hideSubtitleDelayOverlay()
             }
-            _uiState.update { it.copy(showControls = !it.showControls) }
-            if (_uiState.value.showControls) {
+            val shouldShowControls = !_uiState.value.showControls
+            _uiState.update {
+                it.copy(
+                    showControls = shouldShowControls,
+                    showSeekOverlay = false,
+                    showMoreDialog = if (shouldShowControls) it.showMoreDialog else false
+                )
+            }
+            if (shouldShowControls) {
                 scheduleHideControls()
             }
         }
-        PlayerEvent.OnShowAudioDialog -> {
+        PlayerEvent.OnShowAudioOverlay -> {
             _uiState.update {
                 it.copy(
-                    showAudioDialog = true,
+                    showAudioOverlay = true,
+                    showSubtitleOverlay = false,
                     showSubtitleStylePanel = false,
                     showMoreDialog = false,
                     showSubtitleTimingDialog = false,
@@ -530,10 +638,11 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 )
             }
         }
-        PlayerEvent.OnShowSubtitleDialog -> {
+        PlayerEvent.OnShowSubtitleOverlay -> {
             _uiState.update {
                 it.copy(
-                    showSubtitleDialog = true,
+                    showSubtitleOverlay = true,
+                    showAudioOverlay = false,
                     showSubtitleStylePanel = false,
                     showMoreDialog = false,
                     showSubtitleTimingDialog = false,
@@ -545,7 +654,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         PlayerEvent.OnOpenSubtitleStylePanel -> {
             _uiState.update {
                 it.copy(
-                    showSubtitleDialog = false,
+                    showSubtitleOverlay = false,
                     showSubtitleStylePanel = true,
                     showMoreDialog = false,
                     showSubtitleTimingDialog = false,
@@ -583,9 +692,26 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             adjustSubtitleDelay(event.deltaMs, event.showOverlay)
         }
         PlayerEvent.OnShowSpeedDialog -> {
+            val state = _uiState.value
+            if (state.tunnelingEnabled) {
+                _uiState.update {
+                    it.copy(
+                        showAspectRatioIndicator = true,
+                        aspectRatioIndicatorText = context.getString(R.string.player_aspect_tunneling_unavailable)
+                    )
+                }
+                hideAspectRatioIndicatorJob?.cancel()
+                hideAspectRatioIndicatorJob = scope.launch {
+                    delay(1500)
+                    _uiState.update { it.copy(showAspectRatioIndicator = false) }
+                }
+                return
+            }
             _uiState.update {
                 it.copy(
                     showSpeedDialog = true,
+                    showAudioOverlay = false,
+                    showSubtitleOverlay = false,
                     showSubtitleStylePanel = false,
                     showMoreDialog = false,
                     showSubtitleTimingDialog = false,
@@ -598,8 +724,8 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             _uiState.update {
                 it.copy(
                     showMoreDialog = true,
-                    showAudioDialog = false,
-                    showSubtitleDialog = false,
+                    showAudioOverlay = false,
+                    showSubtitleOverlay = false,
                     showSubtitleStylePanel = false,
                     showSubtitleTimingDialog = false,
                     showSubtitleDelayOverlay = false,
@@ -656,11 +782,11 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         is PlayerEvent.OnSourceStreamSelected -> {
             switchToSourceStream(event.stream)
         }
-        PlayerEvent.OnDismissDialog -> {
+        PlayerEvent.OnDismissTransientOverlay -> {
             _uiState.update { 
                 it.copy(
-                    showAudioDialog = false, 
-                    showSubtitleDialog = false, 
+                    showAudioOverlay = false, 
+                    showSubtitleOverlay = false, 
                     showSubtitleStylePanel = false,
                     showSubtitleTimingDialog = false,
                     showSpeedDialog = false,
@@ -673,6 +799,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         PlayerEvent.OnRetry -> {
             hasRenderedFirstFrame = false
             hasRetriedCurrentStreamAfter416 = false
+            resetErrorRetryState()
             resetNextEpisodeCardState(clearEpisode = false)
             _uiState.update { state ->
                 state.copy(
@@ -704,7 +831,10 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         PlayerEvent.OnSkipIntro -> {
             _uiState.value.activeSkipInterval?.let { interval ->
-                _exoPlayer?.seekTo((interval.endTime * 1000).toLong())
+                val duration = _exoPlayer?.duration?.takeIf { it > 0 } ?: Long.MAX_VALUE
+                val seekMs = if (interval.endTime == Double.MAX_VALUE) duration
+                             else (interval.endTime * 1000).toLong()
+                _exoPlayer?.seekTo(seekMs.coerceAtMost(duration))
                 scheduleProgressSyncAfterSeek()
                 _uiState.update { it.copy(activeSkipInterval = null, skipIntervalDismissed = true) }
             }
@@ -760,23 +890,85 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             }
         }
         PlayerEvent.OnToggleAspectRatio -> {
-            val currentMode = _uiState.value.resizeMode
-            val newMode = PlayerDisplayModeUtils.nextResizeMode(currentMode)
-            val modeText = PlayerDisplayModeUtils.resizeModeLabel(newMode)
-            Log.d("PlayerViewModel", "Aspect ratio toggled: $currentMode -> $newMode")
-            _uiState.update { 
-                it.copy(
-                    resizeMode = newMode,
-                    showAspectRatioIndicator = true,
-                    aspectRatioIndicatorText = modeText
-                ) 
+            val state = _uiState.value
+            if (state.tunnelingEnabled) {
+                _uiState.update {
+                    it.copy(
+                        showAspectRatioIndicator = true,
+                        aspectRatioIndicatorText = context.getString(R.string.player_aspect_tunneling_unavailable)
+                    )
+                }
+                hideAspectRatioIndicatorJob?.cancel()
+                hideAspectRatioIndicatorJob = scope.launch {
+                    delay(1500)
+                    _uiState.update { it.copy(showAspectRatioIndicator = false) }
+                }
+                return
             }
-            // Auto-hide indicator after 1.5 seconds
+            val newMode = nextAspectMode(state.aspectMode)
+            val label = aspectModeLabel(newMode, context::getString)
+            Log.d("PlayerViewModel", "Aspect mode toggled: ${state.aspectMode} -> $newMode ($label)")
+            _uiState.update {
+                it.copy(
+                    aspectMode = newMode,
+                    showAspectRatioIndicator = true,
+                    aspectRatioIndicatorText = label
+                )
+            }
             hideAspectRatioIndicatorJob?.cancel()
             hideAspectRatioIndicatorJob = scope.launch {
                 delay(1500)
                 _uiState.update { it.copy(showAspectRatioIndicator = false) }
             }
         }
+        PlayerEvent.OnShowStreamInfo -> {
+            val info = buildStreamInfoData()
+            _uiState.update {
+                it.copy(
+                    showStreamInfoOverlay = true,
+                    streamInfoData = info,
+                    showMoreDialog = false,
+                    showControls = false
+                )
+            }
+        }
+        PlayerEvent.OnDismissStreamInfo -> {
+            _uiState.update { it.copy(showStreamInfoOverlay = false) }
+        }
     }
+}
+
+internal fun PlayerRuntimeController.buildStreamInfoData(): StreamInfoData {
+    val state = _uiState.value
+    val selectedAudio = state.audioTracks.firstOrNull { it.isSelected }
+    val selectedSubtitle = state.subtitleTracks.firstOrNull { it.isSelected }
+    val addonSub = state.selectedAddonSubtitle
+
+    return StreamInfoData(
+        addonName = currentAddonName,
+        addonLogo = currentAddonLogo,
+        streamName = state.currentStreamName,
+        streamDescription = currentStreamDescription,
+        filename = currentFilename,
+        fileSize = currentVideoSize,
+        videoCodec = currentVideoCodec,
+        videoWidth = currentVideoWidth,
+        videoHeight = currentVideoHeight,
+        videoFrameRate = state.detectedFrameRate.takeIf { it > 0f },
+        videoBitrate = currentVideoBitrate,
+        audioCodec = selectedAudio?.codec,
+        audioChannels = selectedAudio?.channelCount?.let {
+            CustomDefaultTrackNameProvider.getChannelLayoutName(it)
+        },
+        audioSampleRate = selectedAudio?.sampleRate,
+        audioLanguage = selectedAudio?.language,
+        subtitleName = selectedSubtitle?.name ?: addonSub?.lang,
+        subtitleCodec = selectedSubtitle?.codec,
+        subtitleLanguage = selectedSubtitle?.language ?: addonSub?.lang,
+        subtitleSource = when {
+            addonSub != null -> context.getString(R.string.stream_info_subtitle_source_addon)
+            selectedSubtitle != null -> context.getString(R.string.stream_info_subtitle_source_embedded)
+            else -> null
+        }
+    )
 }

@@ -3,15 +3,29 @@ package com.nuvio.tv.data.local
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
+enum class WatchProgressSource {
+    TRAKT,
+    NUVIO_SYNC;
+
+    companion object {
+        fun fromStorage(value: String?): WatchProgressSource {
+            return entries.firstOrNull { it.name == value } ?: TRAKT
+        }
+    }
+}
+
 @Singleton
+@OptIn(ExperimentalCoroutinesApi::class)
 class TraktSettingsDataStore @Inject constructor(
     private val factory: ProfileDataStoreFactory,
     private val profileManager: ProfileManager
@@ -21,6 +35,8 @@ class TraktSettingsDataStore @Inject constructor(
         const val CONTINUE_WATCHING_DAYS_CAP_ALL = 0
         const val DEFAULT_CONTINUE_WATCHING_DAYS_CAP = 60
         const val DEFAULT_SHOW_UNAIRED_NEXT_UP = true
+        const val DEFAULT_SHOW_META_COMMENTS = true
+        val DEFAULT_WATCH_PROGRESS_SOURCE = WatchProgressSource.TRAKT
         const val MIN_CONTINUE_WATCHING_DAYS_CAP = 7
         const val MAX_CONTINUE_WATCHING_DAYS_CAP = 365
     }
@@ -31,6 +47,8 @@ class TraktSettingsDataStore @Inject constructor(
     private val continueWatchingDaysCapKey = intPreferencesKey("continue_watching_days_cap")
     private val dismissedNextUpKeysKey = stringSetPreferencesKey("dismissed_next_up_keys")
     private val showUnairedNextUpKey = booleanPreferencesKey("show_unaired_next_up")
+    private val showMetaCommentsKey = booleanPreferencesKey("show_meta_comments")
+    private val watchProgressSourceKey = stringPreferencesKey("watch_progress_source")
 
     val continueWatchingDaysCap: Flow<Int> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
@@ -49,6 +67,18 @@ class TraktSettingsDataStore @Inject constructor(
     val showUnairedNextUp: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
             prefs[showUnairedNextUpKey] ?: DEFAULT_SHOW_UNAIRED_NEXT_UP
+        }
+    }
+
+    val showMetaComments: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
+        factory.get(pid, FEATURE).data.map { prefs ->
+            prefs[showMetaCommentsKey] ?: DEFAULT_SHOW_META_COMMENTS
+        }
+    }
+
+    val watchProgressSource: Flow<WatchProgressSource> = profileManager.activeProfileId.flatMapLatest { pid ->
+        factory.get(pid, FEATURE).data.map { prefs ->
+            WatchProgressSource.fromStorage(prefs[watchProgressSourceKey])
         }
     }
 
@@ -74,9 +104,33 @@ class TraktSettingsDataStore @Inject constructor(
         }
     }
 
+    suspend fun removeDismissedNextUpKeysForContent(contentId: String) {
+        if (contentId.isBlank()) return
+        val prefix = "${contentId.trim()}|"
+        store().edit { prefs ->
+            val current = prefs[dismissedNextUpKeysKey] ?: emptySet()
+            val filtered = current.filterNot { it.startsWith(prefix) }
+            if (filtered.size != current.size) {
+                prefs[dismissedNextUpKeysKey] = filtered.toSet()
+            }
+        }
+    }
+
     suspend fun setShowUnairedNextUp(enabled: Boolean) {
         store().edit { prefs ->
             prefs[showUnairedNextUpKey] = enabled
+        }
+    }
+
+    suspend fun setShowMetaComments(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[showMetaCommentsKey] = enabled
+        }
+    }
+
+    suspend fun setWatchProgressSource(source: WatchProgressSource) {
+        store().edit { prefs ->
+            prefs[watchProgressSourceKey] = source.name
         }
     }
 }

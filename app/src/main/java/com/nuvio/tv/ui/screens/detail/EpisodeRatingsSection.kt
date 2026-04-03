@@ -19,11 +19,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
@@ -32,10 +34,12 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.ui.theme.NuvioColors
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun EpisodeRatingsSection(
     episodes: List<Video>,
@@ -119,13 +123,13 @@ fun EpisodeRatingsSection(
         when {
             isLoading -> {
                 Text(
-                    text = "Loading episode ratings...",
+                    text = stringResource(R.string.ratings_loading),
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuvioColors.TextSecondary,
                     modifier = Modifier.padding(horizontal = 48.dp, vertical = 12.dp)
                 )
             }
-            !error.isNullOrBlank() -> {
+            error != null -> {
                 Text(
                     text = error,
                     style = MaterialTheme.typography.bodyMedium,
@@ -135,7 +139,7 @@ fun EpisodeRatingsSection(
             }
             seasonNumbers.isEmpty() -> {
                 Text(
-                    text = "Episode ratings are unavailable.",
+                    text = stringResource(R.string.ratings_unavailable),
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuvioColors.TextSecondary,
                     modifier = Modifier.padding(horizontal = 48.dp, vertical = 12.dp)
@@ -143,7 +147,9 @@ fun EpisodeRatingsSection(
             }
             else -> {
                 LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRestorer(),
                     contentPadding = PaddingValues(horizontal = 48.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -182,7 +188,7 @@ fun EpisodeRatingsSection(
                             scale = CardDefaults.scale(focusedScale = 1f)
                         ) {
                             Text(
-                                text = "S$season",
+                                text = stringResource(R.string.ratings_season_label, season),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = NuvioColors.TextPrimary,
                                 modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp)
@@ -192,14 +198,16 @@ fun EpisodeRatingsSection(
                 }
 
                 Text(
-                    text = "Season $selectedSeason • ${episodesForSeason.size} episodes",
+                    text = stringResource(R.string.ratings_season_summary, selectedSeason, episodesForSeason.size),
                     style = MaterialTheme.typography.labelSmall,
                     color = NuvioColors.TextTertiary,
                     modifier = Modifier.padding(horizontal = 48.dp, vertical = 2.dp)
                 )
 
                 LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRestorer(),
                     contentPadding = PaddingValues(horizontal = 48.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -234,7 +242,7 @@ fun EpisodeRatingsSection(
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 Text(
-                                    text = "E${episodeRating.episodeNumber}",
+                                    text = stringResource(R.string.ratings_episode_label, episodeRating.episodeNumber),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = episodeRating.chipTextColor
                                 )

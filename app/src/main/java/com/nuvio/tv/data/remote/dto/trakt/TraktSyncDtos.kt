@@ -28,6 +28,36 @@ data class TraktPlaybackItemDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class TraktWatchedMovieItemDto(
+    @Json(name = "plays") val plays: Int? = null,
+    @Json(name = "last_watched_at") val lastWatchedAt: String? = null,
+    @Json(name = "last_updated_at") val lastUpdatedAt: String? = null,
+    @Json(name = "movie") val movie: TraktMovieDto? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TraktWatchedShowItemDto(
+    @Json(name = "plays") val plays: Int? = null,
+    @Json(name = "last_watched_at") val lastWatchedAt: String? = null,
+    @Json(name = "last_updated_at") val lastUpdatedAt: String? = null,
+    @Json(name = "show") val show: TraktShowDto? = null,
+    @Json(name = "seasons") val seasons: List<TraktWatchedShowSeasonDto>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TraktWatchedShowSeasonDto(
+    @Json(name = "number") val number: Int? = null,
+    @Json(name = "episodes") val episodes: List<TraktWatchedShowEpisodeDto>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TraktWatchedShowEpisodeDto(
+    @Json(name = "number") val number: Int? = null,
+    @Json(name = "plays") val plays: Int? = null,
+    @Json(name = "last_watched_at") val lastWatchedAt: String? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class TraktUserEpisodeHistoryItemDto(
     @Json(name = "id") val id: Long? = null,
     @Json(name = "watched_at") val watchedAt: String? = null,

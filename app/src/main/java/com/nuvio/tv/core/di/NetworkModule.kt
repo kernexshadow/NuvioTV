@@ -1,10 +1,13 @@
 package com.nuvio.tv.core.di
 
 import android.content.Context
+import android.util.Log
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.data.remote.api.AddonApi
 import com.nuvio.tv.data.remote.api.AniSkipApi
+import com.nuvio.tv.data.remote.api.AnimeSkipApi
 import com.nuvio.tv.data.remote.api.ArmApi
+import com.nuvio.tv.data.remote.api.DonationsApi
 import com.nuvio.tv.data.remote.api.GitHubReleaseApi
 import com.nuvio.tv.data.remote.api.TraktApi
 import com.nuvio.tv.data.remote.api.TrailerApi
@@ -26,10 +29,22 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import com.nuvio.tv.core.network.IPv4FirstDns
 import java.io.File
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Named
 import javax.inject.Singleton
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
+
+private object TraktHttpTrace {
+    private val requestCounter = AtomicLong(0L)
+    fun nextRequestId(): Long = requestCounter.incrementAndGet()
+}
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -43,15 +58,28 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(@ApplicationContext context: Context): OkHttpClient = OkHttpClient.Builder()
-        .cache(Cache(File(context.cacheDir, "http_cache"), 50L * 1024 * 1024)) // 50 MB disk cache
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .addInterceptor(HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
-                    else HttpLoggingInterceptor.Level.NONE
-        })
-        .build()
+    fun provideOkHttpClient(@ApplicationContext context: Context): OkHttpClient {
+        val trustAllManager = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+        val sslContext = SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf<TrustManager>(trustAllManager), SecureRandom())
+        }
+        return OkHttpClient.Builder()
+            .dns(IPv4FirstDns())
+            .sslSocketFactory(sslContext.socketFactory, trustAllManager)
+            .hostnameVerifier { _, _ -> true }
+            .cache(Cache(File(context.cacheDir, "http_cache"), 50L * 1024 * 1024)) // 50 MB disk cache
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(HttpLoggingInterceptor().apply {
+                level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
+                        else HttpLoggingInterceptor.Level.NONE
+            })
+            .build()
+    }
 
     @Provides
     @Singleton
@@ -64,11 +92,53 @@ object NetworkModule {
             val version = BuildConfig.VERSION_NAME.ifBlank { "dev" }
             val newRequest = request.newBuilder()
                 .header("Content-Type", "application/json")
-                .header("User-Agent", "NuvioTV/$version")
+                .header("User-Agent", "Nuvio/$version")
                 .header("trakt-api-key", BuildConfig.TRAKT_CLIENT_ID)
                 .header("trakt-api-version", "2")
                 .build()
-            chain.proceed(newRequest)
+
+            if (!BuildConfig.DEBUG) {
+                return@addInterceptor chain.proceed(newRequest)
+            }
+
+            val requestId = TraktHttpTrace.nextRequestId()
+            val target = buildString {
+                append(newRequest.url.encodedPath)
+                newRequest.url.encodedQuery?.let { query ->
+                    append('?')
+                    append(query)
+                }
+            }
+            val startNs = System.nanoTime()
+            Log.d("TraktHttp", "REQ #$requestId ${newRequest.method} $target")
+
+            try {
+                val response = chain.proceed(newRequest)
+                val durationMs = (System.nanoTime() - startNs) / 1_000_000L
+                val retryAfter = response.header("Retry-After")
+                val rateLimit = response.header("X-Ratelimit")
+                val page = response.header("X-Pagination-Page")
+                val pageCount = response.header("X-Pagination-Page-Count")
+                val pageInfo = if (page != null || pageCount != null) {
+                    " page=${page ?: "-"} pageCount=${pageCount ?: "-"}"
+                } else {
+                    ""
+                }
+                val retryInfo = retryAfter?.let { " retryAfter=${it}s" } ?: ""
+                val rateInfo = rateLimit?.let { " rate=$it" } ?: ""
+                Log.d(
+                    "TraktHttp",
+                    "RES #$requestId ${response.code} ${newRequest.method} $target ${durationMs}ms$retryInfo$pageInfo$rateInfo"
+                )
+                response
+            } catch (error: Exception) {
+                val durationMs = (System.nanoTime() - startNs) / 1_000_000L
+                Log.w(
+                    "TraktHttp",
+                    "ERR #$requestId ${newRequest.method} $target ${durationMs}ms ${error.javaClass.simpleName}: ${error.message}"
+                )
+                throw error
+            }
         }
         .build()
 
@@ -181,6 +251,21 @@ object NetworkModule {
     fun provideArmApi(@Named("arm") retrofit: Retrofit): ArmApi =
         retrofit.create(ArmApi::class.java)
 
+    @Provides
+    @Singleton
+    @Named("animeSkipGql")
+    fun provideAnimeSkipGqlRetrofit(okHttpClient: OkHttpClient, moshi: Moshi): Retrofit =
+        Retrofit.Builder()
+            .baseUrl("https://api.anime-skip.com/")
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+
+    @Provides
+    @Singleton
+    fun provideAnimeSkipApi(@Named("animeSkipGql") retrofit: Retrofit): AnimeSkipApi =
+        retrofit.create(AnimeSkipApi::class.java)
+
     // --- GitHub Releases API (in-app updates) ---
 
     @Provides
@@ -197,6 +282,26 @@ object NetworkModule {
     @Singleton
     fun provideGitHubReleaseApi(@Named("github") retrofit: Retrofit): GitHubReleaseApi =
         retrofit.create(GitHubReleaseApi::class.java)
+
+    @Provides
+    @Singleton
+    @Named("donations")
+    fun provideDonationsRetrofit(okHttpClient: OkHttpClient, moshi: Moshi): Retrofit {
+        val baseUrl = BuildConfig.DONATIONS_BASE_URL
+            .takeIf { it.isNotBlank() }
+            ?: error("DONATIONS_BASE_URL is missing. Set it in local.properties or local.dev.properties.")
+
+        return Retrofit.Builder()
+            .baseUrl(baseUrl)
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideDonationsApi(@Named("donations") retrofit: Retrofit): DonationsApi =
+        retrofit.create(DonationsApi::class.java)
 
     // --- Trailer API ---
 

@@ -3,11 +3,17 @@ package com.nuvio.tv.ui.screens.detail
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.NextToWatch
+import com.nuvio.tv.domain.model.TraktCommentReview
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MDBListRatings
+
+enum class MoreLikeThisSource {
+    TMDB,
+    TRAKT
+}
 
 data class MetaDetailsUiState(
     val isLoading: Boolean = true,
@@ -20,6 +26,7 @@ data class MetaDetailsUiState(
     val nextToWatch: NextToWatch? = null,
     val episodeProgressMap: Map<Pair<Int, Int>, WatchProgress> = emptyMap(),
     val trailerUrl: String? = null,
+    val trailerAudioUrl: String? = null,
     val isTrailerPlaying: Boolean = false,
     val isTrailerLoading: Boolean = false,
     val showTrailerControls: Boolean = false,
@@ -37,12 +44,24 @@ data class MetaDetailsUiState(
     val watchedEpisodes: Set<Pair<Int, Int>> = emptySet(),
     val episodeWatchedPendingKeys: Set<String> = emptySet(),
     val blurUnwatchedEpisodes: Boolean = false,
+    val showFullReleaseDate: Boolean = true,
     val moreLikeThis: List<MetaPreview> = emptyList(),
+    val moreLikeThisSource: MoreLikeThisSource? = null,
+    val collection: List<MetaPreview> = emptyList(),
+    val collectionName: String? = null,
     val episodeImdbRatings: Map<Pair<Int, Int>, Double> = emptyMap(),
     val isEpisodeRatingsLoading: Boolean = false,
     val episodeRatingsError: String? = null,
     val mdbListRatings: MDBListRatings? = null,
     val showMdbListImdb: Boolean = false,
+    val comments: List<TraktCommentReview> = emptyList(),
+    val commentsCurrentPage: Int = 0,
+    val commentsPageCount: Int = 0,
+    val isCommentsLoading: Boolean = false,
+    val isCommentsLoadingMore: Boolean = false,
+    val commentsError: String? = null,
+    val shouldShowCommentsSection: Boolean = false,
+    val selectedComment: TraktCommentReview? = null,
     val userMessage: String? = null,
     val userMessageIsError: Boolean = false
 )
@@ -53,6 +72,11 @@ sealed class MetaDetailsEvent {
     data object OnPlayClick : MetaDetailsEvent()
     data object OnToggleLibrary : MetaDetailsEvent()
     data object OnRetry : MetaDetailsEvent()
+    data object OnRetryComments : MetaDetailsEvent()
+    data object OnLoadMoreComments : MetaDetailsEvent()
+    data class OnCommentSelected(val review: TraktCommentReview) : MetaDetailsEvent()
+    data class OnAdvanceCommentOverlay(val direction: Int) : MetaDetailsEvent()
+    data object OnDismissCommentOverlay : MetaDetailsEvent()
     data object OnBackPress : MetaDetailsEvent()
     data object OnUserInteraction : MetaDetailsEvent()
     data object OnPlayButtonFocused : MetaDetailsEvent()
@@ -68,4 +92,5 @@ sealed class MetaDetailsEvent {
     data object OnPickerSave : MetaDetailsEvent()
     data object OnPickerDismiss : MetaDetailsEvent()
     data object OnClearMessage : MetaDetailsEvent()
+    data object OnLifecyclePause : MetaDetailsEvent()
 }

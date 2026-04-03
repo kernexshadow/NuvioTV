@@ -36,6 +36,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.ui.theme.NuvioColors
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 
 @Composable
 fun SyncCodeGenerateScreen(
@@ -49,9 +51,7 @@ fun SyncCodeGenerateScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuvioColors.Background),
+            modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -65,7 +65,7 @@ fun SyncCodeGenerateScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Generate Sync Code",
+                text = stringResource(R.string.sync_generate_title),
                 style = MaterialTheme.typography.headlineSmall,
                 color = NuvioColors.TextPrimary,
                 fontWeight = FontWeight.SemiBold
@@ -74,7 +74,7 @@ fun SyncCodeGenerateScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Create a PIN to protect your sync code. Share the code with your other devices.",
+                text = stringResource(R.string.sync_generate_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
                 color = NuvioColors.TextSecondary,
                 textAlign = TextAlign.Center
@@ -85,7 +85,7 @@ fun SyncCodeGenerateScreen(
             if (uiState.generatedSyncCode != null) {
                 // Show the generated code
                 Text(
-                    text = "Your Sync Code",
+                    text = stringResource(R.string.sync_generate_code_label),
                     style = MaterialTheme.typography.labelMedium,
                     color = NuvioColors.TextSecondary
                 )
@@ -113,7 +113,7 @@ fun SyncCodeGenerateScreen(
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Enter this code and your PIN on your other device to link them.",
+                    text = stringResource(R.string.sync_generate_instruction),
                     style = MaterialTheme.typography.bodySmall,
                     color = NuvioColors.TextTertiary,
                     textAlign = TextAlign.Center
@@ -127,18 +127,18 @@ fun SyncCodeGenerateScreen(
                     colors = ButtonDefaults.colors(
                         containerColor = NuvioColors.Secondary,
                         focusedContainerColor = NuvioColors.SecondaryVariant,
-                        contentColor = Color.White,
-                        focusedContentColor = Color.White
+                        contentColor = NuvioColors.OnSecondary,
+                        focusedContentColor = NuvioColors.OnSecondaryVariant
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(50)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Done", modifier = Modifier.padding(vertical = 4.dp))
+                    Text(stringResource(R.string.sync_generate_done), modifier = Modifier.padding(vertical = 4.dp))
                 }
             } else {
                 // PIN input form
                 Text(
-                    text = "Choose a PIN (4-8 characters)",
+                    text = stringResource(R.string.sync_generate_pin_label),
                     style = MaterialTheme.typography.labelMedium,
                     color = NuvioColors.TextSecondary,
                     modifier = Modifier.fillMaxWidth()
@@ -147,7 +147,7 @@ fun SyncCodeGenerateScreen(
                 InputField(
                     value = pin,
                     onValueChange = { if (it.length <= 8) pin = it },
-                    placeholder = "Enter PIN",
+                    placeholder = stringResource(R.string.sync_generate_pin_placeholder),
                     keyboardType = KeyboardType.NumberPassword,
                     isPassword = true,
                     imeAction = ImeAction.Done,
@@ -174,14 +174,14 @@ fun SyncCodeGenerateScreen(
                     colors = ButtonDefaults.colors(
                         containerColor = NuvioColors.Secondary,
                         focusedContainerColor = NuvioColors.SecondaryVariant,
-                        contentColor = Color.White,
-                        focusedContentColor = Color.White
+                        contentColor = NuvioColors.OnSecondary,
+                        focusedContentColor = NuvioColors.OnSecondaryVariant
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(50)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = if (uiState.isLoading) "Generating..." else "Generate Code",
+                        text = if (uiState.isLoading) stringResource(R.string.sync_generate_generating) else stringResource(R.string.sync_generate_code_btn),
                         modifier = Modifier.padding(vertical = 4.dp),
                         fontWeight = FontWeight.Medium
                     )

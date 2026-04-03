@@ -26,7 +26,7 @@ class LayoutPreferenceDataStore @Inject constructor(
         private const val DEFAULT_POSTER_CARD_HEIGHT_DP = 189
         private const val DEFAULT_POSTER_CARD_CORNER_RADIUS_DP = 12
         private const val DEFAULT_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS = 3
-        private const val MIN_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS = 1
+        private const val MIN_FOCUSED_POSTER_BACKDROP_EXPAND_DELAY_SECONDS = 0
     }
 
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
@@ -45,7 +45,6 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val legacyModernSidebarEnabledKey = booleanPreferencesKey("glass_sidepanel_enabled")
     private val modernSidebarBlurEnabledKey = booleanPreferencesKey("modern_sidebar_blur_enabled")
     private val modernLandscapePostersEnabledKey = booleanPreferencesKey("modern_landscape_posters_enabled")
-    private val modernNextRowPreviewEnabledKey = booleanPreferencesKey("modern_next_row_preview_enabled")
     private val heroSectionEnabledKey = booleanPreferencesKey("hero_section_enabled")
     private val searchDiscoverEnabledKey = booleanPreferencesKey("search_discover_enabled")
     private val posterLabelsEnabledKey = booleanPreferencesKey("poster_labels_enabled")
@@ -61,8 +60,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val posterCardHeightDpKey = intPreferencesKey("poster_card_height_dp")
     private val posterCardCornerRadiusDpKey = intPreferencesKey("poster_card_corner_radius_dp")
     private val blurUnwatchedEpisodesKey = booleanPreferencesKey("blur_unwatched_episodes")
+    private val blurContinueWatchingNextUpKey = booleanPreferencesKey("blur_continue_watching_next_up")
     private val detailPageTrailerButtonEnabledKey = booleanPreferencesKey("detail_page_trailer_button_enabled")
     private val preferExternalMetaAddonDetailKey = booleanPreferencesKey("prefer_external_meta_addon_detail")
+    private val modernHeroFullScreenBackdropKey = booleanPreferencesKey("modern_hero_full_screen_backdrop")
+    private val hideUnreleasedContentKey = booleanPreferencesKey("hide_unreleased_content")
+    private val showFullReleaseDateKey = booleanPreferencesKey("show_full_release_date")
 
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
         profileManager.activeProfileId.flatMapLatest { pid ->
@@ -126,11 +129,11 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val modernLandscapePostersEnabled: Flow<Boolean> = profileFlow { prefs ->
-        prefs[modernLandscapePostersEnabledKey] ?: true
+        prefs[modernLandscapePostersEnabledKey] ?: false
     }
 
-    val modernNextRowPreviewEnabled: Flow<Boolean> = profileFlow { prefs ->
-        prefs[modernNextRowPreviewEnabledKey] ?: false
+    val modernHeroFullScreenBackdropEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[modernHeroFullScreenBackdropKey] ?: false
     }
 
     val heroSectionEnabled: Flow<Boolean> = profileFlow { prefs ->
@@ -195,12 +198,24 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[blurUnwatchedEpisodesKey] ?: false
     }
 
+    val blurContinueWatchingNextUp: Flow<Boolean> = profileFlow { prefs ->
+        prefs[blurContinueWatchingNextUpKey] ?: false
+    }
+
     val detailPageTrailerButtonEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[detailPageTrailerButtonEnabledKey] ?: false
     }
 
     val preferExternalMetaAddonDetail: Flow<Boolean> = profileFlow { prefs ->
         prefs[preferExternalMetaAddonDetailKey] ?: false
+    }
+
+    val hideUnreleasedContent: Flow<Boolean> = profileFlow { prefs ->
+        prefs[hideUnreleasedContentKey] ?: false
+    }
+
+    val showFullReleaseDate: Flow<Boolean> = profileFlow { prefs ->
+        prefs[showFullReleaseDateKey] ?: true
     }
 
     suspend fun setLayout(layout: HomeLayout) {
@@ -288,9 +303,9 @@ class LayoutPreferenceDataStore @Inject constructor(
         }
     }
 
-    suspend fun setModernNextRowPreviewEnabled(enabled: Boolean) {
+    suspend fun setModernHeroFullScreenBackdropEnabled(enabled: Boolean) {
         store().edit { prefs ->
-            prefs[modernNextRowPreviewEnabledKey] = enabled
+            prefs[modernHeroFullScreenBackdropKey] = enabled
         }
     }
 
@@ -388,6 +403,12 @@ class LayoutPreferenceDataStore @Inject constructor(
         }
     }
 
+    suspend fun setBlurContinueWatchingNextUp(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[blurContinueWatchingNextUpKey] = enabled
+        }
+    }
+
     suspend fun setDetailPageTrailerButtonEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[detailPageTrailerButtonEnabledKey] = enabled
@@ -397,6 +418,18 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setPreferExternalMetaAddonDetail(enabled: Boolean) {
         store().edit { prefs ->
             prefs[preferExternalMetaAddonDetailKey] = enabled
+        }
+    }
+
+    suspend fun setHideUnreleasedContent(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[hideUnreleasedContentKey] = enabled
+        }
+    }
+
+    suspend fun setShowFullReleaseDate(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[showFullReleaseDateKey] = enabled
         }
     }
 

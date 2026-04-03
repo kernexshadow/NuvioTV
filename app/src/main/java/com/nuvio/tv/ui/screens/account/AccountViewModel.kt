@@ -1,9 +1,11 @@
 package com.nuvio.tv.ui.screens.account
 
+import android.content.Context
 import android.os.Build
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.R
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.plugin.PluginManager
@@ -14,6 +16,7 @@ import com.nuvio.tv.core.sync.LibrarySyncService
 import com.nuvio.tv.core.sync.PluginSyncService
 import com.nuvio.tv.core.sync.WatchProgressSyncService
 import com.nuvio.tv.core.sync.WatchedItemsSyncService
+import com.nuvio.tv.core.sync.ProfileSettingsSyncService
 import com.nuvio.tv.data.local.LibraryPreferences
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TraktAuthDataStore
@@ -50,6 +53,7 @@ class AccountViewModel @Inject constructor(
     private val watchProgressSyncService: WatchProgressSyncService,
     private val librarySyncService: LibrarySyncService,
     private val watchedItemsSyncService: WatchedItemsSyncService,
+    private val profileSettingsSyncService: ProfileSettingsSyncService,
     private val pluginManager: PluginManager,
     private val addonRepository: AddonRepositoryImpl,
     private val watchProgressRepository: WatchProgressRepositoryImpl,
@@ -59,7 +63,8 @@ class AccountViewModel @Inject constructor(
     private val watchedItemsPreferences: WatchedItemsPreferences,
     private val traktAuthDataStore: TraktAuthDataStore,
     private val postgrest: Postgrest,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AccountUiState())
@@ -145,7 +150,7 @@ class AccountViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             if (!authManager.isAuthenticated) {
-                _uiState.update { it.copy(isLoading = false, error = "Sign in with an account first.") }
+                _uiState.update { it.copy(isLoading = false, error = context.getString(R.string.account_error_signin_required)) }
                 return@launch
             }
             pushLocalDataToRemote()
@@ -178,7 +183,7 @@ class AccountViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             if (!authManager.isAuthenticated) {
-                _uiState.update { it.copy(isLoading = false, error = "Sign in with an account first.") }
+                _uiState.update { it.copy(isLoading = false, error = context.getString(R.string.account_error_signin_required)) }
                 return@launch
             }
             syncRepository.claimSyncCode(code, pin, Build.MODEL).fold(
@@ -191,12 +196,12 @@ class AccountViewModel @Inject constructor(
                         updateEffectiveOwnerId(_uiState.value.authState)
                         _uiState.update { it.copy(isLoading = false, syncClaimSuccess = true) }
                     } else {
-                        authManager.signOut()
+                        authManager.signOut(explicit = false)
                         _uiState.update { it.copy(isLoading = false, error = result.message) }
                     }
                 },
                 onFailure = { e ->
-                    authManager.signOut()
+                    authManager.signOut(explicit = false)
                     _uiState.update { it.copy(isLoading = false, error = userFriendlyError(e)) }
                 }
             )
@@ -540,9 +545,9 @@ class AccountViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         qrLoginStatus = when (normalizedStatus) {
-                            "approved" -> "Login approved. Finishing sign in..."
-                            "pending" -> "Waiting for approval on your phone..."
-                            "expired" -> "QR login expired. Generate a new code."
+                            "approved" -> context.getString(R.string.qr_login_approved)
+                            "pending" -> context.getString(R.string.qr_login_pending)
+                            "expired" -> context.getString(R.string.qr_login_expired)
                             else -> "Status: ${result.status}"
                         },
                         qrLoginExpiresAtMillis = expiresAtMillis ?: it.qrLoginExpiresAtMillis,
@@ -564,6 +569,7 @@ class AccountViewModel @Inject constructor(
     }
 
     private suspend fun pushLocalDataToRemote() {
+        profileSettingsSyncService.pushCurrentProfileToRemote()
         pluginSyncService.pushToRemote()
         addonSyncService.pushToRemote()
         watchProgressSyncService.pushToRemote()
@@ -573,6 +579,7 @@ class AccountViewModel @Inject constructor(
 
     private suspend fun pullRemoteData(): Result<Unit> {
         try {
+            profileSettingsSyncService.pullCurrentProfileFromRemote()
             pluginManager.isSyncingFromRemote = true
             val remotePluginUrls = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
             pluginManager.reconcileWithRemoteRepoUrls(
@@ -591,7 +598,11 @@ class AccountViewModel @Inject constructor(
 
             val isPrimaryProfile = profileManager.activeProfileId.value == 1
             val isTraktConnected = isPrimaryProfile && traktAuthDataStore.isAuthenticated.first()
-            Log.d("AccountViewModel", "pullRemoteData: isTraktConnected=$isTraktConnected isPrimaryProfile=$isPrimaryProfile")
+            val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync()
+            Log.d(
+                "AccountViewModel",
+                "pullRemoteData: isTraktConnected=$isTraktConnected isPrimaryProfile=$isPrimaryProfile shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
+            )
             if (!isTraktConnected) {
                 watchProgressRepository.isSyncingFromRemote = true
                 val remoteEntries = watchProgressSyncService.pullFromRemote().getOrElse { throw it }
@@ -615,6 +626,18 @@ class AccountViewModel @Inject constructor(
 
                 val remoteWatchedItems = watchedItemsSyncService.pullFromRemote().getOrElse { throw it }
                 Log.d("AccountViewModel", "pullRemoteData: pulled ${remoteWatchedItems.size} watched items")
+                watchedItemsPreferences.replaceWithRemoteItems(remoteWatchedItems)
+                Log.d("AccountViewModel", "pullRemoteData: reconciled local watched items with ${remoteWatchedItems.size} remote items")
+            } else if (shouldUseSupabaseWatchProgressSync) {
+                watchProgressRepository.isSyncingFromRemote = true
+                val remoteEntries = watchProgressSyncService.pullFromRemote().getOrElse { throw it }
+                Log.d("AccountViewModel", "pullRemoteData: pulled ${remoteEntries.size} watch progress entries in Trakt mode")
+                watchProgressPreferences.replaceWithRemoteEntries(remoteEntries.toMap())
+                Log.d("AccountViewModel", "pullRemoteData: replaced local watch progress with ${remoteEntries.size} remote entries")
+                watchProgressRepository.isSyncingFromRemote = false
+
+                val remoteWatchedItems = watchedItemsSyncService.pullFromRemote().getOrElse { throw it }
+                Log.d("AccountViewModel", "pullRemoteData: pulled ${remoteWatchedItems.size} watched items in Trakt mode")
                 watchedItemsPreferences.replaceWithRemoteItems(remoteWatchedItems)
                 Log.d("AccountViewModel", "pullRemoteData: reconciled local watched items with ${remoteWatchedItems.size} remote items")
             }

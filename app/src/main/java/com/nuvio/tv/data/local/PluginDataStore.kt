@@ -10,7 +10,10 @@ import com.nuvio.tv.domain.model.ScraperInfo
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -19,6 +22,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
+@OptIn(ExperimentalCoroutinesApi::class)
 class PluginDataStore @Inject constructor(
     @ApplicationContext private val context: Context,
     private val moshi: Moshi,
@@ -36,6 +40,14 @@ class PluginDataStore @Inject constructor(
 
     private fun store(profileId: Int = effectiveProfileId()) =
         factory.get(profileId, FEATURE)
+
+    private val effectiveProfileIdFlow: Flow<Int> = combine(
+        profileManager.activeProfileId,
+        profileManager.profiles
+    ) { activeProfileId, profiles ->
+        val activeProfile = profiles.firstOrNull { it.id == activeProfileId }
+        if (activeProfile?.usesPrimaryPlugins == true) 1 else activeProfileId
+    }.distinctUntilChanged()
 
     private val repositoriesKey = stringPreferencesKey("repositories")
     private val scrapersKey = stringPreferencesKey("scrapers")
@@ -55,12 +67,15 @@ class PluginDataStore @Inject constructor(
         get() {
             val pid = effectiveProfileId()
             val dirName = if (pid == 1) "plugin_code" else "plugin_code_p${pid}"
-            return File(context.filesDir, dirName).also { it.mkdirs() }
+            return File(context.filesDir, dirName)
         }
 
+    private suspend fun ensureCodeDir(): File = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        codeDir.also { it.mkdirs() }
+    }
+
     // Repositories
-    val repositories: Flow<List<PluginRepository>> = profileManager.activeProfileId.flatMapLatest { _ ->
-        val pid = effectiveProfileId()
+    val repositories: Flow<List<PluginRepository>> = effectiveProfileIdFlow.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
             prefs[repositoriesKey]?.let { json ->
                 try {
@@ -108,8 +123,7 @@ class PluginDataStore @Inject constructor(
     }
 
     // Scrapers
-    val scrapers: Flow<List<ScraperInfo>> = profileManager.activeProfileId.flatMapLatest { _ ->
-        val pid = effectiveProfileId()
+    val scrapers: Flow<List<ScraperInfo>> = effectiveProfileIdFlow.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
             prefs[scrapersKey]?.let { json ->
                 try {
@@ -122,6 +136,7 @@ class PluginDataStore @Inject constructor(
     }
 
     suspend fun saveScrapers(scrapers: List<ScraperInfo>) {
+        if (profileManager.activeProfile?.usesPrimaryPlugins == true) return
         val json = moshi.adapter<List<ScraperInfo>>(scraperListType).toJson(scrapers)
         store().edit { prefs ->
             prefs[scrapersKey] = json
@@ -141,13 +156,14 @@ class PluginDataStore @Inject constructor(
     }
 
     // Plugins enabled global toggle
-    val pluginsEnabled: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
+    val pluginsEnabled: Flow<Boolean> = effectiveProfileIdFlow.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
             prefs[pluginsEnabledKey] ?: true
         }
     }
 
     suspend fun setPluginsEnabled(enabled: Boolean) {
+        if (profileManager.activeProfile?.usesPrimaryPlugins == true) return
         store().edit { prefs ->
             prefs[pluginsEnabledKey] = enabled
         }
@@ -158,21 +174,30 @@ class PluginDataStore @Inject constructor(
         return File(codeDir, "$scraperId.js")
     }
 
-    fun saveScraperCode(scraperId: String, code: String) {
-        getScraperCodeFile(scraperId).writeText(code)
+    suspend fun saveScraperCode(scraperId: String, code: String) {
+        val dir = ensureCodeDir()
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            File(dir, "$scraperId.js").writeText(code)
+        }
     }
 
-    fun getScraperCode(scraperId: String): String? {
-        val file = getScraperCodeFile(scraperId)
-        return if (file.exists()) file.readText() else null
+    suspend fun getScraperCode(scraperId: String): String? {
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val file = File(codeDir, "$scraperId.js")
+            if (file.exists()) file.readText() else null
+        }
     }
 
-    fun deleteScraperCode(scraperId: String) {
-        getScraperCodeFile(scraperId).delete()
+    suspend fun deleteScraperCode(scraperId: String) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            File(codeDir, "$scraperId.js").delete()
+        }
     }
 
-    fun clearAllScraperCode() {
-        codeDir.listFiles()?.forEach { it.delete() }
+    suspend fun clearAllScraperCode() {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            codeDir.listFiles()?.forEach { it.delete() }
+        }
     }
 
     // Per-scraper settings

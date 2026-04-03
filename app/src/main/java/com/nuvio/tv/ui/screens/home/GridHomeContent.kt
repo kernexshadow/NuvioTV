@@ -1,12 +1,16 @@
 package com.nuvio.tv.ui.screens.home
 
+import android.view.KeyEvent as AndroidKeyEvent
+import com.nuvio.tv.LocalContentFocusRequester
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,9 +33,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.nuvio.tv.R
 import androidx.tv.material3.Border
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -44,6 +53,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.Icon
+import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.GridContentCard
 import com.nuvio.tv.ui.components.GridContinueWatchingSection
 import com.nuvio.tv.ui.components.HeroCarousel
@@ -51,16 +61,25 @@ import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.ui.theme.NuvioColors
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+/** Minimum interval between processed key repeat events to prevent HWUI overload. */
+private const val KEY_REPEAT_THROTTLE_MS = 80L
+
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun GridHomeContent(
     uiState: HomeUiState,
     gridFocusState: HomeScreenFocusState,
     onNavigateToDetail: (String, String, String) -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
+    onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit = {},
+    onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit = {},
+    showContinueWatchingManualPlayOption: Boolean = false,
     onNavigateToCatalogSeeAll: (String, String, String) -> Unit,
     onRemoveContinueWatching: (String, Int?, Int?, Boolean) -> Unit,
+    isCatalogItemWatched: (MetaPreview) -> Boolean = { false },
+    onCatalogItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     posterCardStyle: PosterCardStyle = PosterCardDefaults.Style,
+    onItemFocus: (com.nuvio.tv.domain.model.MetaPreview) -> Unit = {},
     onSaveGridFocusState: (Int, Int) -> Unit
 ) {
     val gridState = rememberLazyGridState(
@@ -142,13 +161,33 @@ fun GridHomeContent(
         }
     }
 
+    // Throttle D-pad key repeats to prevent HWUI overload when a key is held down.
+    val lastKeyRepeatTime = remember { longArrayOf(0L) }
+
     Box(modifier = Modifier.fillMaxSize()) {
+        val contentFocusRequester = LocalContentFocusRequester.current
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val gridWidth = maxWidth
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Adaptive(minSize = posterCardStyle.width),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(contentFocusRequester)
+                .focusRestorer()
+                .onPreviewKeyEvent { event ->
+                    val native = event.nativeKeyEvent
+                    if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount > 0) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastKeyRepeatTime[0] < KEY_REPEAT_THROTTLE_MS) {
+                            return@onPreviewKeyEvent true
+                        }
+                        lastKeyRepeatTime[0] = now
+                    }
+                    false
+                },
             contentPadding = PaddingValues(
-                start = 24.dp,
+                start = 48.dp,
                 end = 24.dp,
                 top = topPadding,
                 bottom = 32.dp
@@ -177,7 +216,9 @@ fun GridHomeContent(
                                         item.apiType,
                                         ""
                                     )
-                                }
+                                },
+                                fullWidth = gridWidth,
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
@@ -192,11 +233,16 @@ fun GridHomeContent(
                                 contentType = "continue_watching"
                             ) {
                                 GridContinueWatchingSection(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    fullWidth = gridWidth,
                                     items = continueWatchingItems,
                                     focusedItemIndex = if (shouldRequestInitialFocus && !hasHero) 0 else -1,
                                     onItemClick = { item ->
                                         onContinueWatchingClick(item)
                                     },
+                                    onStartFromBeginning = onContinueWatchingStartFromBeginning,
+                                    showManualPlayOption = showContinueWatchingManualPlayOption,
+                                    onPlayManually = onContinueWatchingPlayManually,
                                     onDetailsClick = { item ->
                                         onNavigateToDetail(
                                             when (item) {
@@ -217,15 +263,16 @@ fun GridHomeContent(
                                         }
                                         val season = when (item) {
                                             is ContinueWatchingItem.InProgress -> item.progress.season
-                                            is ContinueWatchingItem.NextUp -> item.info.season
+                                            is ContinueWatchingItem.NextUp -> item.info.seedSeason
                                         }
                                         val episode = when (item) {
                                             is ContinueWatchingItem.InProgress -> item.progress.episode
-                                            is ContinueWatchingItem.NextUp -> item.info.episode
+                                            is ContinueWatchingItem.NextUp -> item.info.seedEpisode
                                         }
                                         val isNextUp = item is ContinueWatchingItem.NextUp
                                         onRemoveContinueWatching(contentId, season, episode, isNextUp)
-                                    }
+                                    },
+                                    blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes
                                 )
                             }
                         }
@@ -235,8 +282,20 @@ fun GridHomeContent(
                             span = { GridItemSpan(maxLineSpan) },
                             contentType = "divider"
                         ) {
+                            val strTypeMovie = stringResource(R.string.type_movie)
+                            val strTypeSeries = stringResource(R.string.type_series)
+                            val typeLabel = when (gridItem.type.lowercase()) {
+                                "movie" -> strTypeMovie
+                                "series" -> strTypeSeries
+                                else -> gridItem.type.replaceFirstChar { it.uppercase() }
+                            }
+                            val displayName = if (uiState.catalogTypeSuffixEnabled && typeLabel.isNotBlank()) {
+                                "${gridItem.catalogName.replaceFirstChar { it.uppercase() }} - $typeLabel"
+                            } else {
+                                gridItem.catalogName.replaceFirstChar { it.uppercase() }
+                            }
                             SectionDivider(
-                                catalogName = gridItem.catalogName
+                                catalogName = displayName
                             )
                         }
                     }
@@ -266,12 +325,17 @@ fun GridHomeContent(
                                 focusRequester = focusRequester,
                                 posterCardStyle = posterCardStyle,
                                 showLabel = uiState.posterLabelsEnabled,
+                                isWatched = isCatalogItemWatched(gridItem.item),
+                                onFocused = { onItemFocus(gridItem.item) },
                                 onClick = {
                                     onNavigateToDetail(
                                         gridItem.item.id,
                                         gridItem.item.apiType,
                                         gridItem.addonBaseUrl
                                     )
+                                },
+                                onLongPress = {
+                                    onCatalogItemLongPress(gridItem.item, gridItem.addonBaseUrl)
                                 }
                             )
                         }
@@ -317,11 +381,16 @@ fun GridHomeContent(
                     contentType = "continue_watching"
                 ) {
                     GridContinueWatchingSection(
+                        modifier = Modifier.fillMaxWidth(),
+                        fullWidth = gridWidth,
                         items = continueWatchingItems,
                         focusedItemIndex = if (shouldRequestInitialFocus && !hasHero) 0 else -1,
                         onItemClick = { item ->
                             onContinueWatchingClick(item)
                         },
+                        onStartFromBeginning = onContinueWatchingStartFromBeginning,
+                        showManualPlayOption = showContinueWatchingManualPlayOption,
+                        onPlayManually = onContinueWatchingPlayManually,
                         onDetailsClick = { item ->
                             onNavigateToDetail(
                                 when (item) {
@@ -342,19 +411,21 @@ fun GridHomeContent(
                             }
                             val season = when (item) {
                                 is ContinueWatchingItem.InProgress -> item.progress.season
-                                is ContinueWatchingItem.NextUp -> item.info.season
+                                is ContinueWatchingItem.NextUp -> item.info.seedSeason
                             }
                             val episode = when (item) {
                                 is ContinueWatchingItem.InProgress -> item.progress.episode
-                                is ContinueWatchingItem.NextUp -> item.info.episode
+                                is ContinueWatchingItem.NextUp -> item.info.seedEpisode
                             }
                             val isNextUp = item is ContinueWatchingItem.NextUp
                             onRemoveContinueWatching(contentId, season, episode, isNextUp)
-                        }
+                        },
+                        blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes
                     )
                 }
             }
-        }
+        } // end LazyVerticalGrid
+        } // end BoxWithConstraints
 
         // Sticky header overlay
         AnimatedVisibility(
@@ -377,7 +448,7 @@ private fun SectionDivider(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 24.dp, bottom = 12.dp, start = 24.dp, end = 24.dp)
+            .padding(top = 24.dp, bottom = 12.dp)
     ) {
         Text(
             text = catalogName,
@@ -459,15 +530,16 @@ private fun SeeAllGridCard(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = "See All",
+                    contentDescription = stringResource(R.string.action_see_all),
                     modifier = Modifier.size(32.dp),
                     tint = NuvioColors.TextSecondary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "See All",
+                    text = stringResource(R.string.action_see_all),
                     style = MaterialTheme.typography.titleSmall,
-                    color = NuvioColors.TextSecondary
+                    color = NuvioColors.TextSecondary,
+                    textAlign = TextAlign.Center
                 )
             }
         }

@@ -43,6 +43,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 import kotlinx.coroutines.launch
 
 @Composable
@@ -59,7 +61,6 @@ fun CatalogOrderScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
             .padding(horizontal = 48.dp, vertical = 24.dp)
     ) {
         LazyColumn(
@@ -70,13 +71,13 @@ fun CatalogOrderScreen(
         ) {
             item {
                 Text(
-                    text = "Reorder Home Catalogs",
+                    text = stringResource(R.string.catalog_order_title),
                     style = MaterialTheme.typography.headlineLarge,
                     color = NuvioColors.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "This controls catalog row order on Home (Classic + Modern + Grid).",
+                    text = stringResource(R.string.catalog_order_subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuvioColors.TextSecondary
                 )
@@ -99,7 +100,7 @@ fun CatalogOrderScreen(
                 uiState.items.isEmpty() -> {
                     item {
                         Text(
-                            text = "No home catalogs available yet.",
+                            text = stringResource(R.string.catalog_order_empty),
                             style = MaterialTheme.typography.bodyLarge,
                             color = NuvioColors.TextSecondary
                         )
@@ -170,7 +171,7 @@ private fun CatalogOrderCard(
                 if (item.isDisabled) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Disabled on Home",
+                        text = stringResource(R.string.catalog_order_disabled_on_home),
                         style = MaterialTheme.typography.bodySmall,
                         color = NuvioColors.Error
                     )
@@ -200,7 +201,7 @@ private fun CatalogOrderCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
-                        contentDescription = "Move up"
+                        contentDescription = stringResource(R.string.cd_move_up)
                     )
                 }
 
@@ -223,7 +224,7 @@ private fun CatalogOrderCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "Move down"
+                        contentDescription = stringResource(R.string.cd_move_down)
                     )
                 }
 
@@ -243,7 +244,7 @@ private fun CatalogOrderCard(
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
                 ) {
-                    Text(text = if (item.isDisabled) "Enable" else "Disable")
+                    Text(text = if (item.isDisabled) stringResource(R.string.catalog_order_enable) else stringResource(R.string.catalog_order_disable))
                 }
             }
         }

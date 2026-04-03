@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -37,10 +39,14 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
@@ -48,11 +54,13 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
 
-private const val AUTO_ADVANCE_INTERVAL_MS = 5000L
+private const val AUTO_ADVANCE_INTERVAL_MS = 10000L
 private val YEAR_REGEX = Regex("""\b\d{4}\b""")
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -62,21 +70,24 @@ fun HeroCarousel(
     onItemClick: (MetaPreview) -> Unit,
     onItemFocus: (MetaPreview) -> Unit = {},
     focusRequester: FocusRequester? = null,
+    fullWidth: Dp = Dp.Unspecified,
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
 
     var activeIndex by remember { mutableIntStateOf(0) }
     var isFocused by remember { mutableStateOf(false) }
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
 
     LaunchedEffect(activeIndex, isFocused) {
         if (!isFocused) return@LaunchedEffect
         items.getOrNull(activeIndex)?.let { onItemFocus(it) }
     }
 
-    // Auto-advance when not focused
+    // Auto-advance when not focused — delay first advance to 20s so initial GPU load settles
     LaunchedEffect(isFocused, items.size) {
         if (items.size <= 1) return@LaunchedEffect
+        delay(AUTO_ADVANCE_INTERVAL_MS * 2) // 20s before first advance
         while (true) {
             delay(AUTO_ADVANCE_INTERVAL_MS)
             if (!isFocused) {
@@ -87,7 +98,12 @@ fun HeroCarousel(
 
     Box(
         modifier = modifier
-            .fillMaxWidth()
+            .then(
+                if (fullWidth != Dp.Unspecified)
+                    Modifier.requiredWidth(fullWidth)
+                else
+                    Modifier.fillMaxWidth()
+            )
             .height(400.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .focusable()
@@ -96,16 +112,18 @@ fun HeroCarousel(
                 if (event.type == KeyEventType.KeyDown) {
                     when (event.key) {
                         Key.DirectionLeft -> {
-                            if (activeIndex > 0) {
-                                activeIndex--
-                                true
-                            } else false
+                            if (isRtl) {
+                                if (activeIndex < items.size - 1) { activeIndex++; true } else false
+                            } else {
+                                if (activeIndex > 0) { activeIndex--; true } else false
+                            }
                         }
                         Key.DirectionRight -> {
-                            if (activeIndex < items.size - 1) {
-                                activeIndex++
-                                true
-                            } else false
+                            if (isRtl) {
+                                if (activeIndex > 0) { activeIndex--; true } else false
+                            } else {
+                                if (activeIndex < items.size - 1) { activeIndex++; true } else false
+                            }
                         }
                         else -> false
                     }
@@ -122,14 +140,18 @@ fun HeroCarousel(
         // Crossfade between slides
         Crossfade(
             targetState = activeIndex,
-            animationSpec = tween(500),
+            animationSpec = tween(300),
             label = "heroSlide"
         ) { index ->
             val item = items.getOrNull(index) ?: return@Crossfade
             HeroCarouselSlide(item = item)
         }
 
-        // Indicator dots
+        // Indicator dots — pre-compute colors + shape to avoid reallocation per dot
+        val focusRing = NuvioColors.FocusRing
+        val dotColorFocusedInactive = remember(focusRing) { focusRing.copy(alpha = 0.4f) }
+        val dotColorUnfocusedInactive = remember { Color.White.copy(alpha = 0.3f) }
+        val dotShape = remember { RoundedCornerShape(3.dp) }
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -148,13 +170,13 @@ fun HeroCarousel(
                     modifier = Modifier
                         .width(dotWidth)
                         .height(dotHeight)
-                        .clip(RoundedCornerShape(3.dp))
+                        .clip(dotShape)
                         .background(
                             when {
-                                isFocused && isActive -> NuvioColors.FocusRing
-                                isFocused -> NuvioColors.FocusRing.copy(alpha = 0.4f)
-                                isActive -> NuvioColors.FocusRing
-                                else -> Color.White.copy(alpha = 0.3f)
+                                isFocused && isActive -> focusRing
+                                isFocused -> dotColorFocusedInactive
+                                isActive -> focusRing
+                                else -> dotColorUnfocusedInactive
                             }
                         )
                 )
@@ -168,12 +190,33 @@ fun HeroCarousel(
 private fun HeroCarouselSlide(
     item: MetaPreview
 ) {
+    val context = LocalContext.current
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val requestWidthPx = remember(configuration.screenWidthDp, density) {
         with(density) { configuration.screenWidthDp.dp.roundToPx() }
     }
     val requestHeightPx = remember(density) { with(density) { 400.dp.roundToPx() } }
+    val logoRequestHeightPx = remember(density) { with(density) { 80.dp.roundToPx() } }
+    val backdropUrl = item.backdropUrl
+    val backgroundModel = remember(context, backdropUrl, requestWidthPx, requestHeightPx) {
+        ImageRequest.Builder(context)
+            .data(backdropUrl)
+            .crossfade(false)
+            .size(width = requestWidthPx, height = requestHeightPx)
+            .build()
+    }
+    val logoModel = remember(context, item.logo, requestWidthPx, logoRequestHeightPx) {
+        item.logo?.let {
+            ImageRequest.Builder(context)
+                .data(it)
+                .crossfade(false)
+                .size(width = requestWidthPx, height = logoRequestHeightPx)
+                .build()
+        }
+    }
+    var logoLoadFailed by remember(item.logo) { mutableStateOf(false) }
+    val showLogo = !item.logo.isNullOrBlank() && !logoLoadFailed
 
     val bgColor = NuvioColors.Background
     val bottomGradient = remember(bgColor) {
@@ -204,13 +247,8 @@ private fun HeroCarouselSlide(
         modifier = Modifier.fillMaxSize()
     ) {
         // Background image
-        // Background image
         AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(item.background)
-                .crossfade(false)
-                .size(width = requestWidthPx, height = requestHeightPx)
-                .build(),
+            model = backgroundModel,
             contentDescription = item.name,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
@@ -239,14 +277,11 @@ private fun HeroCarouselSlide(
                 .fillMaxWidth(0.5f)
         ) {
             // Title logo or text title
-            if (!item.logo.isNullOrBlank()) {
+            if (showLogo) {
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(item.logo)
-                        .crossfade(false)
-                        .size(width = requestWidthPx, height = with(density) { 80.dp.roundToPx() })
-                        .build(),
+                    model = logoModel,
                     contentDescription = item.name,
+                    onError = { logoLoadFailed = true },
                     modifier = Modifier
                         .height(80.dp)
                         .fillMaxWidth(),
@@ -275,8 +310,7 @@ private fun HeroCarouselSlide(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        val context = LocalContext.current
-                        val imdbModel = remember {
+                        val imdbModel = remember(context) {
                             ImageRequest.Builder(context)
                                 .data(com.nuvio.tv.R.raw.imdb_logo_2016)
                                 .decoderFactory(SvgDecoder.Factory())
@@ -284,7 +318,7 @@ private fun HeroCarouselSlide(
                         }
                         AsyncImage(
                             model = imdbModel,
-                            contentDescription = "IMDB",
+                            contentDescription = stringResource(R.string.cd_imdb),
                             modifier = Modifier.size(30.dp),
                             contentScale = ContentScale.Fit
                         )

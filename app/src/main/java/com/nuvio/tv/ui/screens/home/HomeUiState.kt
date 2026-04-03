@@ -1,9 +1,12 @@
 package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.runtime.Immutable
+import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.LibraryListTab
+import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.WatchProgress
 
@@ -16,11 +19,12 @@ data class HomeUiState(
     val selectedItemId: String? = null,
     val installedAddonsCount: Int = 0,
     val homeLayout: HomeLayout = HomeLayout.MODERN,
-    val modernLandscapePostersEnabled: Boolean = true,
-    val modernNextRowPreviewEnabled: Boolean = false,
+    val modernLandscapePostersEnabled: Boolean = false,
+    val modernHeroFullScreenBackdropEnabled: Boolean = false,
     val heroItems: List<MetaPreview> = emptyList(),
     val heroCatalogKeys: List<String> = emptyList(),
     val heroSectionEnabled: Boolean = true,
+    val modernHomePresentation: ModernHomePresentationState = ModernHomePresentationState(),
     val posterLabelsEnabled: Boolean = true,
     val catalogAddonNameEnabled: Boolean = true,
     val catalogTypeSuffixEnabled: Boolean = true,
@@ -33,7 +37,22 @@ data class HomeUiState(
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
-    val gridItems: List<GridItem> = emptyList()
+    val librarySourceMode: LibrarySourceMode = LibrarySourceMode.LOCAL,
+    val libraryListTabs: List<LibraryListTab> = emptyList(),
+    val posterLibraryMembership: Map<String, Boolean> = emptyMap(),
+    val movieWatchedStatus: Map<String, Boolean> = emptyMap(),
+    val posterLibraryPending: Set<String> = emptySet(),
+    val movieWatchedPending: Set<String> = emptySet(),
+    val showPosterListPicker: Boolean = false,
+    val posterListPickerTitle: String? = null,
+    val posterListPickerMembership: Map<String, Boolean> = emptyMap(),
+    val posterListPickerPending: Boolean = false,
+    val posterListPickerError: String? = null,
+    val gridItems: List<GridItem> = emptyList(),
+    val hideUnreleasedContent: Boolean = false,
+    val showFullReleaseDate: Boolean = true,
+    val blurUnwatchedEpisodes: Boolean = false,
+    val startupAuthNotice: StartupAuthNotice? = null
 )
 
 @Immutable
@@ -42,7 +61,10 @@ sealed class ContinueWatchingItem {
     data class InProgress(
         val progress: WatchProgress,
         val episodeDescription: String? = null,
-        val episodeThumbnail: String? = null
+        val episodeThumbnail: String? = null,
+        val episodeImdbRating: Float? = null,
+        val genres: List<String> = emptyList(),
+        val releaseInfo: String? = null
     ) : ContinueWatchingItem()
 
     @Immutable
@@ -66,7 +88,16 @@ data class NextUpInfo(
     val released: String? = null,
     val hasAired: Boolean = true,
     val airDateLabel: String? = null,
-    val lastWatched: Long
+    val lastWatched: Long,
+    val imdbRating: Float? = null,
+    val genres: List<String> = emptyList(),
+    val releaseInfo: String? = null,
+    val sortTimestamp: Long,
+    val releaseTimestamp: Long? = null,
+    val isReleaseAlert: Boolean = false,
+    val isNewSeasonRelease: Boolean = false,
+    val seedSeason: Int? = null,
+    val seedEpisode: Int? = null
 )
 
 @Immutable
@@ -106,4 +137,8 @@ sealed class HomeEvent {
         val isNextUp: Boolean = false
     ) : HomeEvent()
     data object OnRetry : HomeEvent()
+}
+
+fun homeItemStatusKey(itemId: String, itemType: String): String {
+    return "${itemType.lowercase()}|$itemId"
 }

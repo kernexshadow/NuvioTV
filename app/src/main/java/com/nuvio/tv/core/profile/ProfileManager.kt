@@ -48,7 +48,8 @@ class ProfileManager @Inject constructor(
         name: String,
         avatarColorHex: String,
         usesPrimaryAddons: Boolean = false,
-        usesPrimaryPlugins: Boolean = false
+        usesPrimaryPlugins: Boolean = false,
+        avatarId: String? = null
     ): Boolean {
         val current = profiles.value
         if (current.size >= 4) return false
@@ -61,8 +62,10 @@ class ProfileManager @Inject constructor(
             name = name.trim().ifEmpty { "Profile $nextId" },
             avatarColorHex = avatarColorHex,
             usesPrimaryAddons = usesPrimaryAddons,
-            usesPrimaryPlugins = usesPrimaryPlugins
+            usesPrimaryPlugins = usesPrimaryPlugins,
+            avatarId = avatarId
         )
+        factory.markProfileCreated(nextId)
         profileDataStore.upsertProfile(profile)
         return true
     }
@@ -70,7 +73,7 @@ class ProfileManager @Inject constructor(
     suspend fun deleteProfile(id: Int): Boolean {
         if (id == 1) return false
         if (profiles.value.none { it.id == id }) return false
-        deleteProfileData(id)
+        deleteProfileDataAsync(id)
         profileDataStore.deleteProfile(id)
         return true
     }
@@ -81,14 +84,16 @@ class ProfileManager @Inject constructor(
         return true
     }
 
-    private fun deleteProfileData(profileId: Int) {
+    private suspend fun deleteProfileDataAsync(profileId: Int) {
         if (profileId == 1) return
 
-        val suffix = "_p${profileId}"
+        factory.clearProfile(profileId)
+
+        val suffixWithExtension = "_p${profileId}.preferences_pb"
         val dataStoreDir = File(context.filesDir, "datastore")
         if (dataStoreDir.exists()) {
             dataStoreDir.listFiles()?.forEach { file ->
-                if (file.nameWithoutExtension.endsWith(suffix)) {
+                if (file.name.endsWith(suffixWithExtension)) {
                     file.delete()
                 }
             }

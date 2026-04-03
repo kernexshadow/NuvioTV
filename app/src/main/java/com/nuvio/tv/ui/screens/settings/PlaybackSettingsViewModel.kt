@@ -10,6 +10,7 @@ import com.nuvio.tv.data.local.FrameRateMatchingMode
 import com.nuvio.tv.data.local.NextEpisodeThresholdMode
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamAutoPlaySource
+import com.nuvio.tv.data.local.AddonSubtitleStartupMode
 import com.nuvio.tv.data.local.SubtitleOrganizationMode
 import com.nuvio.tv.data.local.TrailerSettings
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
@@ -82,8 +83,16 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setPreferredAudioLanguage(language)
     }
 
+    suspend fun setSecondaryPreferredAudioLanguage(language: String?) {
+        playerSettingsDataStore.setSecondaryPreferredAudioLanguage(language)
+    }
+
     suspend fun setLoadingOverlayEnabled(enabled: Boolean) {
         playerSettingsDataStore.setLoadingOverlayEnabled(enabled)
+    }
+
+    suspend fun setShowPlayerLoadingStatus(enabled: Boolean) {
+        playerSettingsDataStore.setShowPlayerLoadingStatus(enabled)
     }
 
     suspend fun setPauseOverlayEnabled(enabled: Boolean) {
@@ -100,6 +109,10 @@ class PlaybackSettingsViewModel @Inject constructor(
 
     suspend fun setFrameRateMatchingMode(mode: FrameRateMatchingMode) {
         playerSettingsDataStore.setFrameRateMatchingMode(mode)
+    }
+
+    suspend fun setResolutionMatchingEnabled(enabled: Boolean) {
+        playerSettingsDataStore.setResolutionMatchingEnabled(enabled)
     }
 
     suspend fun setMapDV7ToHevc(enabled: Boolean) {
@@ -166,6 +179,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setSubtitleOrganizationMode(mode)
     }
 
+    suspend fun setAddonSubtitleStartupMode(mode: AddonSubtitleStartupMode) {
+        playerSettingsDataStore.setAddonSubtitleStartupMode(mode)
+    }
+
     // Buffer settings functions
 
     suspend fun setBufferMinBufferMs(ms: Int) {
@@ -218,6 +235,14 @@ class PlaybackSettingsViewModel @Inject constructor(
 
     suspend fun setStreamAutoPlayNextEpisodeEnabled(enabled: Boolean) {
         playerSettingsDataStore.setStreamAutoPlayNextEpisodeEnabled(enabled)
+    }
+
+    suspend fun setStreamAutoPlayPreferBingeGroupForNextEpisode(enabled: Boolean) {
+        playerSettingsDataStore.setStreamAutoPlayPreferBingeGroupForNextEpisode(enabled)
+    }
+
+    suspend fun setStreamAutoPlayTimeoutSeconds(seconds: Int) {
+        playerSettingsDataStore.setStreamAutoPlayTimeoutSeconds(seconds)
     }
 
     suspend fun setNextEpisodeThresholdMode(mode: NextEpisodeThresholdMode) {

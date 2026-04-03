@@ -36,6 +36,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.ui.theme.NuvioColors
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 
 @Composable
 fun SyncCodeClaimScreen(
@@ -51,9 +53,7 @@ fun SyncCodeClaimScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuvioColors.Background),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -67,7 +67,7 @@ fun SyncCodeClaimScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Link Device",
+                text = stringResource(R.string.sync_claim_title),
                 style = MaterialTheme.typography.headlineSmall,
                 color = NuvioColors.TextPrimary,
                 fontWeight = FontWeight.SemiBold
@@ -76,7 +76,7 @@ fun SyncCodeClaimScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Enter the sync code and PIN from your other device to link this device.",
+                text = stringResource(R.string.sync_claim_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
                 color = NuvioColors.TextSecondary,
                 textAlign = TextAlign.Center
@@ -97,7 +97,7 @@ fun SyncCodeClaimScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "Device linked successfully! Your addons and plugins will now sync.",
+                        text = stringResource(R.string.sync_claim_success),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color(0xFF66BB6A),
                         textAlign = TextAlign.Center,
@@ -113,18 +113,18 @@ fun SyncCodeClaimScreen(
                     colors = ButtonDefaults.colors(
                         containerColor = NuvioColors.Secondary,
                         focusedContainerColor = NuvioColors.SecondaryVariant,
-                        contentColor = Color.White,
-                        focusedContentColor = Color.White
+                        contentColor = NuvioColors.OnSecondary,
+                        focusedContentColor = NuvioColors.OnSecondaryVariant
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(50)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Done", modifier = Modifier.padding(vertical = 4.dp))
+                    Text(stringResource(R.string.sync_claim_done), modifier = Modifier.padding(vertical = 4.dp))
                 }
             } else {
                 // Code input
                 Text(
-                    text = "Sync Code",
+                    text = stringResource(R.string.sync_claim_code_label),
                     style = MaterialTheme.typography.labelMedium,
                     color = NuvioColors.TextSecondary,
                     modifier = Modifier.fillMaxWidth()
@@ -133,7 +133,7 @@ fun SyncCodeClaimScreen(
                 InputField(
                     value = code,
                     onValueChange = { code = it.uppercase() },
-                    placeholder = "XXXX-XXXX-XXXX-XXXX-XXXX",
+                    placeholder = stringResource(R.string.sync_claim_code_placeholder),
                     keyboardType = KeyboardType.Text,
                     imeAction = ImeAction.Next,
                     onImeAction = { focusManager.moveFocus(FocusDirection.Down) }
@@ -143,7 +143,7 @@ fun SyncCodeClaimScreen(
 
                 // PIN input
                 Text(
-                    text = "PIN",
+                    text = stringResource(R.string.sync_claim_pin_label),
                     style = MaterialTheme.typography.labelMedium,
                     color = NuvioColors.TextSecondary,
                     modifier = Modifier.fillMaxWidth()
@@ -152,7 +152,7 @@ fun SyncCodeClaimScreen(
                 InputField(
                     value = pin,
                     onValueChange = { if (it.length <= 8) pin = it },
-                    placeholder = "Enter PIN",
+                    placeholder = stringResource(R.string.sync_claim_pin_placeholder),
                     keyboardType = KeyboardType.NumberPassword,
                     isPassword = true,
                     imeAction = ImeAction.Done,
@@ -181,14 +181,14 @@ fun SyncCodeClaimScreen(
                     colors = ButtonDefaults.colors(
                         containerColor = NuvioColors.Secondary,
                         focusedContainerColor = NuvioColors.SecondaryVariant,
-                        contentColor = Color.White,
-                        focusedContentColor = Color.White
+                        contentColor = NuvioColors.OnSecondary,
+                        focusedContentColor = NuvioColors.OnSecondaryVariant
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(50)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = if (uiState.isLoading) "Linking..." else "Link Device",
+                        text = if (uiState.isLoading) stringResource(R.string.sync_claim_linking) else stringResource(R.string.sync_claim_title),
                         modifier = Modifier.padding(vertical = 4.dp),
                         fontWeight = FontWeight.Medium
                     )

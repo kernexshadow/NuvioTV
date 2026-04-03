@@ -19,8 +19,14 @@ internal data class PlayerNavigationArgs(
     val initialSeason: Int?,
     val initialEpisode: Int?,
     val initialEpisodeTitle: String?,
-    val rememberedAudioLanguage: String?,
-    val rememberedAudioName: String?
+    val bingeGroup: String?,
+    val filename: String?,
+    val videoHash: String?,
+    val videoSize: Long?,
+    val startFromBeginning: Boolean,
+    val addonName: String?,
+    val addonLogo: String?,
+    val streamDescription: String?
 ) {
     companion object {
         fun from(savedStateHandle: SavedStateHandle): PlayerNavigationArgs {
@@ -46,8 +52,14 @@ internal data class PlayerNavigationArgs(
                 initialSeason = savedStateHandle.get<String>("season")?.toIntOrNull(),
                 initialEpisode = savedStateHandle.get<String>("episode")?.toIntOrNull(),
                 initialEpisodeTitle = decodedOrNull("episodeTitle"),
-                rememberedAudioLanguage = decodedOrNull("rememberedAudioLanguage"),
-                rememberedAudioName = decodedOrNull("rememberedAudioName")
+                bingeGroup = decodedOrNull("bingeGroup"),
+                filename = decodedOrNull("filename"),
+                videoHash = savedStateHandle.get<String>("videoHash")?.takeIf { it.isNotEmpty() },
+                videoSize = savedStateHandle.get<String>("videoSize")?.toLongOrNull(),
+                startFromBeginning = savedStateHandle.get<String>("startFromBeginning")?.toBooleanStrictOrNull() == true,
+                addonName = decodedOrNull("addonName"),
+                addonLogo = decodedOrNull("addonLogo"),
+                streamDescription = decodedOrNull("streamDescription")
             )
         }
     }

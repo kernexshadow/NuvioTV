@@ -17,6 +17,14 @@ object StreamAutoPlaySelector {
         return orderedAddons + pluginEntries
     }
 
+    private fun resolvePlayableUrl(stream: Stream): String? {
+        val url = stream.getStreamUrl() ?: return null
+
+        return url
+    }
+
+
+
     fun selectAutoPlayStream(
         streams: List<Stream>,
         mode: StreamAutoPlayMode,
@@ -24,7 +32,9 @@ object StreamAutoPlaySelector {
         source: StreamAutoPlaySource,
         installedAddonNames: Set<String>,
         selectedAddons: Set<String>,
-        selectedPlugins: Set<String>
+        selectedPlugins: Set<String>,
+        preferredBingeGroup: String? = null,
+        preferBingeGroupInSelection: Boolean = false
     ): Stream? {
         if (streams.isEmpty()) return null
 
@@ -42,16 +52,25 @@ object StreamAutoPlaySelector {
             }
         }
         if (candidateStreams.isEmpty()) return null
+        if (mode == StreamAutoPlayMode.MANUAL) return null
+
+        val targetBingeGroup = preferredBingeGroup?.trim().orEmpty()
+        if (preferBingeGroupInSelection && targetBingeGroup.isNotEmpty()) {
+            val bingeGroupMatch = candidateStreams.firstOrNull { stream ->
+                stream.behaviorHints?.bingeGroup == targetBingeGroup && stream.getStreamUrl() != null
+            }
+            if (bingeGroupMatch != null) return bingeGroupMatch
+        }
 
         return when (mode) {
             StreamAutoPlayMode.MANUAL -> null
             StreamAutoPlayMode.FIRST_STREAM -> candidateStreams.firstOrNull { it.getStreamUrl() != null }
             StreamAutoPlayMode.REGEX_MATCH -> {
                 val pattern = regexPattern.trim()
-                if (pattern.isBlank()) return null
  
                 // Try to compile the user regex
-                val userRegex = runCatching { Regex(pattern, RegexOption.IGNORE_CASE) }.getOrNull() ?: return null
+                val userRegex = runCatching { Regex(pattern, RegexOption.IGNORE_CASE) }.getOrNull()
+                if (userRegex == null) return null
 
                 // Auto-extract exclusion patterns from negative lookaheads
                 val exclusionMatches = Regex("\\(\\?![^)]*?\\(([^)]+)\\)").findAll(pattern)
@@ -66,9 +85,9 @@ object StreamAutoPlaySelector {
                     Regex("\\b(${exclusionWords.joinToString("|")})\\b", RegexOption.IGNORE_CASE)
                 } else null
 
-
-                candidateStreams.firstOrNull { stream ->
-                    val url = stream.getStreamUrl() ?: return@firstOrNull false
+                // 1. Build list of ALL regex‑matching streams
+                val matchingStreams = candidateStreams.filter { stream ->
+                    val url = stream.getStreamUrl() ?: return@filter false
 
                     val searchableText = buildString {
                         append(stream.addonName).append(' ')
@@ -77,20 +96,22 @@ object StreamAutoPlaySelector {
                         append(stream.description.orEmpty()).append(' ')
                         append(url)
                     }
-                    
-                    // Must match user include pattern
-                    if (!userRegex.containsMatchIn(searchableText)) return@firstOrNull false
 
-                    // Must NOT match user exclusion pattern (if any)
+                    // Must match include pattern
+                    if (!userRegex.containsMatchIn(searchableText)) return@filter false
+
+                    // Must NOT match exclusion pattern
                     if (excludeRegex != null && excludeRegex.containsMatchIn(searchableText)) {
-                        return@firstOrNull false
+                        return@filter false
                     }
 
                     true
-
-
                 }
+
+                if (matchingStreams.isEmpty()) return null
+                matchingStreams.firstOrNull { resolvePlayableUrl(it) != null }
             }
+
         }
     }
 }

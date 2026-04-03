@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -63,6 +64,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 import androidx.compose.ui.text.input.KeyboardType
 import android.view.KeyEvent
 import androidx.compose.ui.input.key.onKeyEvent
@@ -86,6 +89,7 @@ import androidx.tv.material3.Switch
 import androidx.tv.material3.SwitchDefaults
 import androidx.tv.material3.Text
 import com.nuvio.tv.data.local.AVAILABLE_SUBTITLE_LANGUAGES
+import com.nuvio.tv.data.local.displayName
 import com.nuvio.tv.data.local.AudioLanguageOption
 import com.nuvio.tv.data.local.LibassRenderType
 import com.nuvio.tv.data.local.PlayerPreference
@@ -93,6 +97,7 @@ import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamAutoPlaySource
 import com.nuvio.tv.data.local.TrailerSettings
+import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.PlayCircle
@@ -112,8 +117,8 @@ fun PlaybackSettingsScreen(
     BackHandler { onBackPress() }
 
     SettingsStandaloneScaffold(
-        title = "Playback Settings",
-        subtitle = "Configure video playback and subtitle options"
+        title = stringResource(R.string.playback_title),
+        subtitle = stringResource(R.string.playback_subtitle)
     ) {
         PlaybackSettingsContent(viewModel = viewModel)
     }
@@ -133,11 +138,12 @@ fun PlaybackSettingsContent(
     // Dialog states
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showSecondaryLanguageDialog by remember { mutableStateOf(false) }
-    var showSubtitleOrganizationDialog by remember { mutableStateOf(false) }
+    var showSubtitleStartupModeDialog by remember { mutableStateOf(false) }
     var showTextColorDialog by remember { mutableStateOf(false) }
     var showBackgroundColorDialog by remember { mutableStateOf(false) }
     var showOutlineColorDialog by remember { mutableStateOf(false) }
     var showAudioLanguageDialog by remember { mutableStateOf(false) }
+    var showSecondaryAudioLanguageDialog by remember { mutableStateOf(false) }
     var showDecoderPriorityDialog by remember { mutableStateOf(false) }
     var showStreamAutoPlayModeDialog by remember { mutableStateOf(false) }
     var showStreamAutoPlaySourceDialog by remember { mutableStateOf(false) }
@@ -151,11 +157,12 @@ fun PlaybackSettingsContent(
     fun dismissAllDialogs() {
         showLanguageDialog = false
         showSecondaryLanguageDialog = false
-        showSubtitleOrganizationDialog = false
+        showSubtitleStartupModeDialog = false
         showTextColorDialog = false
         showBackgroundColorDialog = false
         showOutlineColorDialog = false
         showAudioLanguageDialog = false
+        showSecondaryAudioLanguageDialog = false
         showDecoderPriorityDialog = false
         showStreamAutoPlayModeDialog = false
         showStreamAutoPlaySourceDialog = false
@@ -177,8 +184,8 @@ fun PlaybackSettingsContent(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         SettingsDetailHeader(
-            title = "Playback Settings",
-            subtitle = "Configure video playback and subtitle options"
+            title = stringResource(R.string.playback_title),
+            subtitle = stringResource(R.string.playback_subtitle)
         )
 
         SettingsGroupCard(
@@ -192,10 +199,11 @@ fun PlaybackSettingsContent(
                 trailerSettings = trailerSettings,
                 onShowPlayerPreferenceDialog = { openDialog { showPlayerPreferenceDialog = true } },
                 onShowAudioLanguageDialog = { openDialog { showAudioLanguageDialog = true } },
+                onShowSecondaryAudioLanguageDialog = { openDialog { showSecondaryAudioLanguageDialog = true } },
                 onShowDecoderPriorityDialog = { openDialog { showDecoderPriorityDialog = true } },
                 onShowLanguageDialog = { openDialog { showLanguageDialog = true } },
                 onShowSecondaryLanguageDialog = { openDialog { showSecondaryLanguageDialog = true } },
-                onShowSubtitleOrganizationDialog = { openDialog { showSubtitleOrganizationDialog = true } },
+                onShowSubtitleStartupModeDialog = { openDialog { showSubtitleStartupModeDialog = true } },
                 onShowTextColorDialog = { openDialog { showTextColorDialog = true } },
                 onShowBackgroundColorDialog = { openDialog { showBackgroundColorDialog = true } },
                 onShowOutlineColorDialog = { openDialog { showOutlineColorDialog = true } },
@@ -209,18 +217,30 @@ fun PlaybackSettingsContent(
                 onSetStreamAutoPlayNextEpisodeEnabled = { enabled ->
                     coroutineScope.launch { viewModel.setStreamAutoPlayNextEpisodeEnabled(enabled) }
                 },
+                onSetStreamAutoPlayPreferBingeGroupForNextEpisode = { enabled ->
+                    coroutineScope.launch {
+                        viewModel.setStreamAutoPlayPreferBingeGroupForNextEpisode(enabled)
+                    }
+                },
                 onSetNextEpisodeThresholdPercent = { percent ->
                     coroutineScope.launch { viewModel.setNextEpisodeThresholdPercent(percent) }
                 },
                 onSetNextEpisodeThresholdMinutesBeforeEnd = { minutes ->
                     coroutineScope.launch { viewModel.setNextEpisodeThresholdMinutesBeforeEnd(minutes) }
                 },
+                onSetStreamAutoPlayTimeoutSeconds = { seconds ->
+                    coroutineScope.launch { viewModel.setStreamAutoPlayTimeoutSeconds(seconds) }
+                },
                 onSetReuseLastLinkEnabled = { enabled -> coroutineScope.launch { viewModel.setStreamReuseLastLinkEnabled(enabled) } },
+                onSetShowPlayerLoadingStatus = { enabled -> coroutineScope.launch { viewModel.setShowPlayerLoadingStatus(enabled) } },
                 onSetLoadingOverlayEnabled = { enabled -> coroutineScope.launch { viewModel.setLoadingOverlayEnabled(enabled) } },
                 onSetPauseOverlayEnabled = { enabled -> coroutineScope.launch { viewModel.setPauseOverlayEnabled(enabled) } },
                 onSetOsdClockEnabled = { enabled -> coroutineScope.launch { viewModel.setOsdClockEnabled(enabled) } },
                 onSetSkipIntroEnabled = { enabled -> coroutineScope.launch { viewModel.setSkipIntroEnabled(enabled) } },
                 onSetFrameRateMatchingMode = { mode -> coroutineScope.launch { viewModel.setFrameRateMatchingMode(mode) } },
+                onSetResolutionMatchingEnabled = { enabled ->
+                    coroutineScope.launch { viewModel.setResolutionMatchingEnabled(enabled) }
+                },
                 onSetTrailerEnabled = { enabled -> coroutineScope.launch { viewModel.setTrailerEnabled(enabled) } },
                 onSetTrailerDelaySeconds = { seconds -> coroutineScope.launch { viewModel.setTrailerDelaySeconds(seconds) } },
                 onSetSkipSilence = { enabled -> coroutineScope.launch { viewModel.setSkipSilence(enabled) } },
@@ -243,11 +263,12 @@ fun PlaybackSettingsContent(
         showPlayerPreferenceDialog = showPlayerPreferenceDialog,
         showLanguageDialog = showLanguageDialog,
         showSecondaryLanguageDialog = showSecondaryLanguageDialog,
-        showSubtitleOrganizationDialog = showSubtitleOrganizationDialog,
+        showSubtitleStartupModeDialog = showSubtitleStartupModeDialog,
         showTextColorDialog = showTextColorDialog,
         showBackgroundColorDialog = showBackgroundColorDialog,
         showOutlineColorDialog = showOutlineColorDialog,
         showAudioLanguageDialog = showAudioLanguageDialog,
+        showSecondaryAudioLanguageDialog = showSecondaryAudioLanguageDialog,
         showDecoderPriorityDialog = showDecoderPriorityDialog,
         showStreamAutoPlayModeDialog = showStreamAutoPlayModeDialog,
         showStreamAutoPlaySourceDialog = showStreamAutoPlaySourceDialog,
@@ -266,8 +287,8 @@ fun PlaybackSettingsContent(
         onSetSubtitleSecondaryLanguage = { language ->
             coroutineScope.launch { viewModel.setSubtitleSecondaryLanguage(language) }
         },
-        onSetSubtitleOrganizationMode = { mode ->
-            coroutineScope.launch { viewModel.setSubtitleOrganizationMode(mode) }
+        onSetAddonSubtitleStartupMode = { mode ->
+            coroutineScope.launch { viewModel.setAddonSubtitleStartupMode(mode) }
         },
         onSetSubtitleTextColor = { color ->
             coroutineScope.launch { viewModel.setSubtitleTextColor(color.toArgb()) }
@@ -280,6 +301,9 @@ fun PlaybackSettingsContent(
         },
         onSetPreferredAudioLanguage = { language ->
             coroutineScope.launch { viewModel.setPreferredAudioLanguage(language) }
+        },
+        onSetSecondaryPreferredAudioLanguage = { language ->
+            coroutineScope.launch { viewModel.setSecondaryPreferredAudioLanguage(language) }
         },
         onSetDecoderPriority = { priority ->
             coroutineScope.launch { viewModel.setDecoderPriority(priority) }
@@ -307,11 +331,12 @@ fun PlaybackSettingsContent(
         },
         onDismissLanguageDialog = ::dismissAllDialogs,
         onDismissSecondaryLanguageDialog = ::dismissAllDialogs,
-        onDismissSubtitleOrganizationDialog = ::dismissAllDialogs,
+        onDismissSubtitleStartupModeDialog = ::dismissAllDialogs,
         onDismissTextColorDialog = ::dismissAllDialogs,
         onDismissBackgroundColorDialog = ::dismissAllDialogs,
         onDismissOutlineColorDialog = ::dismissAllDialogs,
         onDismissAudioLanguageDialog = ::dismissAllDialogs,
+        onDismissSecondaryAudioLanguageDialog = ::dismissAllDialogs,
         onDismissDecoderPriorityDialog = ::dismissAllDialogs,
         onDismissStreamAutoPlayModeDialog = ::dismissAllDialogs,
         onDismissStreamAutoPlaySourceDialog = ::dismissAllDialogs,
@@ -340,9 +365,12 @@ internal fun ToggleSettingsItem(
         onClick = { if (enabled) onCheckedChange(!isChecked) },
         modifier = Modifier
             .fillMaxWidth()
-            .onFocusChanged {
-                isFocused = it.isFocused
-                if (it.isFocused) onFocused()
+            .onFocusChanged { state ->
+                val nowFocused = state.isFocused
+                if (isFocused != nowFocused) {
+                    isFocused = nowFocused
+                    if (nowFocused) onFocused()
+                }
             },
         colors = CardDefaults.colors(
             containerColor = NuvioColors.Background,
@@ -422,9 +450,12 @@ internal fun RenderTypeSettingsItem(
         onClick = { if (enabled) onClick() },
         modifier = Modifier
             .fillMaxWidth()
-            .onFocusChanged {
-                isFocused = it.isFocused
-                if (it.isFocused) onFocused()
+            .onFocusChanged { state ->
+                val nowFocused = state.isFocused
+                if (isFocused != nowFocused) {
+                    isFocused = nowFocused
+                    if (nowFocused) onFocused()
+                }
             },
         colors = CardDefaults.colors(
             containerColor = if (isSelected) {
@@ -462,16 +493,14 @@ internal fun RenderTypeSettingsItem(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
                     color = (if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary).copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 2,
+                    overflow = TextOverflow.Clip
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    color = NuvioColors.TextSecondary.copy(alpha = contentAlpha)
                 )
             }
             
@@ -479,7 +508,7 @@ internal fun RenderTypeSettingsItem(
                 Spacer(modifier = Modifier.width(16.dp))
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "Selected",
+                    contentDescription = stringResource(R.string.cd_selected),
                     tint = NuvioColors.Primary.copy(alpha = contentAlpha),
                     modifier = Modifier.size(24.dp)
                 )
@@ -504,9 +533,12 @@ internal fun NavigationSettingsItem(
         onClick = { if (enabled) onClick() },
         modifier = Modifier
             .fillMaxWidth()
-            .onFocusChanged {
-                isFocused = it.isFocused
-                if (it.isFocused) onFocused()
+            .onFocusChanged { state ->
+                val nowFocused = state.isFocused
+                if (isFocused != nowFocused) {
+                    isFocused = nowFocused
+                    if (nowFocused) onFocused()
+                }
             },
         colors = CardDefaults.colors(
             containerColor = NuvioColors.Background,
@@ -585,9 +617,12 @@ internal fun SliderSettingsItem(
         onClick = { },
         modifier = Modifier
             .fillMaxWidth()
-            .onFocusChanged {
-                isFocused = it.isFocused
-                if (it.isFocused) onFocused()
+            .onFocusChanged { state ->
+                val nowFocused = state.isFocused
+                if (isFocused != nowFocused) {
+                    isFocused = nowFocused
+                    if (nowFocused) onFocused()
+                }
             }
             .onKeyEvent { event ->
                 if (!enabled) return@onKeyEvent false
@@ -684,9 +719,12 @@ internal fun SliderSettingsItem(
                         }
                     },
                     modifier = Modifier
-                        .onFocusChanged {
-                            decreaseFocused = it.isFocused
-                            if (it.isFocused) onFocused()
+                        .onFocusChanged { state ->
+                            val nowFocused = state.isFocused
+                            if (decreaseFocused != nowFocused) {
+                                decreaseFocused = nowFocused
+                                if (nowFocused) onFocused()
+                            }
                         },
                     colors = CardDefaults.colors(
                         containerColor = NuvioColors.Background,
@@ -707,7 +745,7 @@ internal fun SliderSettingsItem(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Remove,
-                            contentDescription = "Decrease",
+                            contentDescription = stringResource(R.string.cd_decrease),
                             tint = (if (decreaseFocused) NuvioColors.OnPrimary else NuvioColors.TextPrimary).copy(alpha = contentAlpha),
                             modifier = Modifier.size(20.dp)
                         )
@@ -742,9 +780,12 @@ internal fun SliderSettingsItem(
                         }
                     },
                     modifier = Modifier
-                        .onFocusChanged {
-                            increaseFocused = it.isFocused
-                            if (it.isFocused) onFocused()
+                        .onFocusChanged { state ->
+                            val nowFocused = state.isFocused
+                            if (increaseFocused != nowFocused) {
+                                increaseFocused = nowFocused
+                                if (nowFocused) onFocused()
+                            }
                         },
                     colors = CardDefaults.colors(
                         containerColor = NuvioColors.Background,
@@ -765,7 +806,7 @@ internal fun SliderSettingsItem(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "Increase",
+                            contentDescription = stringResource(R.string.cd_increase),
                             tint = (if (increaseFocused) NuvioColors.OnPrimary else NuvioColors.TextPrimary).copy(alpha = contentAlpha),
                             modifier = Modifier.size(20.dp)
                         )
@@ -793,9 +834,12 @@ internal fun ColorSettingsItem(
         onClick = { if (enabled) onClick() },
         modifier = Modifier
             .fillMaxWidth()
-            .onFocusChanged {
-                isFocused = it.isFocused
-                if (it.isFocused) onFocused()
+            .onFocusChanged { state ->
+                val nowFocused = state.isFocused
+                if (isFocused != nowFocused) {
+                    isFocused = nowFocused
+                    if (nowFocused) onFocused()
+                }
             },
         colors = CardDefaults.colors(
             containerColor = NuvioColors.Background,
@@ -873,64 +917,78 @@ internal fun LanguageSelectionDialog(
     title: String,
     selectedLanguage: String?,
     showNoneOption: Boolean,
+    extraOptions: List<Pair<String, String>> = emptyList(),
     onLanguageSelected: (String?) -> Unit,
     onDismiss: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
-    
+    val sortedLanguages = remember { AVAILABLE_SUBTITLE_LANGUAGES.sortedBy { it.displayName.lowercase() } }
+
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
 
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+    NuvioDialog(
+        onDismiss = onDismiss,
+        title = title,
+        width = 400.dp,
+        suppressFirstKeyUp = false
+    ) {
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(NuvioColors.BackgroundCard)
+                .fillMaxWidth()
+                .height(320.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .width(400.dp)
-                    .padding(24.dp)
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 4.dp)
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = NuvioColors.TextPrimary
-                )
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                LazyColumn(
-                    modifier = Modifier.height(400.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (showNoneOption) {
-                        item {
-                            LanguageOptionItem(
-                                name = "None",
-                                code = null,
-                                isSelected = selectedLanguage == null,
-                                onClick = { onLanguageSelected(null) },
-                                modifier = Modifier.focusRequester(focusRequester)
-                            )
-                        }
-                    }
-                    
-                    items(AVAILABLE_SUBTITLE_LANGUAGES.size) { index ->
-                        val language = AVAILABLE_SUBTITLE_LANGUAGES[index]
+                if (showNoneOption) {
+                    item(key = "language_none_option") {
                         LanguageOptionItem(
-                            name = language.name,
-                            code = language.code,
-                            isSelected = selectedLanguage == language.code,
-                            onClick = { onLanguageSelected(language.code) },
-                            modifier = if (!showNoneOption && index == 0) {
-                                Modifier.focusRequester(focusRequester)
-                            } else {
-                                Modifier
-                            }
+                            name = stringResource(R.string.action_none),
+                            code = null,
+                            isSelected = selectedLanguage == null,
+                            onClick = { onLanguageSelected(null) },
+                            modifier = Modifier.focusRequester(focusRequester)
                         )
                     }
+                }
+
+                items(
+                    items = extraOptions,
+                    key = { (code, _) -> "language_extra_$code" }
+                ) { (code, name) ->
+                    LanguageOptionItem(
+                        name = name,
+                        code = code,
+                        isSelected = selectedLanguage == code,
+                        onClick = { onLanguageSelected(code) },
+                        modifier = if (!showNoneOption && extraOptions.firstOrNull()?.first == code) {
+                            Modifier.focusRequester(focusRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
+                }
+
+                items(
+                    count = sortedLanguages.size,
+                    key = { index -> sortedLanguages[index].code }
+                ) { index ->
+                    val language = sortedLanguages[index]
+                    LanguageOptionItem(
+                        name = language.displayName,
+                        code = language.code,
+                        isSelected = selectedLanguage == language.code,
+                        onClick = { onLanguageSelected(language.code) },
+                        modifier = if (!showNoneOption && index == 0) {
+                            Modifier.focusRequester(focusRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
                 }
             }
         }
@@ -954,17 +1012,11 @@ private fun LanguageOptionItem(
             .then(modifier)
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = if (isSelected) NuvioColors.Primary.copy(alpha = 0.2f) else NuvioColors.BackgroundElevated,
+            containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
             focusedContainerColor = NuvioColors.FocusBackground
         ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(8.dp)
-            )
-        ),
-        shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
-        scale = CardDefaults.scale(focusedScale = 1.02f)
+        shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
+        scale = CardDefaults.scale(focusedScale = 1f)
     ) {
         Row(
             modifier = Modifier
@@ -991,7 +1043,7 @@ private fun LanguageOptionItem(
                 Spacer(modifier = Modifier.width(12.dp))
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "Selected",
+                    contentDescription = stringResource(R.string.cd_selected),
                     tint = NuvioColors.Primary,
                     modifier = Modifier.size(20.dp)
                 )
@@ -1010,27 +1062,26 @@ internal fun ColorSelectionDialog(
     onDismiss: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
-    
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+
+    NuvioDialog(
+        onDismiss = onDismiss,
+        title = title,
+        suppressFirstKeyUp = false
+    ) {
         Column(
             modifier = Modifier
-                .background(NuvioColors.BackgroundCard, RoundedCornerShape(16.dp))
-                .padding(24.dp)
+                .fillMaxWidth()
+                .heightIn(max = 240.dp)
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                color = NuvioColors.TextPrimary
-            )
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
             // Color grid using LazyRow for proper TV focus
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.focusRequester(focusRequester)
             ) {
-                items(colors.size) { index ->
+                items(
+                    count = colors.size,
+                    key = { index -> colors[index].toArgb() }
+                ) { index ->
                     val color = colors[index]
                     ColorOption(
                         color = color,
@@ -1040,9 +1091,9 @@ internal fun ColorSelectionDialog(
                     )
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             // Cancel button
             Card(
                 onClick = onDismiss,
@@ -1060,7 +1111,7 @@ internal fun ColorSelectionDialog(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "Cancel",
+                    text = stringResource(R.string.action_cancel),
                     style = MaterialTheme.typography.bodyLarge,
                     color = NuvioColors.TextPrimary,
                     modifier = Modifier
@@ -1071,7 +1122,7 @@ internal fun ColorSelectionDialog(
             }
         }
     }
-    
+
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
@@ -1133,7 +1184,7 @@ private fun ColorOption(
             if (isSelected) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "Selected",
+                    contentDescription = stringResource(R.string.cd_selected),
                     tint = if (color == Color.White || color == Color.Yellow) Color.Black else Color.White,
                     modifier = Modifier.size(20.dp)
                 )

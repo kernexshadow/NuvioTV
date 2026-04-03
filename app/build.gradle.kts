@@ -1,4 +1,4 @@
-plugins {
+﻿plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
@@ -6,7 +6,6 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.serialization)
-    id("io.sentry.android.gradle") version "6.0.0"
 }
 
 import java.util.Properties
@@ -25,16 +24,28 @@ val devProperties = Properties().apply {
     }
 }
 
+fun env(name: String): String? = providers.environmentVariable(name).orNull
+
+val useDebugReleaseSigning = env("CI_USE_DEBUG_SIGNING").equals("true", ignoreCase = true)
+val releaseStoreFilePath = env("NUVIO_RELEASE_STORE_FILE")
+    ?: localProperties.getProperty("NUVIO_RELEASE_STORE_FILE")
+val releaseKeyAliasValue = env("NUVIO_RELEASE_KEY_ALIAS")
+    ?: localProperties.getProperty("NUVIO_RELEASE_KEY_ALIAS", "nuviotv")
+val releaseKeyPasswordValue = env("NUVIO_RELEASE_KEY_PASSWORD")
+    ?: localProperties.getProperty("NUVIO_RELEASE_KEY_PASSWORD", "815787")
+val releaseStorePasswordValue = env("NUVIO_RELEASE_STORE_PASSWORD")
+    ?: localProperties.getProperty("NUVIO_RELEASE_STORE_PASSWORD", "815787")
+
 android {
     namespace = "com.nuvio.tv"
     compileSdk = 36
 
     defaultConfig {
         applicationId = "com.nuvio.tv"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 36
-        versionCode = 20
-        versionName = "0.4.2-beta"
+        versionCode = 49
+        versionName = "0.5.6-beta"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
@@ -44,7 +55,12 @@ android {
         buildConfigField("String", "TRAKT_CLIENT_ID", "\"${localProperties.getProperty("TRAKT_CLIENT_ID", "")}\"")
         buildConfigField("String", "TRAKT_CLIENT_SECRET", "\"${localProperties.getProperty("TRAKT_CLIENT_SECRET", "")}\"")
         buildConfigField("String", "TRAKT_API_URL", "\"${localProperties.getProperty("TRAKT_API_URL", "https://api.trakt.tv/")}\"")
+        buildConfigField("String", "TRAKT_REDIRECT_URI", "\"${localProperties.getProperty("TRAKT_REDIRECT_URI", "urn:ietf:wg:oauth:2.0:oob")}\"")
+        buildConfigField("String", "TMDB_API_KEY", "\"${localProperties.getProperty("TMDB_API_KEY", "")}\"")
         buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://app.nuvio.tv/tv-login")}\"")
+        buildConfigField("String", "DONATIONS_BASE_URL", "\"${localProperties.getProperty("DONATIONS_BASE_URL", "")}\"")
+        buildConfigField("String", "DONATIONS_DONATE_URL", "\"${localProperties.getProperty("DONATIONS_DONATE_URL", "")}\"")
+        buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", "")}\"")
 
         // In-app updater (GitHub Releases)
         buildConfigField("String", "GITHUB_OWNER", "\"tapframe\"")
@@ -53,17 +69,17 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = "nuviotv"
-            keyPassword = "815787"
-            storeFile = file("../nuviotv.jks")
-            storePassword = "815787"
+            keyAlias = releaseKeyAliasValue
+            keyPassword = releaseKeyPasswordValue
+            storeFile = releaseStoreFilePath?.let(::file) ?: file("../nuviotv.jks")
+            storePassword = releaseStorePasswordValue
         }
     }
 
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("release")
-            isDebuggable = true
+            isDebuggable = false
             isMinifyEnabled = false
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
@@ -77,14 +93,22 @@ android {
             buildConfigField("String", "TRAILER_API_URL", "\"${devProperties.getProperty("TRAILER_API_URL", "")}\"")
             buildConfigField("String", "IMDB_RATINGS_API_BASE_URL", "\"${devProperties.getProperty("IMDB_RATINGS_API_BASE_URL", "")}\"")
             buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${devProperties.getProperty("IMDB_TAPFRAME_API_BASE_URL", "")}\"")
+            buildConfigField("String", "DONATIONS_BASE_URL", "\"${devProperties.getProperty("DONATIONS_BASE_URL", localProperties.getProperty("DONATIONS_BASE_URL", ""))}\"")
+            buildConfigField("String", "DONATIONS_DONATE_URL", "\"${devProperties.getProperty("DONATIONS_DONATE_URL", localProperties.getProperty("DONATIONS_DONATE_URL", ""))}\"")
+            buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${devProperties.getProperty("AVATAR_PUBLIC_BASE_URL", localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", ""))}\"")
         }
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (useDebugReleaseSigning) {
+                signingConfigs.getByName("debug")
+            } else {
+                signingConfigs.getByName("release")
+            }
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "false")
 
@@ -97,6 +121,22 @@ android {
             buildConfigField("String", "TRAILER_API_URL", "\"${localProperties.getProperty("TRAILER_API_URL", "")}\"")
             buildConfigField("String", "IMDB_RATINGS_API_BASE_URL", "\"${localProperties.getProperty("IMDB_RATINGS_API_BASE_URL", "")}\"")
             buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${localProperties.getProperty("IMDB_TAPFRAME_API_BASE_URL", "")}\"")
+            buildConfigField("String", "DONATIONS_BASE_URL", "\"${localProperties.getProperty("DONATIONS_BASE_URL", "")}\"")
+            buildConfigField("String", "DONATIONS_DONATE_URL", "\"${localProperties.getProperty("DONATIONS_DONATE_URL", "")}\"")
+            buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", "")}\"")
+        }
+        create("benchmark") {
+            initWith(buildTypes.getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            applicationIdSuffix = ".debug"
+            matchingFallbacks += "release"
         }
     }
 
@@ -112,6 +152,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlin {
         compilerOptions {
@@ -121,6 +162,32 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    sourceSets {
+        getByName("main") {
+            // Keep local jniLibs disabled; use dependency-provided native libs only.
+            jniLibs.srcDirs("src/main/_jni_disabled")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Keep one consistent native set across dependencies.
+            pickFirsts += listOf(
+                "lib/*/libc++_shared.so",
+                "lib/*/libavcodec.so",
+                "lib/*/libavutil.so",
+                "lib/*/libswscale.so",
+                "lib/*/libswresample.so"
+            )
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.applicationId.set("com.nuviodebug.com")
     }
 }
 
@@ -137,11 +204,23 @@ configurations.all {
     exclude(group = "androidx.media3", module = "media3-ui")
 }
 
-dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2025.02.00")
+baselineProfile {
+    automaticGenerationDuringBuild = false
+    saveInSrc = true
+    mergeIntoMain = true
+    baselineProfileOutputDir = "src/main"
+    filter {
+        include("com.nuvio.tv.**")
+    }
+}
 
-    baselineProfile(project(":benchmark"))
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    val composeBom = platform("androidx.compose:compose-bom:2026.01.01")
+
+    baselineProfile(project(":baselineprofile"))
     implementation(libs.androidx.core.ktx)
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.profileinstaller)
     implementation("androidx.recyclerview:recyclerview:1.4.0")
@@ -213,6 +292,8 @@ dependencies {
 
     // libass-android for ASS/SSA subtitle support (from Maven Central)
     implementation("io.github.peerless2012:ass-media:0.4.0-beta01")
+    implementation("io.github.anilbeesetti:nextlib-mediainfo:1.9.1-0.11.0")
+    implementation("io.github.anilbeesetti:nextlib-media3ext:1.9.1-0.11.0")
     implementation("dev.chrisbanes.haze:haze-android:0.7.3") {
         exclude(group = "org.jetbrains.compose.ui")
         exclude(group = "org.jetbrains.compose.foundation")
@@ -240,6 +321,10 @@ dependencies {
 
     // Kotlinx Serialization
     implementation(libs.kotlinx.serialization.json)
+
+    // Performance profiling
+    implementation("androidx.metrics:metrics-performance:1.0.0-rc01")  // JankStats
+    debugImplementation("androidx.compose.runtime:runtime-tracing")     
 
     // Bundle real crypto-js (JS) for QuickJS plugins
     implementation("org.webjars.npm:crypto-js:4.2.0")

@@ -91,6 +91,8 @@ import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 
 @Composable
 fun PluginScreen(
@@ -104,7 +106,6 @@ fun PluginScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
             .padding(horizontal = 48.dp, vertical = 24.dp)
     ) {
         PluginScreenContent(
@@ -151,6 +152,7 @@ fun PluginScreenContent(
                 item {
                     PluginHeader(
                         pluginsEnabled = uiState.pluginsEnabled,
+                        isReadOnly = viewModel.isReadOnly,
                         onPluginsEnabledChange = { viewModel.onEvent(PluginUiEvent.SetPluginsEnabled(it)) }
                     )
                 }
@@ -166,7 +168,7 @@ fun PluginScreenContent(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         androidx.tv.material3.Text(
-                            text = "Using primary profile's plugins and can't be changed",
+                            text = stringResource(R.string.plugin_readonly_notice),
                             style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
                             color = com.nuvio.tv.ui.theme.NuvioColors.TextSecondary,
                             modifier = Modifier.padding(16.dp)
@@ -199,7 +201,7 @@ fun PluginScreenContent(
             // Repositories section
             item {
                 Text(
-                    text = "Repositories (${uiState.repositories.size})",
+                    text = stringResource(R.string.plugin_repositories_section, uiState.repositories.size),
                     style = MaterialTheme.typography.titleLarge,
                     color = NuvioColors.TextPrimary
                 )
@@ -208,7 +210,7 @@ fun PluginScreenContent(
             if (uiState.repositories.isEmpty()) {
                 item {
                     EmptyState(
-                        message = "No repositories added yet.\nAdd a repository to get started.",
+                        message = stringResource(R.string.plugin_no_repos),
                         modifier = Modifier.padding(vertical = 24.dp)
                     )
                 }
@@ -229,7 +231,7 @@ fun PluginScreenContent(
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Providers (${uiState.scrapers.size})",
+                        text = stringResource(R.string.plugin_providers_section, uiState.scrapers.size),
                         style = MaterialTheme.typography.titleLarge,
                         color = NuvioColors.TextPrimary
                     )
@@ -286,6 +288,7 @@ fun PluginScreenContent(
 @Composable
 private fun PluginHeader(
     pluginsEnabled: Boolean,
+    isReadOnly: Boolean,
     onPluginsEnabledChange: (Boolean) -> Unit
 ) {
     Row(
@@ -295,7 +298,7 @@ private fun PluginHeader(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Plugins",
+                text = stringResource(R.string.plugin_title),
                 style = MaterialTheme.typography.headlineMedium,
                 color = NuvioColors.Secondary
             )
@@ -303,14 +306,18 @@ private fun PluginHeader(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Manage local scrapers and providers",
+                text = stringResource(R.string.plugin_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
                 color = NuvioColors.TextSecondary
             )
         }
 
         Surface(
-            onClick = { onPluginsEnabledChange(!pluginsEnabled) },
+            onClick = {
+                if (!isReadOnly) {
+                    onPluginsEnabledChange(!pluginsEnabled)
+                }
+            },
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = NuvioColors.BackgroundCard,
                 focusedContainerColor = NuvioColors.FocusBackground
@@ -330,7 +337,7 @@ private fun PluginHeader(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = if (pluginsEnabled) "Enabled" else "Disabled",
+                    text = if (pluginsEnabled) stringResource(R.string.plugin_enabled) else stringResource(R.string.plugin_disabled),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (pluginsEnabled) NuvioColors.Secondary else NuvioColors.TextSecondary
                 )
@@ -374,7 +381,7 @@ private fun AddRepositoryInline(
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Text(
-                text = "Add repository",
+                text = stringResource(R.string.plugin_add_repository),
                 style = MaterialTheme.typography.titleMedium,
                 color = NuvioColors.TextPrimary
             )
@@ -460,8 +467,8 @@ private fun AddRepositoryInline(
                     colors = ButtonDefaults.colors(
                         containerColor = NuvioColors.Secondary,
                         focusedContainerColor = NuvioColors.SecondaryVariant,
-                        contentColor = Color.White,
-                        focusedContentColor = Color.White
+                        contentColor = NuvioColors.OnSecondary,
+                        focusedContentColor = NuvioColors.OnSecondaryVariant
                     ),
                     border = ButtonDefaults.border(
                         focusedBorder = Border(
@@ -475,12 +482,12 @@ private fun AddRepositoryInline(
                     } else {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "Add",
+                            contentDescription = stringResource(R.string.cd_add),
                             modifier = Modifier.size(18.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Add")
+                    Text(stringResource(R.string.plugin_add_btn))
                 }
             }
         }
@@ -526,12 +533,12 @@ private fun ManageFromPhoneCard(onClick: () -> Unit) {
                 Spacer(modifier = Modifier.width(16.dp))
                 Column {
                     Text(
-                        text = "Manage from phone",
+                        text = stringResource(R.string.plugin_manage_from_phone_title),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = NuvioColors.TextPrimary
                     )
                     Text(
-                        text = "Scan a QR code to add or remove repositories from your phone",
+                        text = stringResource(R.string.plugin_manage_from_phone_subtitle),
                         style = MaterialTheme.typography.bodySmall,
                         color = NuvioColors.TextSecondary
                     )
@@ -574,7 +581,7 @@ private fun QrCodeOverlay(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Scan with your phone to manage repositories",
+                text = stringResource(R.string.plugin_qr_instruction),
                 style = MaterialTheme.typography.bodyMedium,
                 color = NuvioColors.TextSecondary,
                 textAlign = TextAlign.Center
@@ -585,7 +592,7 @@ private fun QrCodeOverlay(
             if (qrBitmap != null) {
                 Image(
                     bitmap = qrBitmap.asImageBitmap(),
-                    contentDescription = "QR Code",
+                    contentDescription = stringResource(R.string.cd_qr_code),
                     modifier = Modifier.size(220.dp),
                     contentScale = ContentScale.Fit
                 )
@@ -632,7 +639,7 @@ private fun QrCodeOverlay(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Close",
+                        text = stringResource(R.string.plugin_qr_close),
                         color = NuvioColors.TextPrimary
                     )
                 }
@@ -677,7 +684,7 @@ private fun ConfirmRepoChangesDialog(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Confirm repository changes",
+                    text = stringResource(R.string.plugin_confirm_title),
                     style = MaterialTheme.typography.headlineSmall,
                     color = NuvioColors.TextPrimary
                 )
@@ -685,7 +692,7 @@ private fun ConfirmRepoChangesDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "The following changes were made from your phone:",
+                    text = stringResource(R.string.plugin_confirm_subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuvioColors.TextSecondary
                 )
@@ -709,7 +716,7 @@ private fun ConfirmRepoChangesDialog(
                     ) {
                         if (pendingChange.addedUrls.isNotEmpty()) {
                             Text(
-                                text = "Added:",
+                                text = stringResource(R.string.plugin_confirm_added),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = NuvioColors.Success,
                                 modifier = Modifier
@@ -731,7 +738,7 @@ private fun ConfirmRepoChangesDialog(
 
                         if (pendingChange.removedUrls.isNotEmpty()) {
                             Text(
-                                text = "Removed:",
+                                text = stringResource(R.string.plugin_confirm_removed),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = NuvioColors.Error,
                                 modifier = Modifier
@@ -753,7 +760,7 @@ private fun ConfirmRepoChangesDialog(
 
                         if (pendingChange.addedUrls.isEmpty() && pendingChange.removedUrls.isEmpty()) {
                             Text(
-                                text = "No changes detected",
+                                text = stringResource(R.string.plugin_confirm_no_changes),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = NuvioColors.TextSecondary
                             )
@@ -762,7 +769,7 @@ private fun ConfirmRepoChangesDialog(
                 }
 
                 Text(
-                    text = "Total repositories: ${pendingChange.proposedUrls.size}",
+                    text = stringResource(R.string.plugin_confirm_total, pendingChange.proposedUrls.size),
                     style = MaterialTheme.typography.bodySmall,
                     color = NuvioColors.TextTertiary,
                     modifier = Modifier.fillMaxWidth()
@@ -802,7 +809,7 @@ private fun ConfirmRepoChangesDialog(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Reject",
+                                    text = stringResource(R.string.plugin_confirm_reject),
                                     color = NuvioColors.TextPrimary
                                 )
                             }
@@ -824,9 +831,9 @@ private fun ConfirmRepoChangesDialog(
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50))
                         ) {
                             Text(
-                                text = "Confirm",
+                                text = stringResource(R.string.plugin_confirm_confirm),
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                                color = Color.White
+                                color = NuvioColors.OnSecondary
                             )
                         }
                     }
@@ -867,12 +874,12 @@ private fun RepositoryCard(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "${repository.scraperCount} providers",
+                    text = stringResource(R.string.plugin_providers_count, repository.scraperCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = NuvioColors.TextSecondary
                 )
                 Text(
-                    text = "Updated: ${formatDate(repository.lastUpdated)}",
+                    text = stringResource(R.string.plugin_updated_format, formatDate(repository.lastUpdated)),
                     style = MaterialTheme.typography.bodySmall,
                     color = NuvioColors.TextSecondary
                 )
@@ -892,7 +899,7 @@ private fun RepositoryCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh"
+                        contentDescription = stringResource(R.string.cd_refresh)
                     )
                 }
 
@@ -909,7 +916,7 @@ private fun RepositoryCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Remove"
+                        contentDescription = stringResource(R.string.cd_remove)
                     )
                 }
             }
@@ -971,7 +978,7 @@ private fun ScraperCard(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = "Version ${scraper.version}",
+                        text = stringResource(R.string.plugin_version, scraper.version),
                         style = MaterialTheme.typography.bodySmall,
                         color = NuvioColors.TextSecondary
                     )
@@ -998,12 +1005,12 @@ private fun ScraperCard(
                         } else {
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Test",
+                                contentDescription = stringResource(R.string.cd_test),
                                 modifier = Modifier.size(16.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Test")
+                        Text(stringResource(R.string.plugin_test_btn))
                     }
 
                     // Enable toggle
@@ -1028,7 +1035,7 @@ private fun ScraperCard(
                         .padding(top = 12.dp)
                 ) {
                     Text(
-                        text = "Test Results (${testResults?.size ?: 0} streams)",
+                        text = stringResource(R.string.plugin_test_results, testResults?.size ?: 0),
                         style = MaterialTheme.typography.bodySmall,
                         color = NuvioColors.TextSecondary
                     )
@@ -1041,7 +1048,7 @@ private fun ScraperCard(
 
                     if ((testResults?.size ?: 0) > 3) {
                         Text(
-                            text = "... and ${testResults!!.size - 3} more",
+                            text = stringResource(R.string.plugin_and_more, testResults!!.size - 3),
                             style = MaterialTheme.typography.bodySmall,
                             color = NuvioColors.TextSecondary
                         )
@@ -1189,5 +1196,6 @@ private fun MessageOverlay(
 }
 
 private fun formatDate(timestamp: Long): String {
-    return SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(timestamp))
+    val locale = Locale.getDefault()
+    return SimpleDateFormat(android.text.format.DateFormat.getBestDateTimePattern(locale, "dMMMy"), locale).format(Date(timestamp))
 }

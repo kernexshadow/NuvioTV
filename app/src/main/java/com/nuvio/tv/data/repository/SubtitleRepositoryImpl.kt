@@ -15,6 +15,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
 class SubtitleRepositoryImpl @Inject constructor(
@@ -24,7 +25,7 @@ class SubtitleRepositoryImpl @Inject constructor(
 
     companion object {
         private const val TAG = "SubtitleRepository"
-        private const val PER_ADDON_TIMEOUT_MS = 8_000L
+        private const val PER_ADDON_TIMEOUT_MS = 15_000L
     }
 
     override suspend fun getSubtitles(
@@ -33,10 +34,12 @@ class SubtitleRepositoryImpl @Inject constructor(
         videoId: String?,
         videoHash: String?,
         videoSize: Long?,
-        filename: String?
+        filename: String?,
+        onProgress: ((completed: Int, total: Int, addonName: String?) -> Unit)?
     ): List<Subtitle> = withContext(Dispatchers.IO) {
+        val requestType = canonicalSubtitleType(type)
         val startedAtMs = System.currentTimeMillis()
-        Log.d(TAG, "Fetching subtitles for type=$type, id=$id, videoId=$videoId")
+        Log.d(TAG, "Fetching subtitles for type=$requestType, id=$id, videoId=$videoId")
         
         // Get installed addons
         val addons = try {
@@ -51,16 +54,20 @@ class SubtitleRepositoryImpl @Inject constructor(
         // Filter addons that support subtitles resource
         val subtitleAddons = addons.filter { addon ->
             addon.resources.any { resource ->
-                isSubtitleResource(resource.name) && supportsType(resource, type, id)
+                isSubtitleResource(resource.name) && supportsType(resource, requestType, id)
             }
         }
         
         Log.d(TAG, "Found ${subtitleAddons.size} subtitle addons: ${subtitleAddons.map { it.name }}")
-        
+
         if (subtitleAddons.isEmpty()) {
             return@withContext emptyList()
         }
-        
+
+        val total = subtitleAddons.size
+        val completedCount = AtomicInteger(0)
+        onProgress?.invoke(0, total, null)
+
         // Fetch subtitles from all addons in parallel
         val result = coroutineScope {
             subtitleAddons.map { addon ->
@@ -69,6 +76,7 @@ class SubtitleRepositoryImpl @Inject constructor(
                     val subtitles = withTimeoutOrNull(PER_ADDON_TIMEOUT_MS) {
                         fetchSubtitlesFromAddon(addon, type, id, videoId, videoHash, videoSize, filename)
                     }
+                    onProgress?.invoke(completedCount.incrementAndGet(), total, addon.displayName)
                     if (subtitles == null) {
                         Log.w(
                             TAG,
@@ -91,10 +99,14 @@ class SubtitleRepositoryImpl @Inject constructor(
         )
         result
     }
+
+    private fun canonicalSubtitleType(type: String): String {
+        return if (type.equals("tv", ignoreCase = true)) "series" else type.lowercase()
+    }
     
     private fun supportsType(resource: com.nuvio.tv.domain.model.AddonResource, type: String, id: String): Boolean {
         // Check if type is supported
-        if (resource.types.isNotEmpty() && !resource.types.contains(type)) {
+        if (resource.types.isNotEmpty() && resource.types.none { it.equals(type, ignoreCase = true) }) {
             return false
         }
         
@@ -121,7 +133,8 @@ class SubtitleRepositoryImpl @Inject constructor(
         videoSize: Long?,
         filename: String?
     ): List<Subtitle> {
-        val actualId = if (type == "series" && videoId != null) {
+        val normalizedType = canonicalSubtitleType(type)
+        val actualId = if (normalizedType == "series" && videoId != null) {
             // For series, use videoId which includes season/episode
             videoId
         } else {
@@ -132,9 +145,9 @@ class SubtitleRepositoryImpl @Inject constructor(
         val baseUrl = addon.baseUrl.trimEnd('/')
         val extraParams = buildExtraParams(videoHash, videoSize, filename)
         val subtitleUrl = if (extraParams.isNotEmpty()) {
-            "$baseUrl/subtitles/$type/$actualId/$extraParams.json"
+            "$baseUrl/subtitles/$normalizedType/$actualId/$extraParams.json"
         } else {
-            "$baseUrl/subtitles/$type/$actualId.json"
+            "$baseUrl/subtitles/$normalizedType/$actualId.json"
         }
         
         Log.d(TAG, "Fetching subtitles from ${addon.name}: $subtitleUrl")

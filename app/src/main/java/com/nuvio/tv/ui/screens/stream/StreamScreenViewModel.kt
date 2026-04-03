@@ -1,21 +1,31 @@
 package com.nuvio.tv.ui.screens.stream
 
+import android.content.Context
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.nuvio.tv.core.player.StreamAutoPlaySelector
+import com.nuvio.tv.R
+import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.player.StreamAutoPlayPolicy
+import com.nuvio.tv.core.player.StreamAutoPlaySelector
 import com.nuvio.tv.data.local.PlayerPreference
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
+import com.nuvio.tv.domain.model.AddonStreams
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.StreamRepository
+import com.nuvio.tv.ui.components.SourceChipItem
+import com.nuvio.tv.ui.components.SourceChipStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,10 +37,16 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+private const val TAG = "StreamScreenViewModel"
+private const val EMBEDDED_STREAM_GROUP_NAME = "Embedded Streams"
+private const val EMBEDDED_STREAM_FALLBACK_NAME = "Embed Stream"
+
 @HiltViewModel
 class StreamScreenViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val streamRepository: StreamRepository,
     private val addonRepository: AddonRepository,
+    private val pluginManager: PluginManager,
     private val metaRepository: MetaRepository,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
     private val streamLinkCacheDataStore: StreamLinkCacheDataStore,
@@ -40,6 +56,7 @@ class StreamScreenViewModel @Inject constructor(
     private var directAutoPlayModeInitializedForSession = false
     private var directAutoPlayFlowEnabledForSession = false
     private var streamLoadJob: Job? = null
+    private var sourceChipErrorDismissJob: Job? = null
 
     private val videoId: String = savedStateHandle["videoId"] ?: ""
     private val contentType: String = savedStateHandle["contentType"] ?: ""
@@ -149,6 +166,7 @@ class StreamScreenViewModel @Inject constructor(
 
     private fun loadStreams() {
         streamLoadJob?.cancel()
+        sourceChipErrorDismissJob?.cancel()
         streamLoadJob = viewModelScope.launch {
             val playerSettings = playerSettingsDataStore.playerSettings.first()
             if (manualSelection) {
@@ -163,6 +181,14 @@ class StreamScreenViewModel @Inject constructor(
                 directAutoPlayModeInitializedForSession = true
             }
 
+            if (
+                playerSettings.streamAutoPlayMode == StreamAutoPlayMode.REGEX_MATCH &&
+                !StreamAutoPlayPolicy.isRegexSelectionConfigured(playerSettings.streamAutoPlayRegex)
+            ) {
+                directAutoPlayFlowEnabledForSession = false
+                autoPlayHandledForSession = true
+            }
+
             val directFlowActive = directAutoPlayFlowEnabledForSession
             var resolvedAutoPlayTarget = false
 
@@ -171,7 +197,7 @@ class StreamScreenViewModel @Inject constructor(
                     it.copy(
                         isDirectAutoPlayFlow = true,
                         showDirectAutoPlayOverlay = true,
-                        directAutoPlayMessage = "FINDING STREAM SOURCE"
+                        directAutoPlayMessage = context.getString(R.string.stream_finding_source)
                     )
                 }
             }
@@ -206,8 +232,10 @@ class StreamScreenViewModel @Inject constructor(
                                 season = season,
                                 episode = episode,
                                 episodeTitle = episodeName,
-                                rememberedAudioLanguage = cached.rememberedAudioLanguage,
-                                rememberedAudioName = cached.rememberedAudioName
+                                bingeGroup = null,
+                                filename = cached.filename,
+                                videoHash = cached.videoHash,
+                                videoSize = cached.videoSize
                             )
                         )
                     }
@@ -225,99 +253,303 @@ class StreamScreenViewModel @Inject constructor(
             val installedAddons = addonRepository.getInstalledAddons().first()
             val installedAddonOrder = installedAddons.map { it.displayName }
 
-            streamRepository.getStreamsFromAllAddons(
-                type = contentType,
-                videoId = videoId,
-                season = season,
-                episode = episode
-            ).collectLatest { result ->
-                when (result) {
-                    is NetworkResult.Success -> {
-                        val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
-                        val allStreams = addonStreams.flatMap { it.streams }
-                        val availableAddons = addonStreams.map { it.addonName }
-                        val selectedAutoPlayStream = if (autoPlayHandledForSession) {
-                            null
-                        } else {
-                            StreamAutoPlaySelector.selectAutoPlayStream(
-                                streams = allStreams,
-                                mode = playerSettings.streamAutoPlayMode,
-                                regexPattern = playerSettings.streamAutoPlayRegex,
-                                source = playerSettings.streamAutoPlaySource,
-                                installedAddonNames = installedAddonOrder.toSet(),
-                                selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
-                                selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins
-                            )
-                        }
-                        if (selectedAutoPlayStream != null) {
-                            resolvedAutoPlayTarget = true
-                        }
-                        
-                        // Apply current filter if one is selected
-                        val currentFilter = _uiState.value.selectedAddonFilter
-                        val filteredStreams = if (currentFilter == null) {
-                            allStreams
-                        } else {
-                            allStreams.filter { it.addonName == currentFilter }
-                        }
+            fun applySuccess(addonStreamGroups: List<AddonStreams>, isAllLoaded: Boolean) {
+                val orderedAddonStreams = StreamAutoPlaySelector.orderAddonStreams(
+                    addonStreamGroups,
+                    installedAddonOrder
+                )
+                val allStreams = orderedAddonStreams.flatMap { it.streams }
+                val availableAddons = orderedAddonStreams.map { it.addonName }
+                val selectedAutoPlayStream = if (autoPlayHandledForSession || !isAllLoaded) {
+                    null
+                } else {
+                    StreamAutoPlaySelector.selectAutoPlayStream(
+                        streams = allStreams,
+                        mode = playerSettings.streamAutoPlayMode,
+                        regexPattern = playerSettings.streamAutoPlayRegex,
+                        source = playerSettings.streamAutoPlaySource,
+                        installedAddonNames = installedAddonOrder.toSet(),
+                        selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
+                        selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins
+                    )
+                }
+                if (selectedAutoPlayStream != null) {
+                    resolvedAutoPlayTarget = true
+                }
 
+                val currentFilter = _uiState.value.selectedAddonFilter
+                val filteredStreams = if (currentFilter == null) {
+                    allStreams
+                } else {
+                    allStreams.filter { it.addonName == currentFilter }
+                }
+
+                updateUiStateIfChanged {
+                    it.copy(
+                        isLoading = false,
+                        addonStreams = orderedAddonStreams,
+                        allStreams = allStreams,
+                        filteredStreams = filteredStreams,
+                        availableAddons = availableAddons,
+                        sourceChips = mergeSourceChipStatuses(
+                            existing = _uiState.value.sourceChips,
+                            succeededNames = orderedAddonStreams.map { it.addonName }
+                        ),
+                        autoPlayStream = selectedAutoPlayStream,
+                        error = null,
+                        showDirectAutoPlayOverlay = if (directAutoPlayFlowEnabledForSession) {
+                            true
+                        } else {
+                            false
+                        }
+                    )
+                }
+            }
+
+            if (shouldAttemptEmbeddedMetaStreamLookup()) {
+                getEmbeddedStreamsFromMeta()?.let { embeddedAddonStreams ->
+                    Log.d(
+                        TAG,
+                        "Using embedded video streams for videoId=$videoId count=${embeddedAddonStreams.streams.size}"
+                    )
+                    applySuccess(listOf(embeddedAddonStreams), isAllLoaded = true)
+                    updateSourceChipsForEmbedded(embeddedAddonStreams.addonName)
+                    if (directAutoPlayFlowEnabledForSession && !resolvedAutoPlayTarget) {
+                        directAutoPlayFlowEnabledForSession = false
                         updateUiStateIfChanged {
                             it.copy(
-                                isLoading = false,
-                                addonStreams = addonStreams,
-                                allStreams = allStreams,
-                                filteredStreams = filteredStreams,
-                                availableAddons = availableAddons,
-                                autoPlayStream = selectedAutoPlayStream,
-                                error = null,
-                                showDirectAutoPlayOverlay = if (directAutoPlayFlowEnabledForSession) {
-                                    true
-                                } else {
-                                    false
-                                }
-                            )
-                        }
-                    }
-                    is NetworkResult.Error -> {
-                        if (directAutoPlayFlowEnabledForSession) {
-                            directAutoPlayFlowEnabledForSession = false
-                        }
-                        updateUiStateIfChanged {
-                            it.copy(
-                                isLoading = false,
-                                error = result.message,
                                 isDirectAutoPlayFlow = false,
                                 showDirectAutoPlayOverlay = false,
                                 directAutoPlayMessage = null
                             )
                         }
                     }
-                    NetworkResult.Loading -> {
-                        updateUiStateIfChanged {
-                            it.copy(
-                                isLoading = true,
-                                showDirectAutoPlayOverlay = if (directAutoPlayFlowEnabledForSession) {
-                                    true
-                                } else {
-                                    it.showDirectAutoPlayOverlay
-                                }
-                            )
+                    return@launch
+                }
+            }
+
+            updateSourceChipsForFetchStart(installedAddons)
+
+            var lastSuccessData: List<AddonStreams>? = null
+            var autoSelectTriggered = false
+            var timeoutElapsed = false
+
+            val streamLoadInner = viewModelScope.launch {
+                streamRepository.getStreamsFromAllAddons(
+                    type = contentType,
+                    videoId = videoId,
+                    season = season,
+                    episode = episode
+                ).collect { result ->
+                    when (result) {
+                        is NetworkResult.Success -> {
+                            lastSuccessData = result.data
+                            applySuccess(result.data, isAllLoaded = false)
+                            // After timeout, auto-select on first result that arrives
+                            if (timeoutElapsed && !autoSelectTriggered) {
+                                autoSelectTriggered = true
+                                applySuccess(result.data, isAllLoaded = true)
+                            }
                         }
+                        is NetworkResult.Error -> {
+                            if (directAutoPlayFlowEnabledForSession) {
+                                directAutoPlayFlowEnabledForSession = false
+                            }
+                            updateUiStateIfChanged {
+                                it.copy(
+                                    isLoading = false,
+                                    error = result.message,
+                                    isDirectAutoPlayFlow = false,
+                                    showDirectAutoPlayOverlay = false,
+                                    directAutoPlayMessage = null
+                                )
+                            }
+                        }
+                        NetworkResult.Loading -> {
+                            updateUiStateIfChanged {
+                                it.copy(
+                                    isLoading = true,
+                                    showDirectAutoPlayOverlay = if (directAutoPlayFlowEnabledForSession) {
+                                        true
+                                    } else {
+                                        it.showDirectAutoPlayOverlay
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                // All addons finished — run auto-select if not yet triggered
+                if (!autoSelectTriggered) {
+                    autoSelectTriggered = true
+                    lastSuccessData?.let { applySuccess(it, isAllLoaded = true) }
+                }
+                markRemainingSourceChipsAsError()
+                if (directAutoPlayFlowEnabledForSession && !resolvedAutoPlayTarget) {
+                    directAutoPlayFlowEnabledForSession = false
+                    updateUiStateIfChanged {
+                        it.copy(
+                            isDirectAutoPlayFlow = false,
+                            showDirectAutoPlayOverlay = false,
+                            directAutoPlayMessage = null
+                        )
                     }
                 }
             }
 
-            if (directAutoPlayFlowEnabledForSession && !resolvedAutoPlayTarget) {
-                directAutoPlayFlowEnabledForSession = false
-                updateUiStateIfChanged {
-                    it.copy(
-                        isDirectAutoPlayFlow = false,
-                        showDirectAutoPlayOverlay = false,
-                        directAutoPlayMessage = null
-                    )
-                }
+            // After timeout: if streams arrived, auto-select now; if not, wait for first result from inner job
+            val timeoutMs = playerSettings.streamAutoPlayTimeoutSeconds * 1_000L
+            if (timeoutMs > 0L && playerSettings.streamAutoPlayTimeoutSeconds < 11) {
+                delay(timeoutMs)
+            }
+            timeoutElapsed = true
+            if (!autoSelectTriggered && lastSuccessData != null) {
+                autoSelectTriggered = true
+                applySuccess(lastSuccessData!!, isAllLoaded = true)
             }
         }
+    }
+
+    private fun shouldAttemptEmbeddedMetaStreamLookup(): Boolean {
+        val metaId = contentId?.takeIf { it.isNotBlank() } ?: return false
+        if (contentType.isBlank()) return false
+        if (contentType.equals("other", ignoreCase = true)) return true
+
+        val canonicalVideoMetaId = videoId.substringBefore(":")
+        return !metaId.equals(canonicalVideoMetaId, ignoreCase = true)
+    }
+
+    private suspend fun updateSourceChipsForFetchStart(installedAddons: List<com.nuvio.tv.domain.model.Addon>) {
+        val addonNames = installedAddons
+            .filter { it.supportsStreamResourceForChip(contentType) }
+            .map { it.displayName }
+
+        val pluginNames = try {
+            if (pluginManager.pluginsEnabled.first()) {
+                pluginManager.enabledScrapers.first()
+                    .filter { it.supportsType(contentType) }
+                    .map { it.name }
+                    .distinct()
+            } else {
+                emptyList()
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val orderedNames = (addonNames + pluginNames).distinct()
+        if (orderedNames.isEmpty()) {
+            updateUiStateIfChanged { it.copy(sourceChips = emptyList()) }
+            return
+        }
+
+        updateUiStateIfChanged { state ->
+            state.copy(
+                sourceChips = orderedNames.map { name ->
+                    SourceChipItem(name = name, status = SourceChipStatus.LOADING)
+                }
+            )
+        }
+    }
+
+    private fun updateSourceChipsForEmbedded(name: String) {
+        updateUiStateIfChanged { state ->
+            val chips = if (state.sourceChips.any { it.name == name }) {
+                state.sourceChips.map { chip ->
+                    if (chip.name == name) chip.copy(status = SourceChipStatus.SUCCESS) else chip
+                }
+            } else {
+                listOf(SourceChipItem(name = name, status = SourceChipStatus.SUCCESS))
+            }
+            state.copy(sourceChips = chips)
+        }
+    }
+
+    private fun mergeSourceChipStatuses(
+        existing: List<SourceChipItem>,
+        succeededNames: List<String>
+    ): List<SourceChipItem> {
+        if (succeededNames.isEmpty()) return existing
+        if (existing.isEmpty()) {
+            return succeededNames.distinct().map { name ->
+                SourceChipItem(name = name, status = SourceChipStatus.SUCCESS)
+            }
+        }
+
+        val successSet = succeededNames.toSet()
+        val updated = existing.map { chip ->
+            if (chip.name in successSet) chip.copy(status = SourceChipStatus.SUCCESS) else chip
+        }.toMutableList()
+
+        val knownNames = updated.map { it.name }.toSet()
+        succeededNames.forEach { name ->
+            if (name !in knownNames) {
+                updated += SourceChipItem(name = name, status = SourceChipStatus.SUCCESS)
+            }
+        }
+        return updated
+    }
+
+    private fun markRemainingSourceChipsAsError() {
+        var markedAnyError = false
+        updateUiStateIfChanged { state ->
+            val hasPending = state.sourceChips.any { it.status == SourceChipStatus.LOADING }
+            if (!hasPending) return@updateUiStateIfChanged state
+            markedAnyError = true
+            state.copy(
+                sourceChips = state.sourceChips.map { chip ->
+                    if (chip.status == SourceChipStatus.LOADING) {
+                        chip.copy(status = SourceChipStatus.ERROR)
+                    } else {
+                        chip
+                    }
+                }
+            )
+        }
+        if (markedAnyError) {
+            scheduleErrorChipRemoval()
+        }
+    }
+
+    private fun scheduleErrorChipRemoval() {
+        sourceChipErrorDismissJob?.cancel()
+        sourceChipErrorDismissJob = viewModelScope.launch {
+            delay(1600L)
+            updateUiStateIfChanged { state ->
+                val remaining = state.sourceChips.filterNot { it.status == SourceChipStatus.ERROR }
+                if (remaining.size == state.sourceChips.size) state else state.copy(sourceChips = remaining)
+            }
+        }
+    }
+
+    private fun com.nuvio.tv.domain.model.Addon.supportsStreamResourceForChip(type: String): Boolean {
+        return resources.any { resource ->
+            resource.name == "stream" &&
+                (resource.types.isEmpty() || resource.types.any { it.equals(type, ignoreCase = true) })
+        }
+    }
+
+    private suspend fun getEmbeddedStreamsFromMeta(): AddonStreams? {
+        val metaId = contentId?.takeIf { it.isNotBlank() } ?: return null
+        val result = metaRepository.getMetaFromAllAddons(type = contentType, id = metaId)
+            .first { it !is NetworkResult.Loading }
+        val meta = (result as? NetworkResult.Success)?.data ?: return null
+        val video = meta.videos.firstOrNull { it.id == videoId } ?: return null
+        if (video.streams.isEmpty()) return null
+
+        val streams = video.streams.map { stream ->
+            stream.copy(
+                name = stream.name ?: stream.title ?: stream.description ?: EMBEDDED_STREAM_FALLBACK_NAME,
+                addonName = EMBEDDED_STREAM_GROUP_NAME,
+                addonLogo = null
+            )
+        }
+
+        return AddonStreams(
+            addonName = EMBEDDED_STREAM_GROUP_NAME,
+            addonLogo = null,
+            streams = streams
+        )
     }
 
     private fun loadMissingMetaDetailsIfNeeded() {
@@ -342,7 +574,7 @@ class StreamScreenViewModel @Inject constructor(
 
             _uiState.update { state ->
                 val posterValue = state.poster ?: meta.poster
-                val backdropValue = state.backdrop ?: meta.background
+                val backdropValue = state.backdrop ?: meta.backdropUrl
                 val logoValue = state.logo ?: meta.logo
                 val genresValue = state.genres?.takeIf { it.isNotBlank() } ?: metaGenres
                 val yearValue = state.year?.takeIf { it.isNotBlank() } ?: metaYear
@@ -420,8 +652,13 @@ class StreamScreenViewModel @Inject constructor(
             season = season,
             episode = episode,
             episodeTitle = episodeName,
-            rememberedAudioLanguage = null,
-            rememberedAudioName = null
+            bingeGroup = stream.behaviorHints?.bingeGroup,
+            filename = stream.behaviorHints?.filename,
+            videoHash = stream.behaviorHints?.videoHash,
+            videoSize = stream.behaviorHints?.videoSize,
+            addonName = stream.addonName,
+            addonLogo = stream.addonLogo,
+            streamDescription = stream.description
         )
 
         val url = playbackInfo.url
@@ -431,7 +668,10 @@ class StreamScreenViewModel @Inject constructor(
                     contentKey = streamCacheKey,
                     url = url,
                     streamName = playbackInfo.streamName,
-                    headers = playbackInfo.headers
+                    headers = playbackInfo.headers,
+                    filename = playbackInfo.filename,
+                    videoHash = playbackInfo.videoHash,
+                    videoSize = playbackInfo.videoSize
                 )
             }
         }
@@ -442,6 +682,7 @@ class StreamScreenViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         streamLoadJob?.cancel()
+        sourceChipErrorDismissJob?.cancel()
     }
 
 }
@@ -467,6 +708,11 @@ data class StreamPlaybackInfo(
     val season: Int?,
     val episode: Int?,
     val episodeTitle: String?,
-    val rememberedAudioLanguage: String?,
-    val rememberedAudioName: String?
+    val bingeGroup: String?,
+    val filename: String? = null,
+    val videoHash: String? = null,
+    val videoSize: Long? = null,
+    val addonName: String? = null,
+    val addonLogo: String? = null,
+    val streamDescription: String? = null
 )

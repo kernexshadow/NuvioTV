@@ -37,15 +37,21 @@ class ProfileSettingsViewModel @Inject constructor(
         name: String,
         avatarColorHex: String,
         usesPrimaryAddons: Boolean,
-        usesPrimaryPlugins: Boolean
+        usesPrimaryPlugins: Boolean,
+        avatarId: String? = null
     ) {
         if (_isCreating.value) return
         viewModelScope.launch {
             _isCreating.value = true
-            val success = profileManager.createProfile(name, avatarColorHex)
+            val existingIds = profileManager.profiles.value.map { it.id }.toSet()
+            val success = profileManager.createProfile(
+                name = name,
+                avatarColorHex = avatarColorHex,
+                avatarId = avatarId
+            )
             if (success) {
                 val profiles = profileManager.profiles.value
-                val newProfile = profiles.lastOrNull { it.name == name }
+                val newProfile = profiles.firstOrNull { it.id !in existingIds }
                 if (newProfile != null && (usesPrimaryAddons || usesPrimaryPlugins)) {
                     profileManager.updateProfile(
                         newProfile.copy(

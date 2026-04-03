@@ -3,6 +3,7 @@
 package com.nuvio.tv.ui.screens.settings
 
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,11 +28,14 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Border
+import com.nuvio.tv.R
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Card
@@ -53,8 +58,8 @@ fun MDBListSettingsContent(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         SettingsDetailHeader(
-            title = "MDBList Ratings",
-            subtitle = "Configure external ratings shown in the detail hero"
+            title = stringResource(R.string.mdblist_title),
+            subtitle = stringResource(R.string.mdblist_subtitle)
         )
 
         SettingsGroupCard(
@@ -66,10 +71,10 @@ fun MDBListSettingsContent(
                 contentPadding = PaddingValues(bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                item {
+                item(key = "mdblist_enabled") {
                     SettingsToggleRow(
-                        title = "Enable MDBList Ratings",
-                        subtitle = "Fetch ratings from external providers in metadata detail screen",
+                        title = stringResource(R.string.mdblist_enable_title),
+                        subtitle = stringResource(R.string.mdblist_enable_subtitle),
                         checked = uiState.enabled,
                         onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleEnabled(!uiState.enabled)) },
                         modifier = if (initialFocusRequester != null) {
@@ -80,80 +85,80 @@ fun MDBListSettingsContent(
                     )
                 }
 
-                item {
+                item(key = "mdblist_api_key") {
                     SettingsActionRow(
-                        title = "API Key",
-                        subtitle = "Required to fetch ratings from MDBList",
-                        value = maskApiKey(uiState.apiKey),
+                        title = stringResource(R.string.mdblist_api_key_title),
+                        subtitle = stringResource(R.string.mdblist_api_key_subtitle),
+                        value = maskApiKey(uiState.apiKey, stringResource(R.string.mdblist_not_set)),
                         onClick = { showApiKeyDialog = true },
                         enabled = uiState.enabled
                     )
                 }
 
-                item {
+                item(key = "mdblist_trakt") {
                     SettingsToggleRow(
-                        title = "Trakt",
-                        subtitle = "Show Trakt score",
+                        title = stringResource(R.string.mdblist_trakt_title),
+                        subtitle = stringResource(R.string.mdblist_trakt_subtitle),
                         checked = uiState.showTrakt,
                         enabled = uiState.enabled,
                         onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleTrakt(!uiState.showTrakt)) }
                     )
                 }
 
-                item {
+                item(key = "mdblist_imdb") {
                     SettingsToggleRow(
-                        title = "IMDb",
-                        subtitle = "Show IMDb score (and hide default IMDb line when available)",
+                        title = stringResource(R.string.mdblist_imdb_title),
+                        subtitle = stringResource(R.string.mdblist_imdb_subtitle),
                         checked = uiState.showImdb,
                         enabled = uiState.enabled,
                         onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleImdb(!uiState.showImdb)) }
                     )
                 }
 
-                item {
+                item(key = "mdblist_tmdb") {
                     SettingsToggleRow(
-                        title = "TMDB",
-                        subtitle = "Show TMDB score",
+                        title = stringResource(R.string.mdblist_tmdb_title),
+                        subtitle = stringResource(R.string.mdblist_tmdb_subtitle),
                         checked = uiState.showTmdb,
                         enabled = uiState.enabled,
                         onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleTmdb(!uiState.showTmdb)) }
                     )
                 }
 
-                item {
+                item(key = "mdblist_letterboxd") {
                     SettingsToggleRow(
-                        title = "Letterboxd",
-                        subtitle = "Show Letterboxd score",
+                        title = stringResource(R.string.mdblist_letterboxd_title),
+                        subtitle = stringResource(R.string.mdblist_letterboxd_subtitle),
                         checked = uiState.showLetterboxd,
                         enabled = uiState.enabled,
                         onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleLetterboxd(!uiState.showLetterboxd)) }
                     )
                 }
 
-                item {
+                item(key = "mdblist_tomatoes") {
                     SettingsToggleRow(
-                        title = "Rotten Tomatoes",
-                        subtitle = "Show critics score",
+                        title = stringResource(R.string.mdblist_tomatoes_title),
+                        subtitle = stringResource(R.string.mdblist_tomatoes_subtitle),
                         checked = uiState.showTomatoes,
                         enabled = uiState.enabled,
                         onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleTomatoes(!uiState.showTomatoes)) }
                     )
                 }
 
-                item {
+                item(key = "mdblist_audience") {
                     SettingsToggleRow(
-                        title = "Audience Score",
-                        subtitle = "Show audience score",
+                        title = stringResource(R.string.mdblist_audience_title),
+                        subtitle = stringResource(R.string.mdblist_audience_subtitle),
                         checked = uiState.showAudience,
                         enabled = uiState.enabled,
                         onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleAudience(!uiState.showAudience)) }
                     )
                 }
 
-                item {
+                item(key = "mdblist_metacritic") {
                     SettingsToggleRow(
-                        title = "Metacritic",
-                        subtitle = "Show Metacritic score",
+                        title = stringResource(R.string.mdblist_metacritic_title),
+                        subtitle = stringResource(R.string.mdblist_metacritic_subtitle),
                         checked = uiState.showMetacritic,
                         enabled = uiState.enabled,
                         onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleMetacritic(!uiState.showMetacritic)) }
@@ -166,14 +171,9 @@ fun MDBListSettingsContent(
     if (showApiKeyDialog) {
         MDBListApiKeyDialog(
             currentValue = uiState.apiKey,
-            onSave = { value ->
-                viewModel.onEvent(MDBListSettingsEvent.SetApiKey(value))
-                showApiKeyDialog = false
-            },
-            onClear = {
-                viewModel.onEvent(MDBListSettingsEvent.SetApiKey(""))
-                showApiKeyDialog = false
-            },
+            viewModel = viewModel,
+            onSaved = { showApiKeyDialog = false },
+            onClear = { viewModel.validateAndSaveApiKey("") {}; showApiKeyDialog = false },
             onDismiss = { showApiKeyDialog = false }
         )
     }
@@ -182,7 +182,8 @@ fun MDBListSettingsContent(
 @Composable
 private fun MDBListApiKeyDialog(
     currentValue: String,
-    onSave: (String) -> Unit,
+    viewModel: MDBListSettingsViewModel,
+    onSaved: () -> Unit,
     onClear: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -190,11 +191,20 @@ private fun MDBListApiKeyDialog(
     var isInputFocused by remember { mutableStateOf(false) }
     val inputFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val validating by viewModel.validating.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val invalidApiKeyMsg = stringResource(R.string.mdblist_invalid_api_key)
+
+    LaunchedEffect(Unit) {
+        viewModel.validationError.collect {
+            Toast.makeText(context, invalidApiKeyMsg, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     NuvioDialog(
         onDismiss = onDismiss,
-        title = "MDBList API Key",
-        subtitle = "Enter your API key to fetch external ratings",
+        title = stringResource(R.string.mdblist_dialog_title),
+        subtitle = stringResource(R.string.mdblist_dialog_subtitle),
         width = 700.dp
     ) {
         Card(
@@ -242,7 +252,7 @@ private fun MDBListApiKeyDialog(
                     decorationBox = { innerTextField ->
                         if (value.isBlank()) {
                             Text(
-                                text = "Enter MDBList API key",
+                                text = stringResource(R.string.mdblist_dialog_placeholder),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = NuvioColors.TextTertiary
                             )
@@ -264,7 +274,7 @@ private fun MDBListApiKeyDialog(
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
-                Text("Cancel")
+                Text(stringResource(R.string.action_cancel))
             }
             Spacer(modifier = Modifier.width(8.dp))
             Button(
@@ -274,24 +284,24 @@ private fun MDBListApiKeyDialog(
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
-                Text("Clear")
+                Text(stringResource(R.string.action_clear))
             }
             Spacer(modifier = Modifier.width(8.dp))
             Button(
-                onClick = { onSave(value.trim()) },
+                onClick = { if (!validating) viewModel.validateAndSaveApiKey(value, onSaved) },
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioColors.BackgroundCard,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
-                Text("Save")
+                Text(if (validating) stringResource(R.string.action_saving) else stringResource(R.string.action_save))
             }
         }
     }
 }
 
-private fun maskApiKey(key: String): String {
+private fun maskApiKey(key: String, notSetLabel: String): String {
     val trimmed = key.trim()
-    if (trimmed.isBlank()) return "Not set"
+    if (trimmed.isBlank()) return notSetLabel
     return if (trimmed.length <= 4) "••••" else "••••••${trimmed.takeLast(4)}"
 }

@@ -1,6 +1,9 @@
 package com.nuvio.tv.ui.screens.detail
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,20 +18,27 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -43,7 +53,7 @@ import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.ui.theme.NuvioColors
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun CastSection(
     cast: List<MetaCastMember>,
@@ -51,6 +61,7 @@ fun CastSection(
     title: String = "Cast",
     leadingCast: List<MetaCastMember> = emptyList(),
     upFocusRequester: FocusRequester? = null,
+    sectionFocusRequester: FocusRequester? = null,
     restorePersonId: Int? = null,
     restoreFocusToken: Int = 0,
     onRestoreFocusHandled: () -> Unit = {},
@@ -59,8 +70,11 @@ fun CastSection(
 ) {
     if (cast.isEmpty() && leadingCast.isEmpty()) return
 
+    val firstItemFocusRequester = remember { FocusRequester() }
     val restoreFocusRequester = remember { FocusRequester() }
     val itemFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val castPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
+    val lazyListState = rememberLazyListState(prefetchStrategy = castPrefetchStrategy)
 
     LaunchedEffect(cast, leadingCast) {
         val validKeys = buildSet {
@@ -107,7 +121,11 @@ fun CastSection(
         }
 
         LazyRow(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (sectionFocusRequester != null) Modifier.focusRequester(sectionFocusRequester) else Modifier)
+                .focusRestorer { firstItemFocusRequester },
+            state = lazyListState,
             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.Start
         ) {
@@ -124,11 +142,12 @@ fun CastSection(
                     val isLastLeading = member == leadingCast.last()
                     val endPadding = if (isLastLeading && cast.isNotEmpty()) 0.dp else standardGap
                     val isRestoreTarget = member.tmdbId == restorePersonId
+                    val isFirstItem = index == 0
                     val focusKey = "leading:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-                    val focusRequester = if (isRestoreTarget) {
-                        restoreFocusRequester
-                    } else {
-                        itemFocusRequesters.getOrPut(focusKey) { FocusRequester() }
+                    val focusRequester = when {
+                        isRestoreTarget -> restoreFocusRequester
+                        isFirstItem -> firstItemFocusRequester
+                        else -> remember(focusKey) { itemFocusRequesters.getOrPut(focusKey) { FocusRequester() } }
                     }
 
                     Box(modifier = Modifier.padding(end = endPadding)) {
@@ -175,11 +194,12 @@ fun CastSection(
                 }
             ) { index, member ->
                 val isRestoreTarget = member.tmdbId == restorePersonId
+                val isFirstCastItem = index == 0 && leadingCast.isEmpty()
                 val focusKey = "cast:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-                val focusRequester = if (isRestoreTarget) {
-                    restoreFocusRequester
-                } else {
-                    itemFocusRequesters.getOrPut(focusKey) { FocusRequester() }
+                val focusRequester = when {
+                    isRestoreTarget -> restoreFocusRequester
+                    isFirstCastItem -> firstItemFocusRequester
+                    else -> remember(focusKey) { itemFocusRequesters.getOrPut(focusKey) { FocusRequester() } }
                 }
 
                 Box(modifier = Modifier.padding(end = standardGap)) {
@@ -219,6 +239,10 @@ private fun CastMemberItem(
     val cardSizePx = remember(cardSize, density) {
         with(density) { cardSize.roundToPx() }
     }
+    val typography = MaterialTheme.typography
+    val nameStyle = remember(typography) { typography.labelMedium }
+    val characterStyle = remember(typography) { typography.labelSmall }
+    val initialsStyle = remember(typography) { typography.titleLarge }
     val photo = member.photo
     val photoModel = remember(context, photo, cardSizePx) {
         photo?.takeIf { it.isNotBlank() }?.let { url ->
@@ -230,6 +254,8 @@ private fun CastMemberItem(
         }
     }
 
+    var isFocused by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier.width(itemWidth),
         horizontalAlignment = Alignment.Start
@@ -240,14 +266,15 @@ private fun CastMemberItem(
                 .size(cardSize)
                 .align(Alignment.Start)
                 .onFocusChanged { state ->
+                    isFocused = state.isFocused
                     if (state.isFocused) onFocused()
                 },
             shape = CardDefaults.shape(
                 shape = CircleShape
             ),
             colors = CardDefaults.colors(
-                containerColor = NuvioColors.SurfaceVariant,
-                focusedContainerColor = NuvioColors.FocusBackground
+                containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent
             ),
             border = CardDefaults.border(
                 focusedBorder = Border(
@@ -257,24 +284,33 @@ private fun CastMemberItem(
             )
         ) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape),
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
+                val currentBgColor = if (isFocused) NuvioColors.FocusBackground else NuvioColors.SurfaceVariant
+                val bgPainter = remember(currentBgColor) { androidx.compose.ui.graphics.painter.ColorPainter(currentBgColor) }
+
                 if (photoModel != null) {
                     AsyncImage(
                         model = photoModel,
                         contentDescription = member.name,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        placeholder = bgPainter,
+                        error = bgPainter,
+                        fallback = bgPainter
                     )
                 } else {
-                    Text(
-                        text = member.name.firstOrNull()?.uppercase() ?: "?",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = NuvioColors.TextPrimary
-                    )
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.fillMaxSize().background(currentBgColor),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = member.name.firstOrNull()?.uppercase() ?: "?",
+                            style = initialsStyle,
+                            color = NuvioColors.TextPrimary
+                        )
+                    }
                 }
             }
         }
@@ -283,7 +319,7 @@ private fun CastMemberItem(
 
         Text(
             text = member.name,
-            style = MaterialTheme.typography.labelMedium,
+            style = nameStyle,
             color = NuvioColors.TextSecondary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
@@ -291,10 +327,16 @@ private fun CastMemberItem(
 
         val character = member.character
         if (!character.isNullOrBlank()) {
+            val displayCharacter = when {
+                character.equals("Creator", ignoreCase = true) -> stringResource(R.string.cast_role_creator)
+                character.equals("Director", ignoreCase = true) -> stringResource(R.string.cast_role_director)
+                character.equals("Writer", ignoreCase = true) -> stringResource(R.string.cast_role_writer)
+                else -> character
+            }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = character,
-                style = MaterialTheme.typography.labelSmall,
+                text = displayCharacter,
+                style = characterStyle,
                 color = NuvioColors.TextTertiary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

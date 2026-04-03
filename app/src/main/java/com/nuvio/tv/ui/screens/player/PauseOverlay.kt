@@ -1,12 +1,7 @@
 package com.nuvio.tv.ui.screens.player
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,7 +24,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -48,16 +42,19 @@ import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.ui.theme.NuvioColors
-import java.text.SimpleDateFormat
+import android.text.format.DateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 
 @Composable
 fun PauseOverlay(
     visible: Boolean,
     onClose: () -> Unit,
     title: String,
+    logo: String?,
     episodeTitle: String?,
     season: Int?,
     episode: Int?,
@@ -69,77 +66,44 @@ fun PauseOverlay(
 ) {
     var selectedCastMember by remember { mutableStateOf<MetaCastMember?>(null) }
 
-    AnimatedVisibility(
+    PlayerOverlayScaffold(
         visible = visible,
-        enter = fadeIn(animationSpec = tween(250)),
-        exit = fadeOut(animationSpec = tween(200)),
-        modifier = modifier
+        onDismiss = onClose,
+        modifier = modifier,
+        captureKeys = false,
+        dismissOnBackgroundClick = true,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = 56.dp,
+            end = 56.dp,
+            top = 40.dp,
+            bottom = 120.dp
+        ),
+        topEndContent = {
+            PauseOverlayClock()
+        }
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(onClick = onClose)
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Bottom
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.88f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0f to Color.Black.copy(alpha = 0.6f),
-                                0.3f to Color.Black.copy(alpha = 0.4f),
-                                0.6f to Color.Black.copy(alpha = 0.2f),
-                                1f to Color.Transparent
-                            )
-                        )
-                    )
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = 56.dp, end = 56.dp, top = 40.dp, bottom = 120.dp)
-            ) {
-                PauseOverlayClock(
-                    modifier = Modifier.align(Alignment.TopEnd)
+            if (selectedCastMember != null) {
+                CastDetailView(
+                    member = selectedCastMember!!,
+                    onBack = { selectedCastMember = null }
                 )
-
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Bottom
-                ) {
-                    if (selectedCastMember != null) {
-                        CastDetailView(
-                            member = selectedCastMember!!,
-                            onBack = { selectedCastMember = null }
-                        )
-                    } else {
-                        PauseMetadataView(
-                            title = title,
-                            episodeTitle = episodeTitle,
-                            season = season,
-                            episode = episode,
-                            year = year,
-                            type = type,
-                            description = description,
-                            cast = cast,
-                            onCastSelected = { selectedCastMember = it }
-                        )
-                    }
-                }
+            } else {
+                PauseMetadataView(
+                    title = title,
+                    logo = logo,
+                    episodeTitle = episodeTitle,
+                    season = season,
+                    episode = episode,
+                    year = year,
+                    type = type,
+                    description = description,
+                    cast = cast,
+                    onCastSelected = { selectedCastMember = it }
+                )
             }
         }
     }
@@ -148,7 +112,8 @@ fun PauseOverlay(
 @Composable
 private fun PauseOverlayClock(modifier: Modifier = Modifier) {
     var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
-    val formatter = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    val context = LocalContext.current
+    val formatter = remember(context) { DateFormat.getTimeFormat(context) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -171,6 +136,7 @@ private fun PauseOverlayClock(modifier: Modifier = Modifier) {
 @Composable
 private fun PauseMetadataView(
     title: String,
+    logo: String?,
     episodeTitle: String?,
     season: Int?,
     episode: Int?,
@@ -186,20 +152,46 @@ private fun PauseMetadataView(
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "You're watching",
+                text = stringResource(R.string.pause_you_are_watching),
                 style = MaterialTheme.typography.bodyLarge,
                 color = NuvioColors.TextTertiary
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineLarge,
-                color = Color.White,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (!logo.isNullOrBlank()) {
+                var logoFailed by remember(logo) { mutableStateOf(false) }
+                if (!logoFailed) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(logo)
+                            .memoryCacheKey(logo)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = title,
+                        contentScale = ContentScale.Fit,
+                        alignment = Alignment.BottomStart,
+                        modifier = Modifier.height(96.dp),
+                        onError = { logoFailed = true }
+                    )
+                } else {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
             if (!year.isNullOrBlank()) {
                 val episodeLabel = if (type in listOf("series", "tv") && season != null && episode != null) {
@@ -242,7 +234,7 @@ private fun PauseMetadataView(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 Text(
-                    text = "Cast",
+                    text = stringResource(R.string.pause_cast_label),
                     style = MaterialTheme.typography.titleSmall,
                     color = NuvioColors.TextTertiary
                 )
@@ -303,13 +295,13 @@ private fun CastDetailView(
         ) {
             Icon(
                 imageVector = Icons.Default.ArrowBack,
-                contentDescription = "Back",
+                contentDescription = stringResource(R.string.cd_back),
                 tint = NuvioColors.TextSecondary,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                text = "Back to details",
+                text = stringResource(R.string.pause_back_to_details),
                 style = MaterialTheme.typography.bodyMedium,
                 color = NuvioColors.TextSecondary,
                 modifier = Modifier.clickable(onClick = onBack)
@@ -347,7 +339,7 @@ private fun CastDetailView(
 
                 if (!member.character.isNullOrBlank()) {
                     Text(
-                        text = "as ${member.character}",
+                        text = stringResource(R.string.pause_as_character, member.character ?: ""),
                         style = MaterialTheme.typography.bodyLarge,
                         color = NuvioColors.TextSecondary,
                         modifier = Modifier.padding(top = 8.dp),

@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
+import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 
 data class NuvioExtendedColors(
@@ -36,12 +37,13 @@ val LocalNuvioExtendedColors = staticCompositionLocalOf {
     )
 }
 
-val LocalAppTheme = staticCompositionLocalOf { AppTheme.OCEAN }
+val LocalAppTheme = staticCompositionLocalOf { AppTheme.WHITE }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun NuvioTheme(
-    appTheme: AppTheme = AppTheme.OCEAN,
+    appTheme: AppTheme = AppTheme.WHITE,
+    appFont: AppFont = AppFont.INTER,
     content: @Composable () -> Unit
 ) {
     val palette = ThemeColors.getColorPalette(appTheme)
@@ -51,6 +53,7 @@ fun NuvioTheme(
         primary = colorScheme.Primary,
         onPrimary = colorScheme.OnPrimary,
         secondary = colorScheme.Secondary,
+        onSecondary = colorScheme.OnSecondary,
         background = colorScheme.Background,
         surface = colorScheme.Surface,
         surfaceVariant = colorScheme.SurfaceVariant,
@@ -77,7 +80,7 @@ fun NuvioTheme(
     ) {
         MaterialTheme(
             colorScheme = materialColorScheme,
-            typography = NuvioTypography,
+            typography = buildNuvioTypography(getFontFamily(appFont)),
             content = content
         )
     }

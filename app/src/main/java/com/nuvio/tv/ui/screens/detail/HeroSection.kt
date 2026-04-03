@@ -9,8 +9,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -55,6 +58,10 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import android.util.Log
+import com.nuvio.tv.R
+import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MDBListRatings
 import com.nuvio.tv.domain.model.Video
@@ -69,6 +76,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.painter.Painter
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
+import java.util.Locale
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -77,6 +85,7 @@ fun HeroContentSection(
     nextEpisode: Video?,
     nextToWatch: NextToWatch?,
     onPlayClick: () -> Unit,
+    onPlayLongPress: (() -> Unit)? = null,
     isInLibrary: Boolean,
     onToggleLibrary: () -> Unit,
     onLibraryLongPress: () -> Unit,
@@ -88,9 +97,11 @@ fun HeroContentSection(
     hideLogoDuringTrailer: Boolean = false,
     mdbListRatings: MDBListRatings? = null,
     hideMetaInfoImdb: Boolean = false,
+    showFullReleaseDate: Boolean = true,
     isTrailerPlaying: Boolean = false,
     playButtonFocusRequester: FocusRequester? = null,
     restorePlayFocusToken: Int = 0,
+    onHeroActionFocused: () -> Unit = {},
     onPlayFocusRestored: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -101,10 +112,16 @@ fun HeroContentSection(
         meta.logo?.let { logo ->
             ImageRequest.Builder(context)
                 .data(logo)
-                .crossfade(false)
+                .crossfade(true)
+                .decoderFactory(SvgDecoder.Factory())
                 .build()
         }
     }
+    var logoLoadFailed by remember(meta.logo) { mutableStateOf(false) }
+    val shouldShowLogo =
+        !meta.logo.isNullOrBlank() &&
+            !logoLoadFailed &&
+            !(isTrailerPlaying && hideLogoDuringTrailer)
     val libraryAddPainter = rememberRawSvgPainter(
         context = context,
         rawRes = com.nuvio.tv.R.raw.library_add_plus
@@ -113,14 +130,17 @@ fun HeroContentSection(
         context = context,
         rawRes = com.nuvio.tv.R.raw.trailer_play_button
     )
+    val strCreator = stringResource(R.string.hero_creator)
+    val strDirector = stringResource(R.string.hero_director)
+    val strWriter = stringResource(R.string.hero_writer)
     val creditLine = remember(meta.director, meta.writer, isSeriesApi) {
         val directorLine = meta.director.takeIf { it.isNotEmpty() }?.joinToString(", ")
         val writerLine = meta.writer.takeIf { it.isNotEmpty() }?.joinToString(", ")
         when {
             !directorLine.isNullOrBlank() -> {
-                if (isSeriesApi) "Creator: $directorLine" else "Director: $directorLine"
+                if (isSeriesApi) strCreator.format(directorLine) else strDirector.format(directorLine)
             }
-            !writerLine.isNullOrBlank() -> "Writer: $writerLine"
+            !writerLine.isNullOrBlank() -> strWriter.format(writerLine)
             else -> null
         }
     }
@@ -156,10 +176,11 @@ fun HeroContentSection(
             verticalArrangement = Arrangement.Bottom
         ) {
             // Logo/Title — always visible during trailer, animates size
-            if (!meta.logo.isNullOrBlank() && !(isTrailerPlaying && hideLogoDuringTrailer)) {
+            if (shouldShowLogo) {
                 AsyncImage(
                     model = logoModel,
                     contentDescription = meta.name,
+                    onError = { logoLoadFailed = true },
                     modifier = Modifier
                         .height(logoHeight)
                         .fillMaxWidth(logoMaxWidth)
@@ -190,7 +211,7 @@ fun HeroContentSection(
                 exit = fadeOut(tween(300))
             ) {
                 Text(
-                    text = "Press back to exit trailer",
+                    text = stringResource(R.string.hero_press_back_trailer),
                     style = MaterialTheme.typography.labelMedium,
                     color = NuvioColors.TextTertiary,
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -210,13 +231,17 @@ fun HeroContentSection(
                     ) {
                         PlayButton(
                             text = nextToWatch?.displayText ?: when {
-                                nextEpisode != null -> "Play S${nextEpisode.season}, E${nextEpisode.episode}"
-                                else -> "Play"
+                                nextEpisode != null -> stringResource(R.string.hero_play_episode, nextEpisode.season ?: 0, nextEpisode.episode ?: 0)
+                                else -> stringResource(R.string.hero_play)
                             },
                             onClick = onPlayClick,
+                            onLongPress = onPlayLongPress,
                             focusRequester = playButtonFocusRequester,
                             restoreFocusToken = restorePlayFocusToken,
-                            onFocusRestored = onPlayFocusRestored
+                            onFocusRestored = {
+                                onHeroActionFocused()
+                                onPlayFocusRestored()
+                            }
                         )
 
                         ActionIconButton(
@@ -226,9 +251,10 @@ fun HeroContentSection(
                             } else {
                                 null
                             },
-                            contentDescription = if (isInLibrary) "Remove from library" else "Add to library",
+                            contentDescription = if (isInLibrary) stringResource(R.string.hero_remove_from_library) else stringResource(R.string.hero_add_to_library),
                             onClick = onToggleLibrary,
-                            onLongPress = onLibraryLongPress
+                            onLongPress = onLibraryLongPress,
+                            onFocused = onHeroActionFocused
                         )
 
                         if (meta.apiType == "movie") {
@@ -239,23 +265,25 @@ fun HeroContentSection(
                                     Icons.Default.VisibilityOff
                                 },
                                 contentDescription = if (isMovieWatched) {
-                                    "Mark as unwatched"
+                                    stringResource(R.string.hero_mark_unwatched)
                                 } else {
-                                    "Mark as watched"
+                                    stringResource(R.string.hero_mark_watched)
                                 },
                                 onClick = onToggleMovieWatched,
                                 enabled = !isMovieWatchedPending,
                                 selected = isMovieWatched,
                                 selectedContainerColor = Color.White,
-                                selectedContentColor = Color.Black
+                                selectedContentColor = Color.Black,
+                                onFocused = onHeroActionFocused
                             )
                         }
 
                         if (trailerAvailable) {
                             ActionIconButtonPainter(
                                 painter = trailerPainter,
-                                contentDescription = "Play trailer",
-                                onClick = onTrailerClick
+                                contentDescription = stringResource(R.string.hero_play_trailer),
+                                onClick = onTrailerClick,
+                                onFocused = onHeroActionFocused
                             )
                         }
                     }
@@ -293,7 +321,7 @@ fun HeroContentSection(
                         )
                     }
 
-                    MetaInfoRow(meta = meta, hideImdbRating = hideMetaInfoImdb)
+                    MetaInfoRow(meta = meta, hideImdbRating = hideMetaInfoImdb, showFullReleaseDate = showFullReleaseDate)
                 }
             }
         }
@@ -305,10 +333,13 @@ fun HeroContentSection(
 private fun PlayButton(
     text: String,
     onClick: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
     focusRequester: FocusRequester? = null,
     restoreFocusToken: Int = 0,
     onFocusRestored: () -> Unit = {}
 ) {
+    var longPressTriggered by remember { mutableStateOf(false) }
+
     LaunchedEffect(restoreFocusToken) {
         if (restoreFocusToken > 0 && focusRequester != null) {
             focusRequester.requestFocusAfterFrames()
@@ -321,13 +352,50 @@ private fun PlayButton(
     )
 
     Button(
-        onClick = onClick,
+        onClick = {
+            if (longPressTriggered) {
+                longPressTriggered = false
+            } else {
+                onClick()
+            }
+        },
         modifier = Modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged {
                 if (it.isFocused) {
                     onFocusRestored()
                 }
+            }
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (onLongPress != null && native.action == AndroidKeyEvent.ACTION_DOWN) {
+                    if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
+                        longPressTriggered = true
+                        onLongPress()
+                        return@onPreviewKeyEvent true
+                    }
+
+                    val isSelectKey = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                        native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+                        native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+                    if ((native.isLongPress || native.repeatCount > 0) && isSelectKey) {
+                        longPressTriggered = true
+                        onLongPress()
+                        return@onPreviewKeyEvent true
+                    }
+                }
+
+                if (native.action == AndroidKeyEvent.ACTION_UP && longPressTriggered) {
+                    val isSelectKey = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                        native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+                        native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
+                        native.keyCode == AndroidKeyEvent.KEYCODE_MENU
+                    if (isSelectKey) {
+                        longPressTriggered = false
+                        return@onPreviewKeyEvent true
+                    }
+                }
+                false
             }
             .focusProperties { up = FocusRequester.Cancel },
         colors = ButtonDefaults.colors(
@@ -370,6 +438,7 @@ private fun ActionIconButtonPainter(
     painter: Painter,
     contentDescription: String,
     onClick: () -> Unit,
+    onFocused: () -> Unit = {},
     enabled: Boolean = true
 ) {
     IconButton(
@@ -377,12 +446,15 @@ private fun ActionIconButtonPainter(
         enabled = enabled,
         modifier = Modifier
             .size(48.dp)
+            .onFocusChanged { state ->
+                if (state.isFocused) onFocused()
+            }
             .focusProperties { up = FocusRequester.Cancel },
         colors = IconButtonDefaults.colors(
             containerColor = NuvioColors.BackgroundCard,
             focusedContainerColor = NuvioColors.Secondary,
             contentColor = NuvioColors.TextPrimary,
-            focusedContentColor = NuvioColors.OnPrimary
+            focusedContentColor = NuvioColors.OnSecondary
         ),
         border = IconButtonDefaults.border(
             focusedBorder = Border(
@@ -413,7 +485,8 @@ private fun ActionIconButton(
     enabled: Boolean = true,
     selected: Boolean = false,
     selectedContainerColor: Color = Color(0xFF7CFF9B),
-    selectedContentColor: Color = Color.Black
+    selectedContentColor: Color = Color.Black,
+    onFocused: () -> Unit = {}
 ) {
     var longPressTriggered by remember { mutableStateOf(false) }
 
@@ -428,6 +501,9 @@ private fun ActionIconButton(
         enabled = enabled,
         modifier = Modifier
             .size(48.dp)
+            .onFocusChanged { state ->
+                if (state.isFocused) onFocused()
+            }
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
                 if (onLongPress != null && native.action == AndroidKeyEvent.ACTION_DOWN) {
@@ -452,7 +528,10 @@ private fun ActionIconButton(
                         native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
                         native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
                         native.keyCode == AndroidKeyEvent.KEYCODE_MENU
-                    if (isSelectKey) return@onPreviewKeyEvent true
+                    if (isSelectKey) {
+                        longPressTriggered = false
+                        return@onPreviewKeyEvent true
+                    }
                 }
                 false
             }
@@ -461,7 +540,7 @@ private fun ActionIconButton(
             containerColor = if (selected) selectedContainerColor else NuvioColors.BackgroundCard,
             focusedContainerColor = NuvioColors.Secondary,
             contentColor = if (selected) selectedContentColor else NuvioColors.TextPrimary,
-            focusedContentColor = NuvioColors.OnPrimary
+            focusedContentColor = NuvioColors.OnSecondary
         ),
         border = IconButtonDefaults.border(
             focusedBorder = Border(
@@ -492,13 +571,21 @@ private fun ActionIconButton(
 @Composable
 private fun MetaInfoRow(
     meta: Meta,
-    hideImdbRating: Boolean
+    hideImdbRating: Boolean,
+    showFullReleaseDate: Boolean = true
 ) {
     val context = LocalContext.current
     val genresText = remember(meta.genres) { meta.genres.joinToString(" • ") }
     val runtimeText = remember(meta.runtime) { meta.runtime?.let { formatRuntime(it) } }
-    val yearText = remember(meta.releaseInfo) {
-        meta.releaseInfo?.split("-")?.firstOrNull() ?: meta.releaseInfo
+    val yearText = remember(meta.releaseInfo, meta.released, meta.type, showFullReleaseDate) {
+        if (showFullReleaseDate && meta.type == ContentType.MOVIE) {
+            meta.released
+                ?.let { runCatching { java.time.OffsetDateTime.parse(it).toLocalDate() }.getOrNull() }
+                ?.let { val locale = java.util.Locale.getDefault(); java.text.SimpleDateFormat(android.text.format.DateFormat.getBestDateTimePattern(locale, "dMMMMy"), locale).format(java.util.Date(it.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli())) }
+                ?: meta.releaseInfo?.split("-")?.firstOrNull() ?: meta.releaseInfo
+        } else {
+            meta.releaseInfo?.split("-")?.firstOrNull() ?: meta.releaseInfo
+        }
     }
     val imdbRating = if (hideImdbRating) null else meta.imdbRating
     val shouldShowImdbRating = imdbRating != null
@@ -508,16 +595,43 @@ private fun MetaInfoRow(
             .decoderFactory(SvgDecoder.Factory())
             .build()
     }
-    val secondaryItems = remember(meta.ageRating, meta.country, meta.language) {
+    val ageRatingBadge = remember(meta.ageRating) {
+        meta.ageRating?.trim()?.takeIf { it.isNotBlank() }
+    }
+    val strStatusEnded = stringResource(R.string.series_status_ended)
+    val strStatusContinuing = stringResource(R.string.series_status_continuing)
+    val strStatusCurrent = stringResource(R.string.series_status_current)
+    val strStatusCancelled = stringResource(R.string.series_status_cancelled)
+    val strStatusReleased = stringResource(R.string.series_status_released)
+    val strStatusPlanned = stringResource(R.string.series_status_planned)
+    val strStatusRumored = stringResource(R.string.series_status_rumored)
+    val strStatusInProduction = stringResource(R.string.series_status_in_production)
+    val strStatusPostProduction = stringResource(R.string.series_status_post_production)
+    val statusBadge = remember(meta.status) {
+        when (meta.status?.trim()?.lowercase()) {
+            "ended" -> strStatusEnded.uppercase()
+            "continuing", "returning series" -> strStatusContinuing.uppercase()
+            "current" -> strStatusCurrent.uppercase()
+            "cancelled", "canceled" -> strStatusCancelled.uppercase()
+            "released" -> strStatusReleased.uppercase()
+            "planned" -> strStatusPlanned.uppercase()
+            "rumored" -> strStatusRumored.uppercase()
+            "in production" -> strStatusInProduction.uppercase()
+            "post production" -> strStatusPostProduction.uppercase()
+            else -> meta.status?.trim()?.takeIf { it.isNotBlank() }?.uppercase()
+        }
+    }
+    Log.d("HeroBadge", "name=${meta.name} ageRating=${meta.ageRating} status=${meta.status} ageRatingBadge=$ageRatingBadge statusBadge=$statusBadge")
+    val secondaryItems = remember(runtimeText, meta.country, meta.language) {
         buildList<String> {
-            meta.ageRating?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
-            meta.country?.trim()?.takeIf { it.isNotBlank() }?.let { add(it) }
+            runtimeText?.takeIf { it.isNotBlank() }?.let { add(it) }
+            meta.country?.trim()?.takeIf { it.isNotBlank() }?.let { add(normalizeCountryLabel(it)) }
             meta.language?.trim()?.takeIf { it.isNotBlank() }?.let { add(it.uppercase()) }
         }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Primary row: Genres, Runtime, Release, Ratings
+        // Primary row: Genres, Release, Ratings
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -529,17 +643,9 @@ private fun MetaInfoRow(
                     style = MaterialTheme.typography.labelLarge,
                     color = NuvioTheme.extendedColors.textSecondary
                 )
-                MetaInfoDivider()
-            }
-
-            // Runtime
-            runtimeText?.let { text ->
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = NuvioTheme.extendedColors.textSecondary
-                )
-                MetaInfoDivider()
+                if (yearText != null || shouldShowImdbRating) {
+                    MetaInfoDivider()
+                }
             }
 
             yearText?.let { year ->
@@ -560,7 +666,7 @@ private fun MetaInfoRow(
                 ) {
                     AsyncImage(
                         model = imdbModel,
-                        contentDescription = "Rating",
+                        contentDescription = stringResource(R.string.cd_rating),
                         modifier = Modifier.size(30.dp),
                         contentScale = ContentScale.Fit
                     )
@@ -574,17 +680,38 @@ private fun MetaInfoRow(
             }
         }
 
-        // Secondary row: Age Rating, Country, Language
-        if (secondaryItems.isNotEmpty()) {
+        // Secondary row: Runtime, Age Rating, Status, Country, Language
+        if (ageRatingBadge != null || statusBadge != null || secondaryItems.isNotEmpty()) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (ageRatingBadge != null && statusBadge != null) {
+                    CombinedMetaBadge(
+                        leftText = ageRatingBadge,
+                        leftColor = NuvioColors.TextSecondary,
+                        rightText = statusBadge,
+                        rightColor = NuvioColors.TextPrimary
+                    )
+                } else {
+                    ageRatingBadge?.let { badge ->
+                        HeroMetaBadge(text = badge)
+                    }
+                    statusBadge?.let { badge ->
+                        HeroMetaBadge(
+                            text = badge,
+                            contentColor = NuvioColors.TextPrimary
+                        )
+                    }
+                }
+                if ((ageRatingBadge != null || statusBadge != null) && secondaryItems.isNotEmpty()) {
+                    MetaInfoDivider()
+                }
                 secondaryItems.forEachIndexed { index, value ->
                     Text(
                         text = value,
                         style = MaterialTheme.typography.labelMedium,
-                        color = NuvioTheme.extendedColors.textTertiary
+                        color = NuvioColors.TextPrimary
                     )
                     if (index < secondaryItems.lastIndex) {
                         MetaInfoDivider()
@@ -593,6 +720,82 @@ private fun MetaInfoRow(
             }
         }
     }
+}
+
+@Composable
+private fun HeroMetaBadge(
+    text: String,
+    contentColor: Color = NuvioColors.TextSecondary
+) {
+    Box(
+        modifier = Modifier
+            .border(
+                border = BorderStroke(1.dp, contentColor.copy(alpha = 0.55f)),
+                shape = RoundedCornerShape(6.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = contentColor,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun CombinedMetaBadge(
+    leftText: String,
+    leftColor: Color = NuvioColors.TextSecondary,
+    rightText: String,
+    rightColor: Color = NuvioColors.TextPrimary
+) {
+    val dividerColor = leftColor.copy(alpha = 0.55f)
+    Row(
+        modifier = Modifier
+            .border(
+                border = BorderStroke(1.dp, dividerColor),
+                shape = RoundedCornerShape(6.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = leftText,
+            style = MaterialTheme.typography.labelMedium,
+            color = leftColor,
+            maxLines = 1
+        )
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(12.dp)
+                .background(dividerColor)
+        )
+        Text(
+            text = rightText,
+            style = MaterialTheme.typography.labelMedium,
+            color = rightColor,
+            maxLines = 1
+        )
+    }
+}
+
+private fun normalizeCountryLabel(raw: String): String {
+    val displayLocale = Locale.getDefault()
+    return raw
+        .split(",")
+        .joinToString(", ") { part ->
+            val code = part.trim()
+            if (code.matches(Regex("[A-Za-z]{2}"))) {
+                Locale("", code).getDisplayCountry(displayLocale).takeIf { it.isNotBlank() } ?: code
+            } else {
+                code
+            }
+        }
 }
 
 @Composable
@@ -686,7 +889,30 @@ private fun formatMDBListRating(provider: String, rating: Double): String {
 }
 
 private fun formatRuntime(runtime: String): String {
-    val minutes = runtime.filter { it.isDigit() }.toIntOrNull() ?: return runtime
+    val trimmed = runtime.trim()
+    // Already in "Xh Ym" or "Xh" format
+    if (trimmed.contains('h') || trimmed.contains('m')) {
+        val hours = Regex("(\\d+)\\s*h").find(trimmed)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val mins = Regex("(\\d+)\\s*m").find(trimmed)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val total = hours * 60 + mins
+        if (total > 0) return if (total >= 60) {
+            val h = total / 60; val m = total % 60
+            if (m > 0) "${h}h ${m}m" else "${h}h"
+        } else "${total}m"
+    }
+    // "H:MM" or "HH:MM" format
+    if (trimmed.contains(':')) {
+        val parts = trimmed.split(':')
+        val hours = parts.getOrNull(0)?.toIntOrNull() ?: 0
+        val mins = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        val total = hours * 60 + mins
+        if (total > 0) return if (total >= 60) {
+            val m = total % 60
+            if (m > 0) "${hours}h ${m}m" else "${hours}h"
+        } else "${total}m"
+    }
+    // Plain number (minutes)
+    val minutes = trimmed.filter { it.isDigit() }.toIntOrNull() ?: return runtime
     return if (minutes >= 60) {
         val hours = minutes / 60
         val mins = minutes % 60
