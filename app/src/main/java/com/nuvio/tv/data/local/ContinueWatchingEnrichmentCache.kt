@@ -54,6 +54,28 @@ data class CachedNextUpItem(
     val seedEpisode: Int? = null
 )
 
+data class CachedInProgressItem(
+    val contentId: String,
+    val contentType: String,
+    val name: String,
+    val poster: String?,
+    val backdrop: String?,
+    val logo: String?,
+    val videoId: String,
+    val season: Int?,
+    val episode: Int?,
+    val episodeTitle: String?,
+    val position: Long,
+    val duration: Long,
+    val lastWatched: Long,
+    val progressPercent: Float?,
+    val episodeThumbnail: String? = null,
+    val episodeDescription: String? = null,
+    val episodeImdbRating: Float? = null,
+    val genres: List<String> = emptyList(),
+    val releaseInfo: String? = null
+)
+
 @Singleton
 class ContinueWatchingEnrichmentCache @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -140,6 +162,40 @@ class ContinueWatchingEnrichmentCache @Inject constructor(
                 file.writeText(gson.toJson(items))
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to write next-up cache: ${e.message}")
+            }
+        }
+    }
+
+    // --- In-progress snapshot cache ---
+
+    private fun inProgressFile(): File {
+        val profileId = profileManager.activeProfileId.value
+        val dir = File(context.cacheDir, "cw_enrichment")
+        dir.mkdirs()
+        return File(dir, "inprogress_${profileId}.json")
+    }
+
+    suspend fun getInProgressSnapshot(): List<CachedInProgressItem> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            try {
+                val file = inProgressFile()
+                if (!file.exists()) return@withContext emptyList()
+                gson.fromJson(file.readText(), object : TypeToken<List<CachedInProgressItem>>() {}.type)
+                    ?: emptyList()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to read in-progress cache: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun saveInProgressSnapshot(items: List<CachedInProgressItem>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            try {
+                val file = inProgressFile()
+                file.writeText(gson.toJson(items))
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to write in-progress cache: ${e.message}")
             }
         }
     }

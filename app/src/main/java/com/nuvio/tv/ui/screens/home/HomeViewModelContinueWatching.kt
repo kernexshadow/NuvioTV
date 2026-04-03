@@ -264,40 +264,75 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 )
 
                 // Load cached enrichment data to avoid flicker on lightweight render
-                val (cachedEnrichment, cachedNextUp) = coroutineScope {
+                val (cachedEnrichment, cachedNextUp, cachedInProgress) = coroutineScope {
                     val enrichmentDeferred = async(Dispatchers.IO) {
                         runCatching { cwEnrichmentCache.getAll() }.getOrDefault(emptyMap())
                     }
                     val nextUpDeferred = async(Dispatchers.IO) {
                         runCatching { cwEnrichmentCache.getNextUpSnapshot() }.getOrDefault(emptyList())
                     }
-                    enrichmentDeferred.await() to nextUpDeferred.await()
+                    val inProgressDeferred = async(Dispatchers.IO) {
+                        runCatching { cwEnrichmentCache.getInProgressSnapshot() }.getOrDefault(emptyList())
+                    }
+                    Triple(enrichmentDeferred.await(), nextUpDeferred.await(), inProgressDeferred.await())
                 }
                 val inProgressOnly = buildList {
-                    deduplicateInProgress(
+                    val liveInProgress = deduplicateInProgress(
                         recentItems.filter { shouldTreatAsInProgressForContinueWatching(it) }
-                    ).forEach { progress ->
-                        val cached = cachedEnrichment[progress.contentId]
-                        val displayProgress = if (cached != null && (cached.backdrop != null || cached.poster != null || cached.logo != null || cached.name != null)) {
-                            progress.copy(
-                                backdrop = cached.backdrop ?: progress.backdrop,
-                                poster = cached.poster ?: progress.poster,
-                                logo = cached.logo ?: progress.logo,
-                                name = cached.name?.takeIf { it.isNotBlank() } ?: progress.name
+                    )
+                    if (liveInProgress.isNotEmpty()) {
+                        liveInProgress.forEach { progress ->
+                            val cached = cachedEnrichment[progress.contentId]
+                            val displayProgress = if (cached != null && (cached.backdrop != null || cached.poster != null || cached.logo != null || cached.name != null)) {
+                                progress.copy(
+                                    backdrop = cached.backdrop ?: progress.backdrop,
+                                    poster = cached.poster ?: progress.poster,
+                                    logo = cached.logo ?: progress.logo,
+                                    name = cached.name?.takeIf { it.isNotBlank() } ?: progress.name
+                                )
+                            } else {
+                                progress
+                            }
+                            add(
+                                ContinueWatchingItem.InProgress(
+                                    progress = displayProgress,
+                                    episodeThumbnail = cached?.episodeThumbnail,
+                                    episodeDescription = cached?.episodeDescription,
+                                    episodeImdbRating = cached?.episodeImdbRating,
+                                    genres = cached?.genres ?: emptyList(),
+                                    releaseInfo = cached?.releaseInfo
+                                )
                             )
-                        } else {
-                            progress
                         }
-                        add(
-                            ContinueWatchingItem.InProgress(
-                                progress = displayProgress,
-                                episodeThumbnail = cached?.episodeThumbnail,
-                                episodeDescription = cached?.episodeDescription,
-                                episodeImdbRating = cached?.episodeImdbRating,
-                                genres = cached?.genres ?: emptyList(),
-                                releaseInfo = cached?.releaseInfo
+                    } else if (useTraktProgress && cachedInProgress.isNotEmpty()) {
+                        // Trakt hasn't responded yet — restore last known in-progress items from disk.
+                        cachedInProgress.forEach { cached ->
+                            add(
+                                ContinueWatchingItem.InProgress(
+                                    progress = WatchProgress(
+                                        contentId = cached.contentId,
+                                        contentType = cached.contentType,
+                                        name = cached.name,
+                                        poster = cached.poster,
+                                        backdrop = cached.backdrop,
+                                        logo = cached.logo,
+                                        videoId = cached.videoId,
+                                        season = cached.season,
+                                        episode = cached.episode,
+                                        episodeTitle = cached.episodeTitle,
+                                        position = cached.position,
+                                        duration = cached.duration,
+                                        lastWatched = cached.lastWatched,
+                                        progressPercent = cached.progressPercent
+                                    ),
+                                    episodeThumbnail = cached.episodeThumbnail,
+                                    episodeDescription = cached.episodeDescription,
+                                    episodeImdbRating = cached.episodeImdbRating,
+                                    genres = cached.genres,
+                                    releaseInfo = cached.releaseInfo
+                                )
                             )
-                        )
+                        }
                     }
                 }
                 debug.recordInProgressCount(inProgressOnly.size)
@@ -1647,12 +1682,42 @@ private fun HomeViewModel.persistLocalContinueWatchingMetadata(
         )
     }
 
+    // Build in-progress snapshot for cache
+    val inProgressSnapshot = enrichedItems.mapNotNull { item ->
+        val ip = item as? ContinueWatchingItem.InProgress ?: return@mapNotNull null
+        val p = ip.progress
+        com.nuvio.tv.data.local.CachedInProgressItem(
+            contentId = p.contentId,
+            contentType = p.contentType,
+            name = p.name,
+            poster = p.poster,
+            backdrop = p.backdrop,
+            logo = p.logo,
+            videoId = p.videoId,
+            season = p.season,
+            episode = p.episode,
+            episodeTitle = p.episodeTitle,
+            position = p.position,
+            duration = p.duration,
+            lastWatched = p.lastWatched,
+            progressPercent = p.progressPercent,
+            episodeThumbnail = ip.episodeThumbnail,
+            episodeDescription = ip.episodeDescription,
+            episodeImdbRating = ip.episodeImdbRating,
+            genres = ip.genres,
+            releaseInfo = ip.releaseInfo
+        )
+    }
+
     viewModelScope.launch(Dispatchers.IO) {
         if (enrichmentEntries.isNotEmpty()) {
             runCatching { cwEnrichmentCache.save(enrichmentEntries) }
         }
         if (nextUpSnapshot.isNotEmpty()) {
             runCatching { cwEnrichmentCache.saveNextUpSnapshot(nextUpSnapshot) }
+        }
+        if (inProgressSnapshot.isNotEmpty()) {
+            runCatching { cwEnrichmentCache.saveInProgressSnapshot(inProgressSnapshot) }
         }
         val persistable = localItems.filter { it.hasRenderableMetadata() }
         if (persistable.isEmpty()) return@launch
