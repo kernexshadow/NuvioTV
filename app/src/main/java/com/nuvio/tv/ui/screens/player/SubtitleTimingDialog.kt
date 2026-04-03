@@ -32,6 +32,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -40,8 +41,18 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.Subtitle
 import com.nuvio.tv.ui.components.LoadingIndicator
-import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
+import kotlin.math.abs
+
+private enum class SyncStage {
+    WAIT_FOR_SYNC,
+    PICK_LINE
+}
+
+private const val VISIBLE_CUE_ROWS = 6
+private val CUE_ROW_HEIGHT = 56.dp
+private val CUE_ROW_SPACING = 8.dp
+private val ASS_OVERRIDE_TAG_REGEX = Regex("""\{\\[^{}]*\}""")
 
 @Composable
 internal fun SubtitleTimingDialog(
@@ -53,10 +64,9 @@ internal fun SubtitleTimingDialog(
     errorMessage: String?,
     isLoadingCues: Boolean,
     onCaptureNow: () -> Unit,
-    onCueSelected: (SubtitleSyncCue) -> Unit,
-    onDismiss: () -> Unit
+    onCueSelected: (SubtitleSyncCue) -> Unit
 ) {
-    val captureFocusRequester = remember { FocusRequester() }
+    val syncButtonFocusRequester = remember { FocusRequester() }
     val anchorMs = capturedVideoMs ?: currentPositionMs
     val visibleCues = remember(cues, anchorMs) {
         selectAutoSyncVisibleCues(
@@ -64,35 +74,54 @@ internal fun SubtitleTimingDialog(
             anchorTimeMs = anchorMs
         )
     }
+    var stage by remember(capturedVideoMs) {
+        mutableStateOf(if (capturedVideoMs != null) SyncStage.PICK_LINE else SyncStage.WAIT_FOR_SYNC)
+    }
 
-    LaunchedEffect(Unit) {
-        delay(120)
-        try {
-            captureFocusRequester.requestFocus()
-        } catch (_: Exception) {
-            // Focus target may not be attached yet.
+    LaunchedEffect(capturedVideoMs) {
+        stage = if (capturedVideoMs != null) SyncStage.PICK_LINE else SyncStage.WAIT_FOR_SYNC
+    }
+
+    LaunchedEffect(stage) {
+        if (stage == SyncStage.WAIT_FOR_SYNC) {
+            delay(120)
+            try {
+                syncButtonFocusRequester.requestFocus()
+            } catch (_: Exception) {
+                // Focus target may not be attached yet.
+            }
         }
     }
 
     Box(
         modifier = Modifier
-            .width(760.dp)
+            .fillMaxWidth(if (stage == SyncStage.PICK_LINE) 0.94f else 0.6f)
             .clip(RoundedCornerShape(24.dp))
-            .background(Color(0xA61A1A1A))
+            .background(
+                if (stage == SyncStage.PICK_LINE) {
+                    Color(0x2E090909)
+                } else {
+                    Color(0x47090909)
+                }
+            )
+            .padding(
+                horizontal = if (stage == SyncStage.PICK_LINE) 26.dp else 34.dp,
+                vertical = if (stage == SyncStage.PICK_LINE) 20.dp else 30.dp
+            )
     ) {
-        Box(
-            modifier = Modifier.padding(24.dp)
-        ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "Sync Subtitles by Line",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White
+        when (stage) {
+            SyncStage.WAIT_FOR_SYNC -> {
+                SyncPromptPanel(
+                    onCaptureNow = {
+                        stage = SyncStage.PICK_LINE
+                        onCaptureNow()
+                    },
+                    focusRequester = syncButtonFocusRequester
                 )
+            }
 
-                AutoSyncSection(
+            SyncStage.PICK_LINE -> {
+                CueSelectionPanel(
                     anchorMs = anchorMs,
                     selectedAddonSubtitle = selectedAddonSubtitle,
                     cues = visibleCues,
@@ -100,10 +129,7 @@ internal fun SubtitleTimingDialog(
                     statusMessage = statusMessage,
                     errorMessage = errorMessage,
                     isLoadingCues = isLoadingCues,
-                    onCaptureNow = onCaptureNow,
-                    onCueSelected = onCueSelected,
-                    onDismiss = onDismiss,
-                    captureFocusRequester = captureFocusRequester
+                    onCueSelected = onCueSelected
                 )
             }
         }
@@ -111,7 +137,43 @@ internal fun SubtitleTimingDialog(
 }
 
 @Composable
-private fun AutoSyncSection(
+private fun SyncPromptPanel(
+    onCaptureNow: () -> Unit,
+    focusRequester: FocusRequester
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Text(
+            text = "Press Sync when you hear a dialog line.",
+            style = MaterialTheme.typography.headlineSmall,
+            color = Color.White
+        )
+
+        Card(
+            onClick = onCaptureNow,
+            modifier = Modifier
+                .focusRequester(focusRequester),
+            colors = CardDefaults.colors(
+                containerColor = Color.White.copy(alpha = 0.14f),
+                focusedContainerColor = Color.White.copy(alpha = 0.26f)
+            ),
+            shape = CardDefaults.shape(RoundedCornerShape(14.dp))
+        ) {
+            Text(
+                text = "Sync",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = Color.White,
+                modifier = Modifier.padding(horizontal = 28.dp, vertical = 12.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun CueSelectionPanel(
     anchorMs: Long,
     selectedAddonSubtitle: Subtitle?,
     cues: List<SubtitleSyncCue>,
@@ -119,24 +181,18 @@ private fun AutoSyncSection(
     statusMessage: String?,
     errorMessage: String?,
     isLoadingCues: Boolean,
-    onCaptureNow: () -> Unit,
-    onCueSelected: (SubtitleSyncCue) -> Unit,
-    onDismiss: () -> Unit,
-    captureFocusRequester: FocusRequester
+    onCueSelected: (SubtitleSyncCue) -> Unit
 ) {
-    val hasCapturedMoment = capturedVideoMs != null
     val nearestCueIndex = remember(cues, anchorMs) {
-        cues.indices.minByOrNull { index ->
-            kotlin.math.abs(cues[index].startTimeMs - anchorMs)
-        } ?: 0
+        cues.indices.minByOrNull { index -> abs(cues[index].startTimeMs - anchorMs) } ?: 0
     }
     val cueListState = rememberLazyListState()
     val nearestCueFocusRequester = remember(capturedVideoMs, nearestCueIndex, cues.size) { FocusRequester() }
 
-    LaunchedEffect(hasCapturedMoment, nearestCueIndex, cues.size) {
-        if (hasCapturedMoment && cues.isNotEmpty()) {
+    LaunchedEffect(capturedVideoMs, nearestCueIndex, cues.size) {
+        if (capturedVideoMs != null && cues.isNotEmpty()) {
             cueListState.scrollToItem(nearestCueIndex.coerceIn(0, cues.lastIndex))
-            delay(40)
+            delay(50)
             try {
                 nearestCueFocusRequester.requestFocus()
             } catch (_: Exception) {
@@ -145,117 +201,40 @@ private fun AutoSyncSection(
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "Press Sync Now when you hear the line, then pick the matching subtitle.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.7f)
-        )
-
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Around ${formatAutoSyncTimestamp(anchorMs)} (+/-3m00s)",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.72f)
+                text = if (capturedVideoMs != null) {
+                    "Captured at ${formatAutoSyncTimestamp(capturedVideoMs)}"
+                } else {
+                    "Capturing..."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.9f)
             )
-            Card(
-                onClick = onDismiss,
-                colors = CardDefaults.colors(
-                    containerColor = Color.White.copy(alpha = 0.08f),
-                    focusedContainerColor = Color.White.copy(alpha = 0.18f)
-                ),
-                shape = CardDefaults.shape(RoundedCornerShape(10.dp))
-            ) {
+
+            if (selectedAddonSubtitle != null) {
                 Text(
-                    text = "Close",
+                    text = Subtitle.languageCodeToName(selectedAddonSubtitle.lang),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    color = Color.White.copy(alpha = 0.68f)
                 )
             }
-        }
-
-        if (selectedAddonSubtitle == null) {
-            Text(
-                text = "Select an addon subtitle track first (Subtitles > Addons).",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFFFB37A)
-            )
-            return
-        }
-
-        Text(
-            text = "Source: ${Subtitle.languageCodeToName(selectedAddonSubtitle.lang)} (${selectedAddonSubtitle.addonName})",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.8f)
-        )
-
-        Card(
-            onClick = onCaptureNow,
-            modifier = Modifier.focusRequester(captureFocusRequester),
-            colors = CardDefaults.colors(
-                containerColor = NuvioColors.Secondary.copy(alpha = 0.22f),
-                focusedContainerColor = NuvioColors.Secondary.copy(alpha = 0.35f)
-            ),
-            shape = CardDefaults.shape(RoundedCornerShape(12.dp))
-        ) {
-            Text(
-                text = "Sync Now",
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color.White,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-            )
-        }
-
-        if (capturedVideoMs != null) {
-            Text(
-                text = "Captured: ${formatAutoSyncTimestamp(capturedVideoMs)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.78f)
-            )
         }
 
         if (!statusMessage.isNullOrBlank()) {
             Text(
                 text = statusMessage,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF8CE4A1)
+                color = Color(0xFF9BE2AF)
             )
-        }
-
-        if (!hasCapturedMoment) {
-            Text(
-                text = "Subtitle lines stay hidden until you press Sync Now.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.65f)
-            )
-            return
-        }
-
-        if (isLoadingCues) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(240.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    LoadingIndicator(modifier = Modifier.size(24.dp))
-                    Text(
-                        text = "Loading subtitle lines...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.65f)
-                    )
-                }
-            }
-            return
         }
 
         if (!errorMessage.isNullOrBlank()) {
@@ -267,38 +246,81 @@ private fun AutoSyncSection(
             return
         }
 
+        if (selectedAddonSubtitle == null) {
+            Text(
+                text = "Select an addon subtitle track first.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFFFB37A)
+            )
+            return
+        }
+
+        if (isLoadingCues) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(360.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    LoadingIndicator(modifier = Modifier.size(24.dp))
+                    Text(
+                        text = "Loading subtitle lines...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+                }
+            }
+            return
+        }
+
         if (cues.isEmpty()) {
             Text(
-                text = "No lines around this position. Capture now or move playback and reload.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.65f)
+                text = "No subtitle lines were found around this moment.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.72f)
             )
             return
         }
 
         LazyColumn(
-            modifier = Modifier.height(260.dp),
+            modifier = Modifier.height(
+                (CUE_ROW_HEIGHT * VISIBLE_CUE_ROWS) +
+                    (CUE_ROW_SPACING * (VISIBLE_CUE_ROWS - 1)) +
+                    8.dp
+            ),
             state = cueListState,
-            contentPadding = PaddingValues(vertical = 2.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            contentPadding = PaddingValues(vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(CUE_ROW_SPACING)
         ) {
             itemsIndexed(
                 items = cues,
                 key = { _, cue -> "${cue.startTimeMs}:${cue.text.hashCode()}" }
             ) { index, cue ->
-                AutoSyncCueRow(
+                CueRow(
                     cue = cue,
+                    rowHeight = CUE_ROW_HEIGHT,
                     focusRequester = if (index == nearestCueIndex) nearestCueFocusRequester else null,
                     onClick = { onCueSelected(cue) }
                 )
             }
         }
+
+        Text(
+            text = "Press Back to cancel",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.55f)
+        )
     }
 }
 
 @Composable
-private fun AutoSyncCueRow(
+private fun CueRow(
     cue: SubtitleSyncCue,
+    rowHeight: Dp,
     focusRequester: FocusRequester?,
     onClick: () -> Unit
 ) {
@@ -312,43 +334,55 @@ private fun AutoSyncCueRow(
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
             containerColor = if (isFocused) {
-                Color.White.copy(alpha = 0.14f)
+                Color.White.copy(alpha = 0.18f)
             } else {
-                Color.White.copy(alpha = 0.06f)
+                Color.White.copy(alpha = 0.07f)
             },
-            focusedContainerColor = Color.White.copy(alpha = 0.14f)
+            focusedContainerColor = Color.White.copy(alpha = 0.18f)
         ),
         shape = CardDefaults.shape(RoundedCornerShape(12.dp))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .height(rowHeight)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.Top
         ) {
             Text(
                 text = formatAutoSyncTimestamp(cue.startTimeMs),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.72f),
-                modifier = Modifier.width(58.dp)
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = Color.White.copy(alpha = 0.78f),
+                modifier = Modifier.width(72.dp)
             )
             Text(
-                text = cue.text,
-                style = MaterialTheme.typography.bodyMedium,
+                text = sanitizeCuePreviewText(cue.text),
+                style = MaterialTheme.typography.bodyLarge,
                 color = Color.White,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
+private fun sanitizeCuePreviewText(text: String): String {
+    val cleaned = text
+        .replace(ASS_OVERRIDE_TAG_REGEX, "")
+        .replace("\\N", " ")
+        .replace("\\n", " ")
+        .replace("\n", " ")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+    return if (cleaned.isNotBlank()) cleaned else text.trim()
+}
+
 private fun selectAutoSyncVisibleCues(
     cues: List<SubtitleSyncCue>,
     anchorTimeMs: Long,
     marginMs: Long = 180_000L,
-    maxVisible: Int = 70
+    maxVisible: Int = 90
 ): List<SubtitleSyncCue> {
     if (cues.isEmpty()) return emptyList()
     val sorted = cues.sortedBy { it.startTimeMs }
@@ -358,13 +392,13 @@ private fun selectAutoSyncVisibleCues(
     if (inWindow.isNotEmpty()) {
         if (inWindow.size <= maxVisible) return inWindow
         val centerIndex = inWindow.indices.minByOrNull { index ->
-            kotlin.math.abs(inWindow[index].startTimeMs - anchorTimeMs)
+            abs(inWindow[index].startTimeMs - anchorTimeMs)
         } ?: 0
         return takeCentered(inWindow, centerIndex, maxVisible)
     }
 
     val nearestIndex = sorted.indices.minByOrNull { index ->
-        kotlin.math.abs(sorted[index].startTimeMs - anchorTimeMs)
+        abs(sorted[index].startTimeMs - anchorTimeMs)
     } ?: 0
     return takeCentered(sorted, nearestIndex, maxVisible)
 }
@@ -377,7 +411,7 @@ private fun takeCentered(
     if (items.size <= maxVisible) return items
     val half = maxVisible / 2
     var start = (centerIndex - half).coerceAtLeast(0)
-    var end = (start + maxVisible).coerceAtMost(items.size)
+    val end = (start + maxVisible).coerceAtMost(items.size)
     if (end - start < maxVisible) {
         start = (end - maxVisible).coerceAtLeast(0)
     }

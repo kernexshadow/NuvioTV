@@ -1087,8 +1087,7 @@ fun PlayerScreen(
                 onCaptureNow = { viewModel.onEvent(PlayerEvent.OnCaptureSubtitleAutoSyncTime) },
                 onCueSelected = { cue ->
                     viewModel.onEvent(PlayerEvent.OnApplySubtitleAutoSyncCue(cue.startTimeMs))
-                },
-                onDismiss = { viewModel.onEvent(PlayerEvent.OnDismissSubtitleTimingDialog) }
+                }
             )
         }
 
