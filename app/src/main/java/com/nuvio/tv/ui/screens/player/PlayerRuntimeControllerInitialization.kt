@@ -114,15 +114,28 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 requestedLibassRenderType == AssRenderType.OVERLAY_CANVAS -> AssRenderType.EFFECTS_CANVAS
                 else -> requestedLibassRenderType
             }
-            val loadControl = DefaultLoadControl.Builder()
-                .setTargetBufferBytes(100 * 1024 * 1024)
-                .setBufferDurationsMs(
-                    DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                    70_000,
-                    DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                    5_000
-                )
-                .build()
+            val loadControl = if (isTorrentStream) {
+                // Reduced buffer for torrent streams to avoid requesting data far ahead
+                DefaultLoadControl.Builder()
+                    .setTargetBufferBytes(20 * 1024 * 1024)
+                    .setBufferDurationsMs(
+                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                        30_000,
+                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        3_000
+                    )
+                    .build()
+            } else {
+                DefaultLoadControl.Builder()
+                    .setTargetBufferBytes(100 * 1024 * 1024)
+                    .setBufferDurationsMs(
+                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                        70_000,
+                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        5_000
+                    )
+                    .build()
+            }
 
             
             trackSelector = DefaultTrackSelector(context).apply {

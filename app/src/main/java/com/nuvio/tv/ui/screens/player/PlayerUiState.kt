@@ -132,7 +132,16 @@ data class PlayerUiState(
     val aspectRatioIndicatorText: String = "",
     // Stream info overlay
     val showStreamInfoOverlay: Boolean = false,
-    val streamInfoData: StreamInfoData? = null
+    val streamInfoData: StreamInfoData? = null,
+    // Torrent streaming state
+    val isTorrentStream: Boolean = false,
+    val torrentDownloadSpeed: Long = 0L,
+    val torrentUploadSpeed: Long = 0L,
+    val torrentPeers: Int = 0,
+    val torrentSeeds: Int = 0,
+    val torrentBufferProgress: Float = 0f,
+    val torrentTotalProgress: Float = 0f,
+    val showTorrentStats: Boolean = false
 )
 
 data class TrackInfo(
@@ -219,6 +228,7 @@ sealed class PlayerEvent {
     data object OnToggleAspectRatio : PlayerEvent()
     data object OnShowStreamInfo : PlayerEvent()
     data object OnDismissStreamInfo : PlayerEvent()
+    data object OnToggleTorrentStats : PlayerEvent()
 }
 
 data class ParentalWarning(

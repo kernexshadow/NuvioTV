@@ -26,7 +26,9 @@ internal data class PlayerNavigationArgs(
     val startFromBeginning: Boolean,
     val addonName: String?,
     val addonLogo: String?,
-    val streamDescription: String?
+    val streamDescription: String?,
+    val infoHash: String?,
+    val fileIdx: Int?
 ) {
     companion object {
         fun from(savedStateHandle: SavedStateHandle): PlayerNavigationArgs {
@@ -59,7 +61,9 @@ internal data class PlayerNavigationArgs(
                 startFromBeginning = savedStateHandle.get<String>("startFromBeginning")?.toBooleanStrictOrNull() == true,
                 addonName = decodedOrNull("addonName"),
                 addonLogo = decodedOrNull("addonLogo"),
-                streamDescription = decodedOrNull("streamDescription")
+                streamDescription = decodedOrNull("streamDescription"),
+                infoHash = savedStateHandle.get<String>("infoHash")?.takeIf { it.isNotEmpty() },
+                fileIdx = savedStateHandle.get<String>("fileIdx")?.toIntOrNull()
             )
         }
     }

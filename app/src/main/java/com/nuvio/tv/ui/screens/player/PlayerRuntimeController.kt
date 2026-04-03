@@ -6,6 +6,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.nuvio.tv.core.plugin.PluginManager
+import com.nuvio.tv.core.torrent.TorrentEngine
 import com.nuvio.tv.data.local.NextEpisodeThresholdMode
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
@@ -49,6 +50,7 @@ class PlayerRuntimeController(
     internal val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
     internal val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     internal val trackPreferenceDataStore: com.nuvio.tv.data.local.TrackPreferenceDataStore,
+    internal val torrentEngine: TorrentEngine,
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope
 ) {
@@ -250,6 +252,12 @@ class PlayerRuntimeController(
     internal var libassPipelineSwitchInFlight: Boolean = false
     internal var hasDetectedAssSsaTrackForCurrentStream: Boolean = false
     internal var libassPipelineDecisionStreamUrl: String? = null
+    internal var torrentStreamJob: Job? = null
+    internal var torrentStateObserverJob: Job? = null
+    internal var isTorrentStream: Boolean = navigationArgs.infoHash != null
+    internal var currentInfoHash: String? = navigationArgs.infoHash
+    internal var currentFileIdx: Int? = navigationArgs.fileIdx
+
     internal var episodeStreamsJob: Job? = null
     internal var episodeStreamsCacheRequestKey: String? = null
     internal val streamCacheKey: String? by lazy {
@@ -272,6 +280,7 @@ class PlayerRuntimeController(
 
     fun onCleared() {
         releasePlayer()
+        stopTorrentStream()
         mediaSourceFactory.shutdown()
         sourceChipErrorDismissJob?.cancel()
     }

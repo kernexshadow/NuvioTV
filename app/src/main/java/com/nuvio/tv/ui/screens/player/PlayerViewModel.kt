@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.exoplayer.ExoPlayer
 import com.nuvio.tv.core.plugin.PluginManager
+import com.nuvio.tv.core.torrent.TorrentEngine
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
 import com.nuvio.tv.data.repository.ParentalGuideRepository
@@ -39,6 +40,7 @@ class PlayerViewModel @Inject constructor(
     private val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
     private val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     private val trackPreferenceDataStore: com.nuvio.tv.data.local.TrackPreferenceDataStore,
+    private val torrentEngine: TorrentEngine,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -59,6 +61,7 @@ class PlayerViewModel @Inject constructor(
         layoutPreferenceDataStore = layoutPreferenceDataStore,
         watchedItemsPreferences = watchedItemsPreferences,
         trackPreferenceDataStore = trackPreferenceDataStore,
+        torrentEngine = torrentEngine,
         savedStateHandle = savedStateHandle,
         scope = viewModelScope
     )

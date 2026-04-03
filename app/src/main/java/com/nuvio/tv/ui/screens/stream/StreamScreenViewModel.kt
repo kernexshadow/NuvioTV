@@ -658,7 +658,8 @@ class StreamScreenViewModel @Inject constructor(
             videoSize = stream.behaviorHints?.videoSize,
             addonName = stream.addonName,
             addonLogo = stream.addonLogo,
-            streamDescription = stream.description
+            streamDescription = stream.description,
+            fileIdx = stream.fileIdx
         )
 
         val url = playbackInfo.url
@@ -714,5 +715,6 @@ data class StreamPlaybackInfo(
     val videoSize: Long? = null,
     val addonName: String? = null,
     val addonLogo: String? = null,
-    val streamDescription: String? = null
+    val streamDescription: String? = null,
+    val fileIdx: Int? = null
 )

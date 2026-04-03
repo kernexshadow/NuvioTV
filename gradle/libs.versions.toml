@@ -27,6 +27,7 @@ quickjsKt = "1.0.1"
 jsoup = "1.17.2"
 gson = "2.10.1"
 markdownRenderer = "0.33.0"
+libtorrent4j = "2.1.0-35"
 nanohttpd = "2.3.1"
 zxing = "3.5.3"
 supabase = "3.1.4"
@@ -104,6 +105,11 @@ media3-extractor = { group = "androidx.media3", name = "media3-extractor", versi
 quickjs-kt = { group = "io.github.dokar3", name = "quickjs-kt-android", version.ref = "quickjsKt" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+libtorrent4j = { group = "org.libtorrent4j", name = "libtorrent4j", version.ref = "libtorrent4j" }
+libtorrent4j-android-arm = { group = "org.libtorrent4j", name = "libtorrent4j-android-arm", version.ref = "libtorrent4j" }
+libtorrent4j-android-arm64 = { group = "org.libtorrent4j", name = "libtorrent4j-android-arm64", version.ref = "libtorrent4j" }
+libtorrent4j-android-x86 = { group = "org.libtorrent4j", name = "libtorrent4j-android-x86", version.ref = "libtorrent4j" }
+libtorrent4j-android-x8664 = { group = "org.libtorrent4j", name = "libtorrent4j-android-x86_64", version.ref = "libtorrent4j" }
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 

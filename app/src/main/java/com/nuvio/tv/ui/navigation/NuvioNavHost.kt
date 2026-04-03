@@ -447,7 +447,9 @@ fun NuvioNavHost(
                     }
                 },
                 onStreamSelected = { playbackInfo ->
-                    playbackInfo.url?.let { url ->
+                    val streamUrl = playbackInfo.url
+                        ?: if (playbackInfo.isTorrent) "torrent://${playbackInfo.infoHash}" else null
+                    streamUrl?.let { url ->
                         navController.navigate(
                             Screen.Player.createRoute(
                                 streamUrl = url,
@@ -475,13 +477,17 @@ fun NuvioNavHost(
                                 startFromBeginning = startFromBeginning,
                                 addonName = playbackInfo.addonName,
                                 addonLogo = playbackInfo.addonLogo,
-                                streamDescription = playbackInfo.streamDescription
+                                streamDescription = playbackInfo.streamDescription,
+                                infoHash = playbackInfo.infoHash,
+                                fileIdx = playbackInfo.fileIdx
                             )
                         )
                     }
                 },
                 onAutoPlayResolved = { playbackInfo ->
-                    playbackInfo.url?.let { url ->
+                    val autoPlayUrl = playbackInfo.url
+                        ?: if (playbackInfo.isTorrent) "torrent://${playbackInfo.infoHash}" else null
+                    autoPlayUrl?.let { url ->
                         navController.navigate(
                             Screen.Player.createRoute(
                                 streamUrl = url,
@@ -509,7 +515,9 @@ fun NuvioNavHost(
                                 startFromBeginning = startFromBeginning,
                                 addonName = playbackInfo.addonName,
                                 addonLogo = playbackInfo.addonLogo,
-                                streamDescription = playbackInfo.streamDescription
+                                streamDescription = playbackInfo.streamDescription,
+                                infoHash = playbackInfo.infoHash,
+                                fileIdx = playbackInfo.fileIdx
                             )
                         ) {
                             popUpTo(Screen.Stream.route) { inclusive = true }

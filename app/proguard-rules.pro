@@ -53,6 +53,12 @@
 # Keep server classes and their inner data classes (serialized with Gson)
 -keep class com.nuvio.tv.core.server.** { *; }
 
+# ── libtorrent4j (P2P / torrent streaming) ────────────────────────────────────
+-keep class org.libtorrent4j.** { *; }
+-keepclassmembers class org.libtorrent4j.swig.** { *; }
+-dontwarn org.libtorrent4j.**
+-keep class com.nuvio.tv.core.torrent.** { *; }
+
 #── QuickJS ────────────────────────────────────────────────────────────────────
 # Keep quickjs-kt library classes for proper type conversion
 -keep class com.dokar.quickjs.** { *; }

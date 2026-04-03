@@ -592,6 +592,20 @@ fun PlayerScreen(
                 .zIndex(2.6f)
         )
 
+        // Torrent stats overlay (top-right corner)
+        TorrentOverlay(
+            visible = uiState.isTorrentStream && uiState.showTorrentStats && uiState.error == null,
+            downloadSpeed = uiState.torrentDownloadSpeed,
+            uploadSpeed = uiState.torrentUploadSpeed,
+            peers = uiState.torrentPeers,
+            seeds = uiState.torrentSeeds,
+            totalProgress = uiState.torrentTotalProgress,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 16.dp)
+                .zIndex(2.7f)
+        )
+
         // Buffering indicator
         if (uiState.isBuffering && !uiState.showLoadingOverlay) {
             Box(

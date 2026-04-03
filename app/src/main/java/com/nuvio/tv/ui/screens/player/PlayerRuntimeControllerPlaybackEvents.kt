@@ -469,6 +469,9 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 _uiState.update { it.copy(currentPosition = target) }
                 pendingPreviewSeekPosition = null
                 scheduleProgressSyncAfterSeek()
+                if (isTorrentStream) {
+                    onTorrentSeek(target, lastKnownDuration)
+                }
                 if (_uiState.value.showControls) {
                     showControlsTemporarily()
                 } else {
@@ -481,6 +484,9 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             _exoPlayer?.seekTo(event.position)
             _uiState.update { it.copy(currentPosition = event.position) }
             scheduleProgressSyncAfterSeek()
+            if (isTorrentStream) {
+                onTorrentSeek(event.position, lastKnownDuration)
+            }
             if (_uiState.value.showControls) {
                 showControlsTemporarily()
             } else {
@@ -754,11 +760,36 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                     showSubtitleDelayOverlay = false
                 )
             }
-            releasePlayer()
-            initializePlayer(currentStreamUrl, currentHeaders)
+            if (isTorrentStream && currentInfoHash != null) {
+                releasePlayer()
+                stopTorrentStream()
+                launchTorrentSourceStream(
+                    stream = com.nuvio.tv.domain.model.Stream(
+                        name = _uiState.value.currentStreamName,
+                        title = null,
+                        description = null,
+                        url = null,
+                        ytId = null,
+                        infoHash = currentInfoHash,
+                        fileIdx = currentFileIdx,
+                        externalUrl = null,
+                        behaviorHints = null,
+                        addonName = currentAddonName ?: "",
+                        addonLogo = currentAddonLogo
+                    ),
+                    infoHash = currentInfoHash!!,
+                    loadSavedProgress = true
+                )
+            } else {
+                releasePlayer()
+                initializePlayer(currentStreamUrl, currentHeaders)
+            }
         }
         PlayerEvent.OnParentalGuideHide -> {
             _uiState.update { it.copy(showParentalGuide = false) }
+        }
+        PlayerEvent.OnToggleTorrentStats -> {
+            _uiState.update { it.copy(showTorrentStats = !it.showTorrentStats) }
         }
         is PlayerEvent.OnShowDisplayModeInfo -> {
             _uiState.update {
