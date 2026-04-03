@@ -13,12 +13,15 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +51,7 @@ fun LoadingOverlay(
     logoUrl: String?,
     title: String? = null,
     message: String? = null,
+    progress: Float? = null,
     modifier: Modifier = Modifier
 ) {
     var logoLoadFailed by remember(logoUrl) { mutableStateOf(false) }
@@ -169,18 +173,51 @@ fun LoadingOverlay(
                     }
                 }
 
-                if (!message.isNullOrBlank()) {
+                if (!message.isNullOrBlank() || progress != null) {
                     val messageOffset = if (showLogo || !title.isNullOrBlank()) 94.dp else 86.dp
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White.copy(alpha = 0.72f),
-                        textAlign = TextAlign.Center,
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
                             .align(Alignment.Center)
                             .offset(y = messageOffset)
                             .padding(horizontal = 24.dp)
-                    )
+                    ) {
+                        if (!message.isNullOrBlank()) {
+                            Text(
+                                text = message,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.72f),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        if (progress != null) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            val animatedProgress by animateFloatAsState(
+                                targetValue = progress.coerceIn(0f, 1f),
+                                animationSpec = tween(durationMillis = 400),
+                                label = "loadingProgress"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(240.dp)
+                                    .height(4.dp)
+                                    .background(
+                                        color = Color.White.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(2.dp)
+                                    )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(animatedProgress)
+                                        .height(4.dp)
+                                        .background(
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            shape = RoundedCornerShape(2.dp)
+                                        )
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

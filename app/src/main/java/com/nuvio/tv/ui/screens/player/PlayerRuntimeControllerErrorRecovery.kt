@@ -64,7 +64,8 @@ internal fun PlayerRuntimeController.attemptAutoRetry(
     detailedError: String
 ): Boolean {
     if (!isRetryablePlaybackError(error)) return false
-    if (errorRetryCount >= MAX_AUTO_RETRIES) return false
+    val maxRetries = if (isTorrentStream) MAX_AUTO_RETRIES * 3 else MAX_AUTO_RETRIES
+    if (errorRetryCount >= maxRetries) return false
 
     val attempt = errorRetryCount
     errorRetryCount++
@@ -77,6 +78,27 @@ internal fun PlayerRuntimeController.attemptAutoRetry(
     // Capture the current position so we can resume after re-init.
     val savedPosition = _exoPlayer?.currentPosition?.takeIf { it > 0L } ?: 0L
     val isFirstAttempt = attempt == 0
+
+    // Torrent streams: data may not be downloaded yet at the seek position.
+    // Do a lightweight re-prepare without tearing down the player or showing
+    // the loading overlay — the torrent engine is already fetching the pieces
+    // and the buffering spinner will show progress.
+    if (isTorrentStream) {
+        errorRetryJob?.cancel()
+        errorRetryJob = scope.launch {
+            _uiState.update { it.copy(error = null, showPauseOverlay = false) }
+            delay(RETRY_DELAY_MS)
+            val player = _exoPlayer
+            if (player != null) {
+                if (savedPosition > 0L) {
+                    player.seekTo((savedPosition - 1).coerceAtLeast(0L))
+                }
+                player.prepare()
+                player.playWhenReady = true
+            }
+        }
+        return true
+    }
 
     errorRetryJob?.cancel()
     errorRetryJob = scope.launch {

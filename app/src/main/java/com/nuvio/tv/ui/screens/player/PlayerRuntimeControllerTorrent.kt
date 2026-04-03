@@ -26,11 +26,22 @@ internal suspend fun PlayerRuntimeController.startTorrentStream(
         it.copy(
             showLoadingOverlay = true,
             loadingMessage = "Connecting to peers...",
+            loadingProgress = null,
             isTorrentStream = true
         )
     }
 
-    return torrentEngine.startStream(infoHash, fileIdx)
+    // Use saved watch progress to start downloading from the resume position
+    val savedProgress = pendingResumeProgress
+    val resumeMs = savedProgress?.position ?: 0L
+    val durationMs = savedProgress?.duration ?: 0L
+
+    return torrentEngine.startStream(
+        infoHash = infoHash,
+        fileIdx = fileIdx,
+        resumePositionMs = resumeMs,
+        durationMs = durationMs
+    )
 }
 
 /**
@@ -63,34 +74,62 @@ internal fun PlayerRuntimeController.observeTorrentState() {
                     // No-op
                 }
                 is TorrentState.Connecting -> {
-                    _uiState.update {
-                        it.copy(
-                            showLoadingOverlay = true,
-                            loadingMessage = "Connecting to peers..."
-                        )
+                    // Only show the full loading overlay before first frame;
+                    // after that the player surface stays visible.
+                    if (!hasRenderedFirstFrame) {
+                        _uiState.update {
+                            it.copy(
+                                showLoadingOverlay = true,
+                                loadingMessage = "Connecting to peers...",
+                                loadingProgress = null,
+                                torrentBufferingMessage = null
+                            )
+                        }
                     }
                 }
                 is TorrentState.Buffering -> {
-                    val pct = (torrentState.progress * 100).toInt()
-                    _uiState.update {
-                        it.copy(
-                            showLoadingOverlay = true,
-                            loadingMessage = "Buffering: $pct% (${torrentState.peers} peers)",
-                            torrentDownloadSpeed = torrentState.downloadSpeed,
-                            torrentPeers = torrentState.peers,
-                            torrentSeeds = torrentState.seeds
-                        )
+                    val speed = formatSpeed(torrentState.downloadSpeed)
+                    val peerInfo = "${torrentState.seeds} seeds \u00B7 ${torrentState.peers} peers"
+                    val message = "$peerInfo \u00B7 $speed"
+
+                    if (!hasRenderedFirstFrame) {
+                        // Initial load: full loading overlay with progress bar
+                        _uiState.update {
+                            it.copy(
+                                showLoadingOverlay = true,
+                                loadingMessage = message,
+                                loadingProgress = torrentState.progress,
+                                torrentDownloadSpeed = torrentState.downloadSpeed,
+                                torrentPeers = torrentState.peers,
+                                torrentSeeds = torrentState.seeds,
+                                torrentBufferingMessage = null
+                            )
+                        }
+                    } else {
+                        // Mid-playback rebuffer (e.g. seek to unbuffered area):
+                        // keep player visible, show stats on the buffering spinner
+                        _uiState.update {
+                            it.copy(
+                                torrentDownloadSpeed = torrentState.downloadSpeed,
+                                torrentPeers = torrentState.peers,
+                                torrentSeeds = torrentState.seeds,
+                                torrentBufferingMessage = message,
+                                torrentBufferingProgress = torrentState.progress
+                            )
+                        }
                     }
                 }
                 is TorrentState.Streaming -> {
                     _uiState.update {
                         it.copy(
+                            loadingProgress = null,
                             torrentDownloadSpeed = torrentState.downloadSpeed,
                             torrentUploadSpeed = torrentState.uploadSpeed,
                             torrentPeers = torrentState.peers,
                             torrentSeeds = torrentState.seeds,
                             torrentBufferProgress = torrentState.bufferProgress,
-                            torrentTotalProgress = torrentState.totalProgress
+                            torrentTotalProgress = torrentState.totalProgress,
+                            torrentBufferingMessage = null
                         )
                     }
                 }
@@ -99,7 +138,8 @@ internal fun PlayerRuntimeController.observeTorrentState() {
                     _uiState.update {
                         it.copy(
                             error = "Torrent error: ${torrentState.message}",
-                            showLoadingOverlay = false
+                            showLoadingOverlay = false,
+                            torrentBufferingMessage = null
                         )
                     }
                 }
@@ -128,13 +168,15 @@ internal fun PlayerRuntimeController.launchTorrentSourceStream(
     torrentStreamJob?.cancel()
     torrentStreamJob = scope.launch {
         try {
+            // Start observing BEFORE the blocking startTorrentStream() call
+            // so buffering progress updates are visible in the UI immediately.
+            observeTorrentState()
+
             val localUrl = startTorrentStream(infoHash, stream.fileIdx)
 
             currentStreamUrl = localUrl
             currentHeaders = emptyMap()
             currentStreamMimeType = null
-
-            observeTorrentState()
 
             preparePlaybackBeforeStart(
                 url = localUrl,
@@ -148,9 +190,18 @@ internal fun PlayerRuntimeController.launchTorrentSourceStream(
             _uiState.update {
                 it.copy(
                     error = "Failed to start torrent: ${e.message}",
-                    showLoadingOverlay = false
+                    showLoadingOverlay = false,
+                    loadingProgress = null
                 )
             }
         }
+    }
+}
+
+private fun formatSpeed(bytesPerSec: Long): String {
+    return when {
+        bytesPerSec >= 1_048_576 -> String.format("%.1f MB/s", bytesPerSec / 1_048_576.0)
+        bytesPerSec >= 1_024 -> String.format("%.0f KB/s", bytesPerSec / 1_024.0)
+        else -> "$bytesPerSec B/s"
     }
 }

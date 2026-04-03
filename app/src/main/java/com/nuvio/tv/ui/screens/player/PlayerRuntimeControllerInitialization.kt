@@ -119,9 +119,9 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 DefaultLoadControl.Builder()
                     .setTargetBufferBytes(20 * 1024 * 1024)
                     .setBufferDurationsMs(
-                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                        10_000,
                         30_000,
-                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        2_500,
                         3_000
                     )
                     .build()
@@ -618,7 +618,8 @@ internal fun PlayerRuntimeController.resetLoadingOverlayForNewStream() {
     _uiState.update { state ->
         state.copy(
             showLoadingOverlay = state.loadingOverlayEnabled,
-            showControls = false
+            showControls = false,
+            loadingProgress = null
         )
     }
 }

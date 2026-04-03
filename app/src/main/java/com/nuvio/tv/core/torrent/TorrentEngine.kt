@@ -15,9 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import org.libtorrent4j.AlertListener
 import org.libtorrent4j.Priority
 import org.libtorrent4j.SessionManager
 import org.libtorrent4j.SessionParams
@@ -26,16 +24,10 @@ import org.libtorrent4j.Sha1Hash
 import org.libtorrent4j.TorrentFlags
 import org.libtorrent4j.TorrentHandle
 import org.libtorrent4j.TorrentInfo
-import org.libtorrent4j.alerts.AddTorrentAlert
-import org.libtorrent4j.alerts.Alert
-import org.libtorrent4j.alerts.AlertType
-import org.libtorrent4j.alerts.MetadataReceivedAlert
-import org.libtorrent4j.alerts.TorrentErrorAlert
 import org.libtorrent4j.swig.torrent_flags_t
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.coroutines.resume
 
 @Singleton
 class TorrentEngine @Inject constructor(
@@ -44,6 +36,8 @@ class TorrentEngine @Inject constructor(
 ) {
     companion object {
         private const val TAG = "TorrentEngine"
+        private const val BUFFER_SECONDS = 30L
+        private const val FALLBACK_BITRATE_BYTES_PER_SEC = 500_000L // ~4 Mbps fallback estimate
         private const val STREAMING_WINDOW_SIZE = 50
         private const val LOOKAHEAD_WINDOW_SIZE = 100
         private val DEFAULT_TRACKERS = listOf(
@@ -70,6 +64,7 @@ class TorrentEngine @Inject constructor(
     private var currentFileIndex: Int = -1
     private var totalPieces: Int = 0
     private var currentSettings: TorrentSettingsData = TorrentSettingsData()
+    private var estimatedBytesPerSec: Long = FALLBACK_BITRATE_BYTES_PER_SEC
 
     private val cacheDir: File
         get() = File(context.cacheDir, "torrent_cache").also { it.mkdirs() }
@@ -77,10 +72,18 @@ class TorrentEngine @Inject constructor(
     /**
      * Start streaming a torrent. Returns the local HTTP URL for ExoPlayer.
      */
+    /**
+     * Start streaming a torrent. Returns the local HTTP URL for ExoPlayer.
+     *
+     * @param resumePositionMs  Saved playback position (ms) to start downloading from.
+     * @param durationMs        Known content duration (ms) for bitrate estimation. 0 = unknown.
+     */
     suspend fun startStream(
         infoHash: String,
         fileIdx: Int?,
-        trackers: List<String> = emptyList()
+        trackers: List<String> = emptyList(),
+        resumePositionMs: Long = 0,
+        durationMs: Long = 0
     ): String = withContext(Dispatchers.IO) {
         stopCurrentStream()
         _state.value = TorrentState.Connecting
@@ -94,7 +97,7 @@ class TorrentEngine @Inject constructor(
         Log.d(TAG, "Starting torrent stream: $magnetUri")
 
         val handle = addTorrentAndAwaitMetadata(session, magnetUri)
-            ?: throw TorrentException("Failed to fetch torrent metadata")
+            ?: throw TorrentException("Failed to fetch torrent metadata (timed out)")
 
         currentHandle = handle
         val torrentInfo = handle.torrentFile() ?: throw TorrentException("No torrent info available")
@@ -104,11 +107,28 @@ class TorrentEngine @Inject constructor(
         val selectedFileSize = torrentInfo.files().fileSize(currentFileIndex)
         totalPieces = torrentInfo.numPieces()
 
-        Log.d(TAG, "Selected file[$currentFileIndex]: $selectedFile ($selectedFileSize bytes), $totalPieces pieces")
+        // Estimate bytes-per-second from known duration or fall back to a conservative guess
+        estimatedBytesPerSec = if (durationMs > 0) {
+            (selectedFileSize / (durationMs / 1000L)).coerceAtLeast(100_000)
+        } else {
+            FALLBACK_BITRATE_BYTES_PER_SEC
+        }
+
+        // Calculate the byte offset to start downloading from the resume position
+        val startByteOffset = if (resumePositionMs > 0 && durationMs > 0) {
+            ((resumePositionMs.toDouble() / durationMs) * selectedFileSize).toLong()
+                .coerceIn(0, selectedFileSize - 1)
+        } else {
+            0L
+        }
+
+        Log.d(TAG, "Selected file[$currentFileIndex]: $selectedFile ($selectedFileSize bytes), " +
+                "$totalPieces pieces, startOffset=${startByteOffset}, " +
+                "estimatedRate=${estimatedBytesPerSec}B/s")
 
         configureFilePriorities(handle, torrentInfo, currentFileIndex)
         handle.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
-        prioritizePiecesForPosition(handle, torrentInfo, currentFileIndex, 0)
+        prioritizePiecesForPosition(handle, torrentInfo, currentFileIndex, startByteOffset)
 
         _state.value = TorrentState.Buffering(
             progress = 0f,
@@ -117,8 +137,9 @@ class TorrentEngine @Inject constructor(
             seeds = 0
         )
 
-        val bufferPieces = currentSettings.bufferPiecesBeforePlayback
-        awaitBufferReady(handle, torrentInfo, currentFileIndex, bufferPieces)
+        // Buffer 30 seconds worth of data from the start position
+        val bufferBytes = estimatedBytesPerSec * BUFFER_SECONDS
+        awaitBufferReady(handle, torrentInfo, currentFileIndex, startByteOffset, bufferBytes)
 
         val server = startStreamServer(handle, torrentInfo, currentFileIndex)
         streamServer = server
@@ -126,7 +147,6 @@ class TorrentEngine @Inject constructor(
         server.servingFile = File(cacheDir, selectedFile)
         server.fileLength = selectedFileSize
         server.pieceLength = torrentInfo.pieceLength().toLong()
-        server.fileOffset = torrentInfo.files().fileOffset(currentFileIndex)
         server.mimeType = inferMimeType(selectedFile)
 
         val localUrl = "http://127.0.0.1:${server.listeningPort}/stream"
@@ -154,16 +174,21 @@ class TorrentEngine @Inject constructor(
         streamServer?.stop()
         streamServer = null
 
-        currentHandle?.let { handle ->
+        // Null out the handle FIRST to signal all concurrent readers to stop,
+        // then remove from session. This prevents native SIGSEGV from accessing
+        // an invalidated C++ shared_ptr.
+        val handle = currentHandle
+        currentHandle = null
+        currentFileIndex = -1
+        totalPieces = 0
+
+        handle?.let {
             try {
-                sessionManager?.remove(handle)
+                sessionManager?.remove(it)
             } catch (e: Exception) {
                 Log.w(TAG, "Error removing torrent handle", e)
             }
         }
-        currentHandle = null
-        currentFileIndex = -1
-        totalPieces = 0
 
         if (currentSettings.autoClearCacheOnExit) {
             clearCache()
@@ -184,14 +209,20 @@ class TorrentEngine @Inject constructor(
 
     fun onPlaybackSeek(positionMs: Long, durationMs: Long) {
         val handle = currentHandle ?: return
-        val torrentInfo = handle.torrentFile() ?: return
         if (durationMs <= 0) return
 
-        val progress = positionMs.toFloat() / durationMs
-        val fileSize = torrentInfo.files().fileSize(currentFileIndex)
-        val bytePosition = (progress * fileSize).toLong()
+        try {
+            val torrentInfo = handle.torrentFile() ?: return
+            val fileSize = torrentInfo.files().fileSize(currentFileIndex)
+            val bytePosition = ((positionMs.toDouble() / durationMs) * fileSize).toLong()
 
-        prioritizePiecesForPosition(handle, torrentInfo, currentFileIndex, bytePosition)
+            // Update bitrate estimate from actual duration now that ExoPlayer knows it
+            estimatedBytesPerSec = (fileSize / (durationMs / 1000L)).coerceAtLeast(100_000)
+
+            prioritizePiecesForPosition(handle, torrentInfo, currentFileIndex, bytePosition)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error during seek priority update", e)
+        }
     }
 
     fun clearCache() {
@@ -244,70 +275,54 @@ class TorrentEngine @Inject constructor(
     private suspend fun addTorrentAndAwaitMetadata(
         session: SessionManager,
         magnetUri: String
-    ): TorrentHandle? = suspendCancellableCoroutine { cont ->
-        var resumed = false
+    ): TorrentHandle? {
+        val hexHash = magnetUri.substringAfter("btih:").substringBefore("&")
+        val hash = Sha1Hash.parseHex(hexHash)
 
-        val listener = object : AlertListener {
-            override fun types(): IntArray = intArrayOf(
-                AlertType.ADD_TORRENT.swig(),
-                AlertType.METADATA_RECEIVED.swig(),
-                AlertType.TORRENT_ERROR.swig()
-            )
-
-            override fun alert(alert: Alert<*>) {
-                when (alert) {
-                    is AddTorrentAlert -> {
-                        if (alert.error().isError) {
-                            if (!resumed) {
-                                resumed = true
-                                session.removeListener(this)
-                                cont.resume(null)
-                            }
-                        }
-                    }
-                    is MetadataReceivedAlert -> {
-                        if (!resumed) {
-                            resumed = true
-                            session.removeListener(this)
-                            cont.resume(alert.handle())
-                        }
-                    }
-                    is TorrentErrorAlert -> {
-                        if (!resumed) {
-                            resumed = true
-                            session.removeListener(this)
-                            cont.resume(null)
-                        }
-                    }
-                }
-            }
-        }
-
-        session.addListener(listener)
-
-        cont.invokeOnCancellation {
-            session.removeListener(listener)
-        }
-
+        // Start the download
         try {
             session.download(magnetUri, cacheDir, torrent_flags_t())
-            // If torrent info is already cached, handle may already be available
-            val hash = Sha1Hash.parseHex(
-                magnetUri.substringAfter("btih:").substringBefore("&")
-            )
-            val handle = session.find(hash)
-            if (handle != null && handle.torrentFile() != null && !resumed) {
-                resumed = true
-                session.removeListener(listener)
-                cont.resume(handle)
-            }
         } catch (e: Exception) {
-            if (!resumed) {
-                resumed = true
-                session.removeListener(listener)
-                cont.resume(null)
+            Log.e(TAG, "Failed to start download", e)
+            return null
+        }
+
+        // Immediate check — metadata may already be cached from a previous session
+        session.find(hash)?.let { handle ->
+            if (handle.torrentFile() != null) {
+                Log.d(TAG, "Metadata available immediately (cached)")
+                return handle
             }
         }
+
+        // Poll for metadata with a timeout. This is more reliable than relying
+        // solely on alerts, which can be missed if they fire between listener
+        // registration and the download() call, or if AddTorrentAlert fires
+        // with metadata already resolved (no separate MetadataReceivedAlert).
+        val timeoutMs = 60_000L
+        val startTime = System.currentTimeMillis()
+
+        while (System.currentTimeMillis() - startTime < timeoutMs) {
+            if (currentHandle == null && _state.value is TorrentState.Idle) {
+                // stopCurrentStream() was called — abort
+                return null
+            }
+
+            try {
+                val handle = session.find(hash)
+                if (handle != null && handle.torrentFile() != null) {
+                    Log.d(TAG, "Metadata resolved after ${System.currentTimeMillis() - startTime}ms")
+                    return handle
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error checking for metadata", e)
+            }
+
+            delay(300)
+        }
+
+        Log.e(TAG, "Timed out waiting for torrent metadata")
+        return null
     }
 
     private fun resolveFileIndex(torrentInfo: TorrentInfo, requestedIdx: Int?): Int {
@@ -348,67 +363,104 @@ class TorrentEngine @Inject constructor(
         fileIndex: Int,
         bytePosition: Long
     ) {
-        val pieceLength = torrentInfo.pieceLength().toLong()
-        val fileOffset = torrentInfo.files().fileOffset(fileIndex)
-        val fileSize = torrentInfo.files().fileSize(fileIndex)
-        val numPieces = torrentInfo.numPieces()
+        if (currentHandle == null) return
+        try {
+            val pieceLength = torrentInfo.pieceLength().toLong()
+            val fileOffset = torrentInfo.files().fileOffset(fileIndex)
+            val fileSize = torrentInfo.files().fileSize(fileIndex)
+            val numPieces = torrentInfo.numPieces()
 
-        val firstPiece = (fileOffset / pieceLength).toInt()
-        val lastPiece = ((fileOffset + fileSize - 1) / pieceLength).toInt().coerceAtMost(numPieces - 1)
+            val firstPiece = (fileOffset / pieceLength).toInt()
+            val lastPiece = ((fileOffset + fileSize - 1) / pieceLength).toInt().coerceAtMost(numPieces - 1)
 
-        val currentPiece = ((fileOffset + bytePosition) / pieceLength).toInt().coerceIn(firstPiece, lastPiece)
+            val currentPiece = ((fileOffset + bytePosition) / pieceLength).toInt().coerceIn(firstPiece, lastPiece)
 
-        for (i in firstPiece..lastPiece) {
-            val priority = when {
-                handle.havePiece(i) -> Priority.IGNORE
-                // First few pieces (container header)
-                i in firstPiece..(firstPiece + 4).coerceAtMost(lastPiece) -> Priority.TOP_PRIORITY
-                // Last piece (container trailer/moov atom)
-                i == lastPiece -> Priority.TOP_PRIORITY
-                // Streaming window ahead of playback
-                i in currentPiece..(currentPiece + STREAMING_WINDOW_SIZE).coerceAtMost(lastPiece) -> Priority.TOP_PRIORITY
-                // Lookahead window
-                i in (currentPiece + STREAMING_WINDOW_SIZE + 1)..(currentPiece + STREAMING_WINDOW_SIZE + LOOKAHEAD_WINDOW_SIZE).coerceAtMost(lastPiece) -> Priority.DEFAULT
-                else -> Priority.LOW
+            // 30 seconds ahead = high priority, 60 seconds ahead = normal priority
+            val bufferBytes30s = estimatedBytesPerSec * BUFFER_SECONDS
+            val bufferBytes60s = estimatedBytesPerSec * BUFFER_SECONDS * 2
+            val streamWindowEnd = ((fileOffset + bytePosition + bufferBytes30s) / pieceLength).toInt().coerceAtMost(lastPiece)
+            val lookaheadEnd = ((fileOffset + bytePosition + bufferBytes60s) / pieceLength).toInt().coerceAtMost(lastPiece)
+
+            for (i in firstPiece..lastPiece) {
+                val priority = when {
+                    handle.havePiece(i) -> Priority.IGNORE
+                    // First few pieces (container header)
+                    i in firstPiece..(firstPiece + 4).coerceAtMost(lastPiece) -> Priority.TOP_PRIORITY
+                    // Last piece (container trailer / moov atom)
+                    i == lastPiece -> Priority.TOP_PRIORITY
+                    // 30s streaming window ahead of playback
+                    i in currentPiece..streamWindowEnd -> Priority.TOP_PRIORITY
+                    // 30-60s lookahead
+                    i in (streamWindowEnd + 1)..lookaheadEnd -> Priority.DEFAULT
+                    else -> Priority.LOW
+                }
+                handle.piecePriority(i, priority)
             }
-            handle.piecePriority(i, priority)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error prioritizing pieces for position", e)
         }
     }
 
+    /**
+     * Waits until at least [bufferBytes] worth of pieces are downloaded starting
+     * from [startByteOffset], plus the last piece (container metadata).
+     */
     private suspend fun awaitBufferReady(
         handle: TorrentHandle,
         torrentInfo: TorrentInfo,
         fileIndex: Int,
-        requiredPieces: Int
+        startByteOffset: Long,
+        bufferBytes: Long
     ) {
         val pieceLength = torrentInfo.pieceLength().toLong()
         val fileOffset = torrentInfo.files().fileOffset(fileIndex)
         val fileSize = torrentInfo.files().fileSize(fileIndex)
         val firstPiece = (fileOffset / pieceLength).toInt()
-        val lastPiece = ((fileOffset + fileSize - 1) / pieceLength).toInt().coerceAtMost(torrentInfo.numPieces() - 1)
-        val piecesToCheck = requiredPieces.coerceAtMost(lastPiece - firstPiece + 1)
+        val lastPiece = ((fileOffset + fileSize - 1) / pieceLength).toInt()
+            .coerceAtMost(torrentInfo.numPieces() - 1)
+
+        // Pieces that cover the 30s buffer from the start position
+        val bufferStartPiece = ((fileOffset + startByteOffset) / pieceLength).toInt()
+            .coerceIn(firstPiece, lastPiece)
+        val bufferEndPiece = ((fileOffset + startByteOffset + bufferBytes) / pieceLength).toInt()
+            .coerceIn(bufferStartPiece, lastPiece)
+        val requiredPieces = bufferEndPiece - bufferStartPiece + 1
+
+        Log.d(TAG, "Awaiting buffer: pieces $bufferStartPiece-$bufferEndPiece " +
+                "($requiredPieces pieces, ${bufferBytes / 1024}KB) + last piece $lastPiece")
 
         while (true) {
-            var readyCount = 0
-            for (i in firstPiece until (firstPiece + piecesToCheck).coerceAtMost(lastPiece + 1)) {
-                if (handle.havePiece(i)) readyCount++
-            }
+            if (currentHandle == null) throw TorrentException("Torrent stopped during buffering")
 
-            // Also require last piece for container metadata
-            val hasLastPiece = handle.havePiece(lastPiece)
+            try {
+                var readyCount = 0
+                for (i in bufferStartPiece..bufferEndPiece) {
+                    if (handle.havePiece(i)) readyCount++
+                }
 
-            val progress = readyCount.toFloat() / piecesToCheck
-            val status = handle.status()
+                // Also require first few pieces (container header) and last piece (moov atom)
+                val hasHeaderPieces = (firstPiece..(firstPiece + 4).coerceAtMost(lastPiece)).all {
+                    handle.havePiece(it)
+                }
+                val hasLastPiece = handle.havePiece(lastPiece)
 
-            _state.value = TorrentState.Buffering(
-                progress = progress,
-                downloadSpeed = status.downloadPayloadRate().toLong(),
-                peers = status.numPeers(),
-                seeds = status.numSeeds()
-            )
+                val progress = readyCount.toFloat() / requiredPieces
+                val status = handle.status()
 
-            if (readyCount >= piecesToCheck && hasLastPiece) {
-                break
+                _state.value = TorrentState.Buffering(
+                    progress = progress,
+                    downloadSpeed = status.downloadPayloadRate().toLong(),
+                    peers = status.numPeers(),
+                    seeds = status.numSeeds()
+                )
+
+                if (readyCount >= requiredPieces && hasLastPiece && hasHeaderPieces) {
+                    break
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Error checking buffer state, retrying", e)
             }
 
             delay(500)
@@ -420,9 +472,24 @@ class TorrentEngine @Inject constructor(
         torrentInfo: TorrentInfo,
         fileIndex: Int
     ): TorrentStreamServer {
+        val pieceLength = torrentInfo.pieceLength().toLong()
+        val fileOffset = torrentInfo.files().fileOffset(fileIndex)
+        val firstFilePiece = (fileOffset / pieceLength).toInt()
+
         return TorrentStreamServer.startOnAvailablePort(
             onPiecesNeeded = { startPiece, endPiece ->
                 prioritizePiecesForRange(handle, torrentInfo, fileIndex, startPiece, endPiece)
+            },
+            arePiecesReady = { startPiece, endPiece ->
+                // Check that all pieces in the requested range are downloaded
+                val h = currentHandle ?: return@startOnAvailablePort false
+                try {
+                    val adjStart = firstFilePiece + startPiece
+                    val adjEnd = (firstFilePiece + endPiece).coerceAtMost(torrentInfo.numPieces() - 1)
+                    (adjStart..adjEnd).all { h.havePiece(it) }
+                } catch (e: Exception) {
+                    false
+                }
             }
         ) ?: throw TorrentException("Failed to start stream server - no available port")
     }
@@ -434,16 +501,21 @@ class TorrentEngine @Inject constructor(
         startPiece: Int,
         endPiece: Int
     ) {
-        val pieceLength = torrentInfo.pieceLength().toLong()
-        val fileOffset = torrentInfo.files().fileOffset(fileIndex)
-        val firstFilePiece = (fileOffset / pieceLength).toInt()
-        val adjustedStart = firstFilePiece + startPiece
-        val adjustedEnd = firstFilePiece + endPiece
+        if (currentHandle == null) return
+        try {
+            val pieceLength = torrentInfo.pieceLength().toLong()
+            val fileOffset = torrentInfo.files().fileOffset(fileIndex)
+            val firstFilePiece = (fileOffset / pieceLength).toInt()
+            val adjustedStart = firstFilePiece + startPiece
+            val adjustedEnd = firstFilePiece + endPiece
 
-        for (i in adjustedStart..adjustedEnd.coerceAtMost(torrentInfo.numPieces() - 1)) {
-            if (!handle.havePiece(i)) {
-                handle.piecePriority(i, Priority.TOP_PRIORITY)
+            for (i in adjustedStart..adjustedEnd.coerceAtMost(torrentInfo.numPieces() - 1)) {
+                if (!handle.havePiece(i)) {
+                    handle.piecePriority(i, Priority.TOP_PRIORITY)
+                }
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error prioritizing pieces for range", e)
         }
     }
 

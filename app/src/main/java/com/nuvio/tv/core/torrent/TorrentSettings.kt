@@ -24,7 +24,7 @@ data class TorrentSettingsData(
     val enableDht: Boolean = true,
     val enableEncryption: Boolean = true,
     val enableUpload: Boolean = true,
-    val autoClearCacheOnExit: Boolean = true
+    val autoClearCacheOnExit: Boolean = false
 )
 
 @Singleton

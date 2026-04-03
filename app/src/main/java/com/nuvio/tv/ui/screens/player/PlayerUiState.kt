@@ -37,6 +37,7 @@ data class PlayerUiState(
     val loadingOverlayEnabled: Boolean = true,
     val showLoadingOverlay: Boolean = true,
     val loadingMessage: String? = null,
+    val loadingProgress: Float? = null,
     val pauseOverlayEnabled: Boolean = true,
     val osdClockEnabled: Boolean = true,
     val showPauseOverlay: Boolean = false,
@@ -141,7 +142,10 @@ data class PlayerUiState(
     val torrentSeeds: Int = 0,
     val torrentBufferProgress: Float = 0f,
     val torrentTotalProgress: Float = 0f,
-    val showTorrentStats: Boolean = false
+    val showTorrentStats: Boolean = false,
+    // Torrent mid-playback rebuffering (shown on the buffering spinner, not loading overlay)
+    val torrentBufferingMessage: String? = null,
+    val torrentBufferingProgress: Float = 0f
 )
 
 data class TrackInfo(

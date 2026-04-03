@@ -18,10 +18,10 @@ internal fun PlayerRuntimeController.startInitialPlaybackIfNeeded() {
     if (infoHash != null) {
         torrentStreamJob = scope.launch {
             try {
+                observeTorrentState()
                 val localUrl = startTorrentStream(infoHash, navigationArgs.fileIdx)
                 currentStreamUrl = localUrl
                 currentHeaders = emptyMap()
-                observeTorrentState()
                 preparePlaybackBeforeStart(
                     url = localUrl,
                     headers = emptyMap(),

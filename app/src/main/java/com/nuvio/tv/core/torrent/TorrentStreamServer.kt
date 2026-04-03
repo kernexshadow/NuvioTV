@@ -9,10 +9,15 @@ import java.io.InputStream
 /**
  * Local HTTP server that serves torrent file data to ExoPlayer.
  * Supports Range requests for seeking within the media file.
+ *
+ * Before serving any byte range, the server waits for the corresponding
+ * torrent pieces to be fully downloaded — this prevents ExoPlayer from
+ * reading zero-filled holes in the sparse file.
  */
 class TorrentStreamServer(
     port: Int = 9080,
-    private val onPiecesNeeded: (startPiece: Int, endPiece: Int) -> Unit
+    private val onPiecesNeeded: (startPiece: Int, endPiece: Int) -> Unit,
+    private val arePiecesReady: (startPiece: Int, endPiece: Int) -> Boolean
 ) : NanoHTTPD(port) {
 
     @Volatile
@@ -23,9 +28,6 @@ class TorrentStreamServer(
 
     @Volatile
     var pieceLength: Long = 0L
-
-    @Volatile
-    var fileOffset: Long = 0L
 
     @Volatile
     var mimeType: String = "video/mp4"
@@ -62,11 +64,9 @@ class TorrentStreamServer(
     }
 
     private fun serveFullRequest(file: File, totalLength: Long): Response {
-        requestPiecesForRange(0, totalLength)
+        waitForPieces(0, totalLength)
 
-        val inputStream: InputStream = FileInputStream(file).also {
-            if (fileOffset > 0) it.skip(fileOffset)
-        }
+        val inputStream: InputStream = FileInputStream(file)
         val response = newFixedLengthResponse(
             Response.Status.OK,
             mimeType,
@@ -99,11 +99,11 @@ class TorrentStreamServer(
             return response
         }
 
-        requestPiecesForRange(start, end)
+        waitForPieces(start, end)
 
         val contentLength = end - start + 1
         val inputStream: InputStream = FileInputStream(file).also {
-            it.skip(fileOffset + start)
+            if (start > 0) it.skip(start)
         }
 
         val response = newFixedLengthResponse(
@@ -118,28 +118,52 @@ class TorrentStreamServer(
         return response
     }
 
-    private fun requestPiecesForRange(start: Long, end: Long) {
+    /**
+     * Requests the needed pieces and blocks until they are all downloaded.
+     * Times out after [PIECE_WAIT_TIMEOUT_MS] to avoid hanging forever.
+     */
+    private fun waitForPieces(start: Long, end: Long) {
         if (pieceLength <= 0) return
         val startPiece = (start / pieceLength).toInt()
         val endPiece = (end / pieceLength).toInt()
+
         try {
             onPiecesNeeded(startPiece, endPiece)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to request pieces $startPiece-$endPiece", e)
+            return
         }
+
+        val deadline = System.currentTimeMillis() + PIECE_WAIT_TIMEOUT_MS
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                if (arePiecesReady(startPiece, endPiece)) return
+            } catch (e: Exception) {
+                Log.w(TAG, "Error checking piece readiness", e)
+                return
+            }
+            try {
+                Thread.sleep(100)
+            } catch (e: InterruptedException) {
+                return
+            }
+        }
+        Log.w(TAG, "Timed out waiting for pieces $startPiece-$endPiece")
     }
 
     companion object {
         private const val TAG = "TorrentStreamServer"
+        private const val PIECE_WAIT_TIMEOUT_MS = 30_000L
 
         fun startOnAvailablePort(
             onPiecesNeeded: (startPiece: Int, endPiece: Int) -> Unit,
+            arePiecesReady: (startPiece: Int, endPiece: Int) -> Boolean,
             startPort: Int = 9080,
             maxAttempts: Int = 20
         ): TorrentStreamServer? {
             for (port in startPort until startPort + maxAttempts) {
                 try {
-                    val server = TorrentStreamServer(port, onPiecesNeeded)
+                    val server = TorrentStreamServer(port, onPiecesNeeded, arePiecesReady)
                     server.start(SOCKET_READ_TIMEOUT, false)
                     return server
                 } catch (e: Exception) {
