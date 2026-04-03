@@ -158,6 +158,7 @@ object AudioLanguageOption {
 data class PlayerSettings(
     val playerPreference: PlayerPreference = PlayerPreference.INTERNAL,
     val internalPlayerEngine: InternalPlayerEngine = InternalPlayerEngine.EXOPLAYER,
+    val autoSwitchInternalPlayerOnError: Boolean = false,
     val useLibass: Boolean = false,
     val libassRenderType: LibassRenderType = LibassRenderType.OVERLAY_OPEN_GL,
     val subtitleStyle: SubtitleStyleSettings = SubtitleStyleSettings(),
@@ -276,6 +277,8 @@ class PlayerSettingsDataStore @Inject constructor(
     // Player preference key
     private val playerPreferenceKey = stringPreferencesKey("player_preference")
     private val internalPlayerEngineKey = stringPreferencesKey("internal_player_engine")
+    private val autoSwitchInternalPlayerOnErrorKey =
+        booleanPreferencesKey("auto_switch_internal_player_on_error")
 
     // Libass settings keys
     private val useLibassKey = booleanPreferencesKey("use_libass")
@@ -420,6 +423,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 internalPlayerEngine = prefs[internalPlayerEngineKey]?.let {
                     runCatching { InternalPlayerEngine.valueOf(it) }.getOrDefault(InternalPlayerEngine.EXOPLAYER)
                 } ?: InternalPlayerEngine.EXOPLAYER,
+                autoSwitchInternalPlayerOnError = prefs[autoSwitchInternalPlayerOnErrorKey] ?: false,
                 useLibass = prefs[useLibassKey] ?: false,
                 libassRenderType = prefs[libassRenderTypeKey]?.let {
                     try { LibassRenderType.valueOf(it) } catch (e: Exception) { LibassRenderType.OVERLAY_OPEN_GL }
@@ -545,6 +549,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setInternalPlayerEngine(engine: InternalPlayerEngine) {
         store().edit { prefs ->
             prefs[internalPlayerEngineKey] = engine.name
+        }
+    }
+
+    suspend fun setAutoSwitchInternalPlayerOnError(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[autoSwitchInternalPlayerOnErrorKey] = enabled
         }
     }
 

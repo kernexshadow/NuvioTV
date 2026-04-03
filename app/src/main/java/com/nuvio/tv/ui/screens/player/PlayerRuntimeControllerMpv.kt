@@ -49,16 +49,29 @@ internal fun PlayerRuntimeController.attachMpvView(view: NuvioMpvSurfaceView?) {
         scheduleHideControls()
         emitScrobbleStart()
     }.onFailure {
+        val detailedError = it.message ?: "Failed to initialize libmpv surface"
+        if (
+            maybeAutoSwitchInternalPlayerOnStartupError(
+                detailedError = detailedError,
+                allowEngineFailover = true
+            )
+        ) {
+            return@onFailure
+        }
         _uiState.update { state ->
             state.copy(
-                error = it.message ?: "Failed to initialize libmpv surface",
+                error = detailedError,
                 showLoadingOverlay = false
             )
         }
     }
 }
 
-internal fun PlayerRuntimeController.initializeMpvPlayer(url: String, headers: Map<String, String>) {
+internal fun PlayerRuntimeController.initializeMpvPlayer(
+    url: String,
+    headers: Map<String, String>,
+    allowEngineFailover: Boolean = true
+) {
     _exoPlayer?.release()
     _exoPlayer = null
     trackSelector = null
@@ -119,9 +132,18 @@ internal fun PlayerRuntimeController.initializeMpvPlayer(url: String, headers: M
         emitScrobbleStart()
     }.onFailure { error ->
         Log.e(PlayerRuntimeController.TAG, "libmpv initialize failed: ${error.message}", error)
+        val detailedError = error.message ?: "Failed to initialize libmpv playback"
+        if (
+            maybeAutoSwitchInternalPlayerOnStartupError(
+                detailedError = detailedError,
+                allowEngineFailover = allowEngineFailover
+            )
+        ) {
+            return@onFailure
+        }
         _uiState.update {
             it.copy(
-                error = error.message ?: "Failed to initialize libmpv playback",
+                error = detailedError,
                 showLoadingOverlay = false,
                 isBuffering = false
             )

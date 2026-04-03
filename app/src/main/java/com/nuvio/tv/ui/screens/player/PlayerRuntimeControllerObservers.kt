@@ -165,6 +165,8 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
     scope.launch {
         playerSettingsDataStore.playerSettings.collect { settings ->
             val currentState = _uiState.value
+            val resolvedInternalPlayerEngine =
+                runtimeInternalPlayerEngineOverride ?: settings.internalPlayerEngine
             val resolvedAudioAmplificationDb = when {
                 !hasInitializedAudioAmplificationForSession -> {
                     hasInitializedAudioAmplificationForSession = true
@@ -193,7 +195,7 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
                     showLoadingOverlay = shouldShowOverlay,
                     pauseOverlayEnabled = settings.pauseOverlayEnabled,
                     osdClockEnabled = settings.osdClockEnabled,
-                    internalPlayerEngine = settings.internalPlayerEngine,
+                    internalPlayerEngine = resolvedInternalPlayerEngine,
                     frameRateMatchingMode = settings.frameRateMatchingMode,
                     tunnelingEnabled = settings.tunnelingEnabled,
                     persistAudioAmplification = settings.persistAudioAmplification,
@@ -226,7 +228,8 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
                 schedulePauseOverlay()
             }
             streamReuseLastLinkEnabled = settings.streamReuseLastLinkEnabled
-            currentInternalPlayerEngine = settings.internalPlayerEngine
+            autoSwitchInternalPlayerOnErrorEnabled = settings.autoSwitchInternalPlayerOnError
+            currentInternalPlayerEngine = resolvedInternalPlayerEngine
             streamAutoPlayModeSetting = settings.streamAutoPlayMode
             _uiState.update { it.copy(streamAutoPlayMode = settings.streamAutoPlayMode) }
             streamAutoPlayNextEpisodeEnabledSetting = settings.streamAutoPlayNextEpisodeEnabled

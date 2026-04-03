@@ -70,7 +70,12 @@ private suspend fun PlayerRuntimeController.resolveCurrentStreamMimeType(
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
-internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<String, String>) {
+internal fun PlayerRuntimeController.initializePlayer(
+    url: String,
+    headers: Map<String, String>,
+    overrideInternalPlayerEngine: InternalPlayerEngine? = null,
+    allowEngineFailover: Boolean = true
+) {
     if (url.isEmpty()) {
         _uiState.update { it.copy(error = context.getString(R.string.player_error_no_stream_url), showLoadingOverlay = false) }
         return
@@ -78,6 +83,9 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
 
     scope.launch {
         try {
+            if (allowEngineFailover) {
+                startupEngineFailoverTriggered = false
+            }
             resetLoadingOverlayForNewStream()
             mpvDelayStartAfterAfrSwitch = false
             val playerSettings = playerSettingsDataStore.playerSettings.first()
@@ -87,11 +95,13 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 deviceLanguages = resolveDeviceAudioLanguages()
             )
             mpvPreferredAudioLanguages = preferredAudioLanguages
-            currentInternalPlayerEngine = playerSettings.internalPlayerEngine
+            val effectiveInternalPlayerEngine = overrideInternalPlayerEngine ?: playerSettings.internalPlayerEngine
+            runtimeInternalPlayerEngineOverride = overrideInternalPlayerEngine
+            currentInternalPlayerEngine = effectiveInternalPlayerEngine
             val showLoadingStatus = playerSettings.showPlayerLoadingStatus
             _uiState.update {
                 it.copy(
-                    internalPlayerEngine = playerSettings.internalPlayerEngine,
+                    internalPlayerEngine = effectiveInternalPlayerEngine,
                     frameRateMatchingMode = playerSettings.frameRateMatchingMode,
                     resizeMode = playerSettings.resizeMode,
                     tunnelingEnabled = playerSettings.tunnelingEnabled,
@@ -110,7 +120,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 url = url,
                 headers = headers
             )
-            if (playerSettings.internalPlayerEngine == InternalPlayerEngine.MVP_PLAYER) {
+            if (effectiveInternalPlayerEngine == InternalPlayerEngine.MVP_PLAYER) {
                 mpvInitializationInProgress = true
                 try {
                     afrJob.await()
@@ -121,7 +131,11 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                         )
                         delay(MPV_AFR_SETTLE_DELAY_MS)
                     }
-                    initializeMpvPlayer(url = url, headers = headers)
+                    initializeMpvPlayer(
+                        url = url,
+                        headers = headers,
+                        allowEngineFailover = allowEngineFailover
+                    )
                     // Keep addon subtitle discovery available on the mpv path too.
                     // Exo does this later in this method, but this branch returns early.
                     fetchAddonSubtitles()
@@ -387,7 +401,13 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     override fun onRenderedFirstFrame() {
                         hasRenderedFirstFrame = true
                         resetErrorRetryState()
-                        _uiState.update { it.copy(showLoadingOverlay = false, loadingMessage = null) }
+                        _uiState.update {
+                            it.copy(
+                                showLoadingOverlay = false,
+                                loadingMessage = null,
+                                showPlayerEngineSwitchInfo = false
+                            )
+                        }
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
@@ -410,6 +430,13 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                             retryCurrentStreamFromStartAfter416()
                             return
                         }
+                        if (maybeAutoSwitchInternalPlayerOnStartupError(
+                                detailedError = detailedError,
+                                allowEngineFailover = allowEngineFailover
+                            )
+                        ) {
+                            return
+                        }
                         // Attempt automatic recovery for transient errors.
                         if (attemptAutoRetry(error, detailedError)) {
                             return
@@ -428,6 +455,14 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 fetchAddonSubtitles()
             }
         } catch (e: Exception) {
+            if (
+                maybeAutoSwitchInternalPlayerOnStartupError(
+                    detailedError = e.message ?: "Failed to initialize player",
+                    allowEngineFailover = allowEngineFailover
+                )
+            ) {
+                return@launch
+            }
             _uiState.update {
                 it.copy(
                     error = e.message ?: "Failed to initialize player",

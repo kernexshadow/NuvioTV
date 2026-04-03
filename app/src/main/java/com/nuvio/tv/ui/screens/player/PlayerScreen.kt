@@ -828,6 +828,20 @@ fun PlayerScreen(
             StreamSourceIndicator(text = uiState.streamSourceIndicatorText)
         }
 
+        AnimatedVisibility(
+            visible = uiState.showPlayerEngineSwitchInfo && uiState.error == null,
+            enter = fadeIn(animationSpec = tween(180)),
+            exit = fadeOut(animationSpec = tween(180)),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(2.35f)
+        ) {
+            PlayerEngineSwitchIndicator(
+                title = stringResource(R.string.player_engine_switching_title),
+                message = uiState.playerEngineSwitchInfoText
+            )
+        }
+
         // Seek-only overlay (progress bar + time) when controls are hidden
         AnimatedVisibility(
             visible = uiState.showSubtitleDelayOverlay &&
@@ -1694,6 +1708,46 @@ private fun StreamSourceIndicator(text: String) {
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun PlayerEngineSwitchIndicator(
+    title: String,
+    message: String
+) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.Black.copy(alpha = 0.86f))
+            .padding(horizontal = 22.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.SwapHoriz,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(22.dp)
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = Color.White
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.92f),
+            textAlign = TextAlign.Center
         )
     }
 }

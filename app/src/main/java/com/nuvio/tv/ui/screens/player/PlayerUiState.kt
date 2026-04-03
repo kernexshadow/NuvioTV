@@ -117,6 +117,8 @@ data class PlayerUiState(
     // Stream source badge
     val showStreamSourceIndicator: Boolean = false,
     val streamSourceIndicatorText: String = "",
+    val showPlayerEngineSwitchInfo: Boolean = false,
+    val playerEngineSwitchInfoText: String = "",
     // Frame rate matching
     val detectedFrameRateRaw: Float = 0f,
     val detectedFrameRateSource: FrameRateSource? = null,

@@ -225,6 +225,9 @@ fun PlaybackSettingsContent(
                         viewModel.setStreamAutoPlayPreferBingeGroupForNextEpisode(enabled)
                     }
                 },
+                onSetAutoSwitchInternalPlayerOnError = { enabled ->
+                    coroutineScope.launch { viewModel.setAutoSwitchInternalPlayerOnError(enabled) }
+                },
                 onSetNextEpisodeThresholdPercent = { percent ->
                     coroutineScope.launch { viewModel.setNextEpisodeThresholdPercent(percent) }
                 },

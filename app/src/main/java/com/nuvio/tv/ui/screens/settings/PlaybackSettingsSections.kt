@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -113,6 +114,7 @@ internal fun PlaybackSettingsSections(
     onShowReuseLastLinkCacheDialog: () -> Unit,
     onSetStreamAutoPlayNextEpisodeEnabled: (Boolean) -> Unit,
     onSetStreamAutoPlayPreferBingeGroupForNextEpisode: (Boolean) -> Unit,
+    onSetAutoSwitchInternalPlayerOnError: (Boolean) -> Unit,
     onSetNextEpisodeThresholdPercent: (Float) -> Unit,
     onSetNextEpisodeThresholdMinutesBeforeEnd: (Float) -> Unit,
     onSetStreamAutoPlayTimeoutSeconds: (Int) -> Unit,
@@ -317,6 +319,18 @@ internal fun PlaybackSettingsSections(
                     title = stringResource(R.string.playback_internal_player_engine),
                     subtitle = streamSelectionUi.internalEngineLabel,
                     onClick = onShowInternalPlayerEngineDialog,
+                    onFocused = { focusedSection = PlaybackSection.STREAM_SELECTION },
+                    enabled = playerSettings.playerPreference != PlayerPreference.EXTERNAL
+                )
+            }
+
+            item(key = "stream_auto_switch_internal_player_on_error") {
+                ToggleSettingsItem(
+                    icon = Icons.Default.SwapHoriz,
+                    title = stringResource(R.string.playback_auto_switch_internal_player_on_error),
+                    subtitle = stringResource(R.string.playback_auto_switch_internal_player_on_error_sub),
+                    isChecked = playerSettings.autoSwitchInternalPlayerOnError,
+                    onCheckedChange = onSetAutoSwitchInternalPlayerOnError,
                     onFocused = { focusedSection = PlaybackSection.STREAM_SELECTION },
                     enabled = playerSettings.playerPreference != PlayerPreference.EXTERNAL
                 )
