@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.libtorrent4j.AddTorrentParams
 import org.libtorrent4j.Priority
 import org.libtorrent4j.SessionManager
 import org.libtorrent4j.SessionParams
@@ -24,6 +25,10 @@ import org.libtorrent4j.Sha1Hash
 import org.libtorrent4j.TorrentFlags
 import org.libtorrent4j.TorrentHandle
 import org.libtorrent4j.TorrentInfo
+import org.libtorrent4j.TorrentStatus
+import org.libtorrent4j.swig.byte_vector
+import org.libtorrent4j.swig.error_code
+import org.libtorrent4j.swig.libtorrent
 import org.libtorrent4j.swig.torrent_flags_t
 import java.io.File
 import javax.inject.Inject
@@ -68,6 +73,9 @@ class TorrentEngine @Inject constructor(
 
     private val cacheDir: File
         get() = File(context.cacheDir, "torrent_cache").also { it.mkdirs() }
+
+    private val resumeDir: File
+        get() = File(context.filesDir, "torrent_resume").also { it.mkdirs() }
 
     /**
      * Start streaming a torrent. Returns the local HTTP URL for ExoPlayer.
@@ -174,10 +182,12 @@ class TorrentEngine @Inject constructor(
         streamServer?.stop()
         streamServer = null
 
-        // Null out the handle FIRST to signal all concurrent readers to stop,
-        // then remove from session. This prevents native SIGSEGV from accessing
-        // an invalidated C++ shared_ptr.
+        // Save resume data BEFORE nulling the handle so pieces are remembered
         val handle = currentHandle
+        handle?.let { saveResumeData(it) }
+
+        // Null out the handle to signal all concurrent readers to stop,
+        // then remove from session.
         currentHandle = null
         currentFileIndex = -1
         totalPieces = 0
@@ -279,39 +289,31 @@ class TorrentEngine @Inject constructor(
         val hexHash = magnetUri.substringAfter("btih:").substringBefore("&")
         val hash = Sha1Hash.parseHex(hexHash)
 
-        // Start the download
-        try {
-            session.download(magnetUri, cacheDir, torrent_flags_t())
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start download", e)
-            return null
-        }
-
-        // Immediate check — metadata may already be cached from a previous session
-        session.find(hash)?.let { handle ->
-            if (handle.torrentFile() != null) {
-                Log.d(TAG, "Metadata available immediately (cached)")
-                return handle
+        // Try loading saved resume data — this lets libtorrent skip the full
+        // hash check and recognise already-downloaded pieces instantly.
+        val resumed = tryAddWithResumeData(session, hexHash)
+        if (!resumed) {
+            try {
+                session.download(magnetUri, cacheDir, torrent_flags_t())
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start download", e)
+                return null
             }
         }
 
-        // Poll for metadata with a timeout. This is more reliable than relying
-        // solely on alerts, which can be missed if they fire between listener
-        // registration and the download() call, or if AddTorrentAlert fires
-        // with metadata already resolved (no separate MetadataReceivedAlert).
+        // Poll until the handle has metadata (may be instant from resume data)
         val timeoutMs = 60_000L
         val startTime = System.currentTimeMillis()
 
         while (System.currentTimeMillis() - startTime < timeoutMs) {
-            if (currentHandle == null && _state.value is TorrentState.Idle) {
-                // stopCurrentStream() was called — abort
-                return null
-            }
+            if (currentHandle == null && _state.value is TorrentState.Idle) return null
 
             try {
                 val handle = session.find(hash)
                 if (handle != null && handle.torrentFile() != null) {
                     Log.d(TAG, "Metadata resolved after ${System.currentTimeMillis() - startTime}ms")
+                    // Wait for any checking phase to finish so havePiece() is accurate
+                    awaitCheckingComplete(handle)
                     return handle
                 }
             } catch (e: Exception) {
@@ -323,6 +325,83 @@ class TorrentEngine @Inject constructor(
 
         Log.e(TAG, "Timed out waiting for torrent metadata")
         return null
+    }
+
+    /**
+     * Tries to add the torrent using saved resume data. Returns true if successful.
+     */
+    private fun tryAddWithResumeData(session: SessionManager, hexHash: String): Boolean {
+        val resumeFile = File(resumeDir, "$hexHash.resume")
+        if (!resumeFile.exists()) return false
+
+        try {
+            val resumeBytes = resumeFile.readBytes()
+            val bv = byte_vector(resumeBytes)
+            val ec = error_code()
+            val params = libtorrent.read_resume_data_ex(bv, ec)
+
+            if (ec.value() != 0) {
+                Log.w(TAG, "Failed to parse resume data: ${ec.message()}")
+                resumeFile.delete()
+                return false
+            }
+
+            params.setSave_path(cacheDir.absolutePath)
+            session.swig().async_add_torrent(params)
+            Log.d(TAG, "Added torrent with resume data for $hexHash")
+            return true
+        } catch (e: Exception) {
+            Log.w(TAG, "Error loading resume data", e)
+            resumeFile.delete()
+            return false
+        }
+    }
+
+    /**
+     * Saves resume data for the given handle so already-downloaded pieces
+     * are recognised on next start without re-hashing.
+     */
+    private fun saveResumeData(handle: TorrentHandle) {
+        try {
+            val ti = handle.torrentFile() ?: return
+            val status = handle.status()
+            val infoHash = status.infoHashes?.best?.toHex() ?: return
+
+            // Build a params object that writeResumeDataBuf can serialise
+            val params = AddTorrentParams()
+            params.setTorrentInfo(ti)
+            params.setSavePath(handle.savePath())
+            val data = AddTorrentParams.writeResumeDataBuf(params)
+
+            val resumeFile = File(resumeDir, "$infoHash.resume")
+            resumeFile.writeBytes(data)
+            Log.d(TAG, "Saved resume data for $infoHash (${data.size} bytes)")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to save resume data", e)
+        }
+    }
+
+    /**
+     * Waits until the torrent leaves the CHECKING_FILES / CHECKING_RESUME_DATA
+     * states. During checking, havePiece() is unreliable.
+     */
+    private suspend fun awaitCheckingComplete(handle: TorrentHandle) {
+        val startTime = System.currentTimeMillis()
+        while (System.currentTimeMillis() - startTime < 30_000) {
+            try {
+                val state = handle.status().state()
+                if (state != TorrentStatus.State.CHECKING_FILES &&
+                    state != TorrentStatus.State.CHECKING_RESUME_DATA) {
+                    Log.d(TAG, "Checking complete (state=$state) after ${System.currentTimeMillis() - startTime}ms")
+                    return
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error checking torrent state", e)
+                return
+            }
+            delay(200)
+        }
+        Log.w(TAG, "Timed out waiting for checking to complete")
     }
 
     private fun resolveFileIndex(torrentInfo: TorrentInfo, requestedIdx: Int?): Int {

@@ -51,7 +51,7 @@ class TorrentSettings @Inject constructor(
             enableDht = prefs[Keys.ENABLE_DHT] ?: true,
             enableEncryption = prefs[Keys.ENABLE_ENCRYPTION] ?: true,
             enableUpload = prefs[Keys.ENABLE_UPLOAD] ?: true,
-            autoClearCacheOnExit = prefs[Keys.AUTO_CLEAR_CACHE] ?: true
+            autoClearCacheOnExit = prefs[Keys.AUTO_CLEAR_CACHE] ?: false
         )
     }
 
