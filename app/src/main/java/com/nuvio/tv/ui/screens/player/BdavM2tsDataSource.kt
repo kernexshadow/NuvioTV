@@ -34,6 +34,15 @@ internal class BdavM2tsDataSource(
     override fun getResponseHeaders(): Map<String, List<String>> = upstream.responseHeaders
 
     override fun open(dataSpec: DataSpec): Long {
+        if (opened) {
+            // Defensive reset: some loaders may reopen after an interrupted open without a close callback.
+            runCatching { upstream.close() }
+                .onFailure { closeError ->
+                    Log.w(TAG, "open pre-close failed: ${closeError.javaClass.simpleName}: ${closeError.message}")
+                }
+            opened = false
+        }
+
         val requestedTsStart = dataSpec.position.coerceAtLeast(0L)
         val requestedSourceStart = tsPositionToSourcePosition(requestedTsStart)
         val remappedLength = if (dataSpec.length == C.LENGTH_UNSET.toLong()) {
@@ -52,6 +61,10 @@ internal class BdavM2tsDataSource(
         val availableSourceLength = try {
             upstream.open(remappedDataSpec)
         } catch (error: Exception) {
+            runCatching { upstream.close() }
+                .onFailure { closeError ->
+                    Log.w(TAG, "open cleanup close failed: ${closeError.javaClass.simpleName}: ${closeError.message}")
+                }
             Log.e(
                 TAG,
                 "open failed: uri=${summarizeUri(dataSpec.uri)} tsStart=$requestedTsStart srcStart=$requestedSourceStart reqLen=${dataSpec.length} mappedLen=$remappedLength",
