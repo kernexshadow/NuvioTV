@@ -867,6 +867,10 @@ class WatchProgressRepositoryImpl @Inject constructor(
         watchProgressPreferences.clearAll()
     }
 
+    override fun isDroppedShow(contentId: String): Boolean {
+        return traktProgressService.isShowHiddenFromProgress(contentId)
+    }
+
     private fun progressKey(progress: WatchProgress): String {
         return if (progress.season != null && progress.episode != null) {
             "${progress.contentId}_s${progress.season}e${progress.episode}"

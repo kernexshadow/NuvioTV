@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -304,7 +305,10 @@ class HomeViewModel @Inject constructor(
             val cachedInProgress = runCatching { cwEnrichmentCache.getInProgressSnapshot() }.getOrDefault(emptyList())
             val cachedNextUp = runCatching { cwEnrichmentCache.getNextUpSnapshot() }.getOrDefault(emptyList())
             if (cachedInProgress.isEmpty() && cachedNextUp.isEmpty()) return@launch
-            val inProgressItems = cachedInProgress.map { cached ->
+            val dismissedNextUp = traktSettingsDataStore.dismissedNextUpKeys.first()
+            val inProgressItems = cachedInProgress
+                .filter { !watchProgressRepository.isDroppedShow(it.contentId) }
+                .map { cached ->
                 ContinueWatchingItem.InProgress(
                     progress = com.nuvio.tv.domain.model.WatchProgress(
                         contentId = cached.contentId,
@@ -329,7 +333,10 @@ class HomeViewModel @Inject constructor(
                     releaseInfo = cached.releaseInfo
                 )
             }
-            val nextUpItems = cachedNextUp.map { cached ->
+            val nextUpItems = cachedNextUp
+                .filter { !watchProgressRepository.isDroppedShow(it.contentId) }
+                .filter { nextUpDismissKey(it.contentId, it.seedSeason, it.seedEpisode) !in dismissedNextUp }
+                .map { cached ->
                 ContinueWatchingItem.NextUp(
                     info = NextUpInfo(
                         contentId = cached.contentId,

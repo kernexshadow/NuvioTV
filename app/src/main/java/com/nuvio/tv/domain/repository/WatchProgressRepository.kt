@@ -108,4 +108,9 @@ interface WatchProgressRepository {
      * Clear all watch progress
      */
     suspend fun clearAll()
+
+    /**
+     * Returns true if the show is dropped/hidden from progress on the active source.
+     */
+    fun isDroppedShow(contentId: String): Boolean
 }
