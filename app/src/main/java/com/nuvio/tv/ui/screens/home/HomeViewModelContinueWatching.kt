@@ -35,11 +35,12 @@ import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
-private const val CW_MAX_RECENT_PROGRESS_ITEMS = 150
-private const val CW_MAX_NEXT_UP_LOOKUPS = 15
+private const val CW_MAX_RECENT_PROGRESS_ITEMS = 300
+private const val CW_MAX_NEXT_UP_LOOKUPS = 24
 private const val CW_MAX_NEXT_UP_CONCURRENCY = 4
 private const val CW_MAX_ENRICHMENT_CONCURRENCY = 4
 private const val CW_PROGRESS_DEBOUNCE_MS = 500L
@@ -989,12 +990,29 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
     synchronized(cwNextUpResolutionCache) {
         if (cwNextUpResolutionCache.containsKey(cacheKey)) {
             val cached = cwNextUpResolutionCache[cacheKey]
-            debug?.recordNextUpCacheHit(
-                progress = progress,
-                resolved = cached != null,
-                showUnairedNextUp = showUnairedNextUp
-            )
-            return cached
+            if (cached != null) {
+                debug?.recordNextUpCacheHit(
+                    progress = progress,
+                    resolved = true,
+                    showUnairedNextUp = showUnairedNextUp
+                )
+                return cached
+            }
+            // Negative cache entry — check TTL
+            val negativeCachedAt = cwNextUpNegativeCacheTimestamps[cacheKey]
+            if (negativeCachedAt != null &&
+                SystemClock.elapsedRealtime() - negativeCachedAt < CW_META_NEGATIVE_CACHE_TTL_MS
+            ) {
+                debug?.recordNextUpCacheHit(
+                    progress = progress,
+                    resolved = false,
+                    showUnairedNextUp = showUnairedNextUp
+                )
+                return null
+            }
+            // TTL expired — retry
+            cwNextUpResolutionCache.remove(cacheKey)
+            cwNextUpNegativeCacheTimestamps.remove(cacheKey)
         }
     }
     val contentId = progress.contentId
@@ -1013,6 +1031,7 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
         )
         synchronized(cwNextUpResolutionCache) {
             cwNextUpResolutionCache[cacheKey] = null
+            cwNextUpNegativeCacheTimestamps[cacheKey] = SystemClock.elapsedRealtime()
         }
         return null
     }
@@ -1027,6 +1046,7 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
         logNextUpDecision("drop contentId=$contentId name=${progress.name} reason=no-meta-for-seed")
         synchronized(cwNextUpResolutionCache) {
             cwNextUpResolutionCache[cacheKey] = null
+            cwNextUpNegativeCacheTimestamps[cacheKey] = SystemClock.elapsedRealtime()
         }
         return null
     }
@@ -1039,6 +1059,7 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
         )
         synchronized(cwNextUpResolutionCache) {
             cwNextUpResolutionCache[cacheKey] = null
+            cwNextUpNegativeCacheTimestamps[cacheKey] = SystemClock.elapsedRealtime()
         }
         return null
     }
@@ -1083,6 +1104,8 @@ private fun resolveNextUpVideoFromMeta(
     meta: Meta
 ): Video? = resolveNextUpVideoFromMeta(progress, meta, showUnairedNextUp = true)
 
+private const val CW_NEXT_UP_NEW_SEASON_UNAIRED_WINDOW_DAYS = 7
+
 private fun resolveNextUpVideoFromMeta(
     progress: WatchProgress,
     meta: Meta,
@@ -1125,6 +1148,13 @@ private fun resolveNextUpVideoFromMeta(
             if (!releaseDate.isAfter(todayLocal)) {
                 return@firstOrNull true
             }
+            // Match mobile: show unaired next-season episodes within 7-day window
+            if (showUnairedNextUp) {
+                val daysUntil = java.time.temporal.ChronoUnit.DAYS.between(todayLocal, releaseDate)
+                if (daysUntil <= CW_NEXT_UP_NEW_SEASON_UNAIRED_WINDOW_DAYS) {
+                    return@firstOrNull true
+                }
+            }
             return@firstOrNull false
         }
 
@@ -1148,6 +1178,8 @@ private fun resolveNextUpVideoFromMeta(
     return nextVideo
 }
 
+private const val CW_META_NEGATIVE_CACHE_TTL_MS = 5 * 60_000L
+
 private suspend fun HomeViewModel.resolveMetaForProgress(
     progress: WatchProgress,
     metaCache: MutableMap<String, Meta?>,
@@ -1157,8 +1189,20 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
     val cacheKey = "${progress.contentType}:${progress.contentId}"
     synchronized(metaCache) {
         if (metaCache.containsKey(cacheKey)) {
-            debug?.recordMetaCacheHit(progress)
-            return metaCache[cacheKey]
+            val cached = metaCache[cacheKey]
+            if (cached != null) {
+                debug?.recordMetaCacheHit(progress)
+                return cached
+            }
+            val negativeCachedAt = cwMetaNegativeCacheTimestamps[cacheKey]
+            if (negativeCachedAt != null &&
+                SystemClock.elapsedRealtime() - negativeCachedAt < CW_META_NEGATIVE_CACHE_TTL_MS
+            ) {
+                debug?.recordMetaCacheHit(progress)
+                return null
+            }
+            metaCache.remove(cacheKey)
+            cwMetaNegativeCacheTimestamps.remove(cacheKey)
         }
     }
 
@@ -1232,6 +1276,11 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
 
     synchronized(metaCache) {
         metaCache[cacheKey] = resolved
+        if (resolved == null) {
+            cwMetaNegativeCacheTimestamps[cacheKey] = SystemClock.elapsedRealtime()
+        } else {
+            cwMetaNegativeCacheTimestamps.remove(cacheKey)
+        }
     }
     return resolved
 }
