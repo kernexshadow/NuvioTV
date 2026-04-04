@@ -366,6 +366,9 @@ internal fun PlayerRuntimeController.initializePlayer(
                             }
                             tryApplyPendingResumeProgress(this@apply)
                             _uiState.value.pendingSeekPosition?.let { position ->
+                                if (isTorrentStream) {
+                                    onTorrentSeek(position, duration)
+                                }
                                 seekTo(position)
                                 _uiState.update { it.copy(pendingSeekPosition = null) }
                             }

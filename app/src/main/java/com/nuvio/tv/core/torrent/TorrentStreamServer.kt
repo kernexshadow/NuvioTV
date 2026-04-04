@@ -16,8 +16,8 @@ import java.io.InputStream
  */
 class TorrentStreamServer(
     port: Int = 9080,
-    private val onPiecesNeeded: (startPiece: Int, endPiece: Int) -> Unit,
-    private val arePiecesReady: (startPiece: Int, endPiece: Int) -> Boolean
+    private val onBytesNeeded: (startByte: Long, endByte: Long) -> Unit,
+    private val areBytesReady: (startByte: Long, endByte: Long) -> Boolean
 ) : NanoHTTPD(port) {
 
     @Volatile
@@ -67,7 +67,7 @@ class TorrentStreamServer(
     }
 
     private fun serveFullRequest(file: File, totalLength: Long): Response {
-        waitForPieces(0, totalLength)
+        waitForBytes(0, totalLength)
 
         val inputStream: InputStream = FileInputStream(file)
         val response = newFixedLengthResponse(
@@ -102,7 +102,7 @@ class TorrentStreamServer(
             return response
         }
 
-        waitForPieces(start, end)
+        waitForBytes(start, end)
 
         val contentLength = end - start + 1
         val inputStream: InputStream = FileInputStream(file).also {
@@ -122,33 +122,29 @@ class TorrentStreamServer(
     }
 
     /**
-     * Requests the needed pieces and blocks until the immediate read window
-     * is downloaded. Waits indefinitely — only returns when pieces are ready
-     * or the server is stopped. This prevents ExoPlayer from reading
-     * incomplete data and erroring out.
+     * Requests the needed bytes and blocks until the immediate read window
+     * is downloaded. Waits indefinitely — only returns when data is ready
+     * or the server is stopped.
      */
-    private fun waitForPieces(start: Long, end: Long) {
+    private fun waitForBytes(start: Long, end: Long) {
         if (pieceLength <= 0) return
-        val startPiece = (start / pieceLength).toInt()
-        val endPiece = (end / pieceLength).toInt()
 
         // Only wait for a small window from the read start, not the whole range
-        val waitEnd = startPiece + MAX_WAIT_PIECES.coerceAtMost(endPiece - startPiece)
+        val windowBytes = MAX_WAIT_PIECES.toLong() * pieceLength
+        val waitEnd = (start + windowBytes).coerceAtMost(end)
 
         try {
-            onPiecesNeeded(startPiece, waitEnd)
+            onBytesNeeded(start, waitEnd)
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to request pieces $startPiece-$waitEnd", e)
+            Log.w(TAG, "Failed to request bytes $start-$waitEnd", e)
             return
         }
 
-        // Wait until pieces are ready or the server is stopped — no timeout.
-        // The torrent engine is downloading these pieces at TOP_PRIORITY.
         while (active) {
             try {
-                if (arePiecesReady(startPiece, waitEnd)) return
+                if (areBytesReady(start, waitEnd)) return
             } catch (e: Exception) {
-                Log.w(TAG, "Error checking piece readiness", e)
+                Log.w(TAG, "Error checking byte readiness", e)
                 return
             }
             try {
@@ -164,14 +160,14 @@ class TorrentStreamServer(
         private const val MAX_WAIT_PIECES = 5
 
         fun startOnAvailablePort(
-            onPiecesNeeded: (startPiece: Int, endPiece: Int) -> Unit,
-            arePiecesReady: (startPiece: Int, endPiece: Int) -> Boolean,
+            onBytesNeeded: (startByte: Long, endByte: Long) -> Unit,
+            areBytesReady: (startByte: Long, endByte: Long) -> Boolean,
             startPort: Int = 9080,
             maxAttempts: Int = 20
         ): TorrentStreamServer? {
             for (port in startPort until startPort + maxAttempts) {
                 try {
-                    val server = TorrentStreamServer(port, onPiecesNeeded, arePiecesReady)
+                    val server = TorrentStreamServer(port, onBytesNeeded, areBytesReady)
                     server.start(SOCKET_READ_TIMEOUT, false)
                     return server
                 } catch (e: Exception) {

@@ -221,6 +221,32 @@ class TorrentEngine @Inject constructor(
         sessionManager = null
     }
 
+    /**
+     * Called periodically during playback to advance the download window
+     * as playback progresses. Without this, pieces beyond the initial 30s
+     * window stay at IGNORE priority and never get downloaded.
+     */
+    fun updatePlaybackPosition(positionMs: Long, durationMs: Long) {
+        val handle = currentHandle ?: return
+        if (durationMs <= 0) return
+
+        try {
+            val torrentInfo = handle.torrentFile() ?: return
+            val fileSize = torrentInfo.files().fileSize(currentFileIndex)
+            val bytePosition = ((positionMs.toDouble() / durationMs) * fileSize).toLong()
+
+            // Only reprioritize if position moved significantly (>5s worth of data)
+            val delta = bytePosition - lastPlaybackBytePos
+            if (delta < estimatedBytesPerSec * 5 && delta > -estimatedBytesPerSec * 5) return
+
+            estimatedBytesPerSec = (fileSize / (durationMs / 1000L)).coerceAtLeast(100_000)
+            lastPlaybackBytePos = bytePosition
+            prioritizePiecesForPosition(handle, torrentInfo, currentFileIndex, bytePosition)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error updating playback position", e)
+        }
+    }
+
     fun onPlaybackSeek(positionMs: Long, durationMs: Long) {
         val handle = currentHandle ?: return
         if (durationMs <= 0) return
@@ -560,48 +586,35 @@ class TorrentEngine @Inject constructor(
     ): TorrentStreamServer {
         val pieceLength = torrentInfo.pieceLength().toLong()
         val fileOffset = torrentInfo.files().fileOffset(fileIndex)
-        val firstFilePiece = (fileOffset / pieceLength).toInt()
+        val numPieces = torrentInfo.numPieces()
 
         return TorrentStreamServer.startOnAvailablePort(
-            onPiecesNeeded = { startPiece, endPiece ->
-                prioritizePiecesForRange(handle, torrentInfo, fileIndex, startPiece, endPiece)
+            onBytesNeeded = { startByte, endByte ->
+                // Convert file-relative bytes to global piece indices
+                val startPiece = ((fileOffset + startByte) / pieceLength).toInt().coerceIn(0, numPieces - 1)
+                val endPiece = ((fileOffset + endByte) / pieceLength).toInt().coerceIn(0, numPieces - 1)
+                val h = currentHandle ?: return@startOnAvailablePort
+                try {
+                    for (i in startPiece..endPiece) {
+                        if (!h.havePiece(i)) {
+                            h.piecePriority(i, Priority.TOP_PRIORITY)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error prioritizing pieces for byte range", e)
+                }
             },
-            arePiecesReady = { startPiece, endPiece ->
+            areBytesReady = { startByte, endByte ->
                 val h = currentHandle ?: return@startOnAvailablePort false
                 try {
-                    val adjStart = firstFilePiece + startPiece
-                    val adjEnd = (firstFilePiece + endPiece).coerceAtMost(torrentInfo.numPieces() - 1)
-                    (adjStart..adjEnd).all { h.havePiece(it) }
+                    val startPiece = ((fileOffset + startByte) / pieceLength).toInt().coerceIn(0, numPieces - 1)
+                    val endPiece = ((fileOffset + endByte) / pieceLength).toInt().coerceIn(0, numPieces - 1)
+                    (startPiece..endPiece).all { h.havePiece(it) }
                 } catch (e: Exception) {
                     false
                 }
             }
         ) ?: throw TorrentException("Failed to start stream server - no available port")
-    }
-
-    private fun prioritizePiecesForRange(
-        handle: TorrentHandle,
-        torrentInfo: TorrentInfo,
-        fileIndex: Int,
-        startPiece: Int,
-        endPiece: Int
-    ) {
-        if (currentHandle == null) return
-        try {
-            val pieceLength = torrentInfo.pieceLength().toLong()
-            val fileOffset = torrentInfo.files().fileOffset(fileIndex)
-            val firstFilePiece = (fileOffset / pieceLength).toInt()
-            val adjustedStart = firstFilePiece + startPiece
-            val adjustedEnd = firstFilePiece + endPiece
-
-            for (i in adjustedStart..adjustedEnd.coerceAtMost(torrentInfo.numPieces() - 1)) {
-                if (!handle.havePiece(i)) {
-                    handle.piecePriority(i, Priority.TOP_PRIORITY)
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error prioritizing pieces for range", e)
-        }
     }
 
     private fun startStatsPolling(handle: TorrentHandle) {

@@ -100,6 +100,10 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                         duration = playerDuration.coerceAtLeast(0L)
                     )
                 }
+                // Advance the torrent download window as playback progresses
+                if (isTorrentStream && playerDuration > 0) {
+                    torrentEngine.updatePlaybackPosition(pos, playerDuration)
+                }
                 updateActiveSkipInterval(pos)
                 evaluateNextEpisodeCardVisibility(
                     positionMs = pos,

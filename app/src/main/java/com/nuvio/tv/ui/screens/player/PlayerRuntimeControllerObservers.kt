@@ -379,6 +379,9 @@ internal fun PlayerRuntimeController.tryApplyPendingResumeProgress(player: Playe
     }
 
     if (target > 0L) {
+        if (isTorrentStream) {
+            onTorrentSeek(target, duration)
+        }
         player.seekTo(target)
         _uiState.update { it.copy(pendingSeekPosition = null) }
         pendingResumeProgress = null

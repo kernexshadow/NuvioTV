@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.player
 
 import android.app.Activity
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
@@ -18,6 +19,19 @@ internal fun PlayerRuntimeController.startInitialPlaybackIfNeeded() {
     if (infoHash != null) {
         torrentStreamJob = scope.launch {
             try {
+                // Wait for saved watch progress to load before starting the torrent,
+                // so we can download pieces from the resume position instead of byte 0.
+                if (!navigationArgs.startFromBeginning && contentId != null) {
+                    val progress = if (currentSeason != null && currentEpisode != null) {
+                        watchProgressRepository.getEpisodeProgress(contentId!!, currentSeason!!, currentEpisode!!).first()
+                    } else {
+                        watchProgressRepository.getProgress(contentId!!).first()
+                    }
+                    if (progress != null && progress.isInProgress()) {
+                        pendingResumeProgress = progress
+                    }
+                }
+
                 observeTorrentState()
                 val localUrl = startTorrentStream(infoHash, navigationArgs.fileIdx)
                 currentStreamUrl = localUrl
