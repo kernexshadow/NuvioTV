@@ -1089,10 +1089,11 @@ private fun ScraperCard(
                         .fillMaxWidth()
                         .padding(top = 12.dp)
                 ) {
-                    // Diagnostic steps — focusable so D-pad scrolls it into view
+                    // Diagnostic steps — collapsible, click to expand/collapse
                     if (testDiagnostics != null && testDiagnostics.steps.isNotEmpty()) {
+                        var diagnosticsExpanded by remember { mutableStateOf(false) }
                         Surface(
-                            onClick = {},
+                            onClick = { diagnosticsExpanded = !diagnosticsExpanded },
                             colors = ClickableSurfaceDefaults.colors(
                                 containerColor = NuvioColors.Surface,
                                 focusedContainerColor = NuvioColors.Surface,
@@ -1108,11 +1109,20 @@ private fun ScraperCard(
                             ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = testDiagnostics.steps.joinToString("\n"),
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(8.dp)
-                            )
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text(
+                                    text = if (diagnosticsExpanded) "Diagnostics (tap to collapse)" else "Diagnostics (tap to expand)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NuvioColors.TextTertiary
+                                )
+                                androidx.compose.animation.AnimatedVisibility(visible = diagnosticsExpanded) {
+                                    Text(
+                                        text = testDiagnostics.steps.joinToString("\n"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                     }

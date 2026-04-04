@@ -71,6 +71,10 @@ private fun looksLikePlugin(instance: Any): Boolean {
  * 3. Foreign plugins with similar signatures
  */
 private class ReflectivePluginWrapper(private val foreignInstance: Any) : Plugin() {
+    override fun load(activity: android.app.Activity?) {
+        load(activity as? Context ?: AcraApplication.context ?: return)
+    }
+
     override fun load(context: Context) {
         // Snapshot global registries before load() to detect what this plugin adds
         val providersBefore = synchronized(APIHolder.allProviders) {

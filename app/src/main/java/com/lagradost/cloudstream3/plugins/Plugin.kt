@@ -27,11 +27,20 @@ open class Plugin {
     var filename: String? = null
 
     /**
+     * No-arg load matching BasePlugin's pattern. Extensions compiled against
+     * CloudStream may override this instead of load(Activity?).
+     */
+    open fun load() {}
+
+    /**
      * Called when the plugin is loaded. Override to register APIs.
      * The [activity] parameter may be null when loaded outside an Activity context.
+     * Delegates to no-arg load() so BasePlugin-style extensions get invoked.
      */
     @Suppress("UNUSED_PARAMETER")
-    open fun load(activity: Activity?) {}
+    open fun load(activity: Activity?) {
+        load()
+    }
 
     fun registerMainAPI(element: MainAPI) {
         Log.d("CS3Plugin", "registerMainAPI called: ${element.name} (${element.javaClass.name})")
