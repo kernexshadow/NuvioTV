@@ -568,11 +568,13 @@ fun SearchScreen(
                                 "${item.addonId}_${item.type}_${item.catalogId}_${trimmedSubmittedQuery}_$index"
                             }
                         ) { index, catalogRow ->
-                            val truncatedRow = if (catalogRow.items.size >= 15) {
+                            val hasEnoughForSeeAll = catalogRow.items.size >= 15
+                            val truncatedRow = if (hasEnoughForSeeAll) {
                                 catalogRow.copy(items = catalogRow.items.take(14))
                             } else catalogRow
                             CatalogRowSection(
                                 catalogRow = truncatedRow,
+                                showSeeAll = hasEnoughForSeeAll,
                                 showPosterLabels = uiState.posterLabelsEnabled,
                                 showAddonName = uiState.catalogAddonNameEnabled,
                                 showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,

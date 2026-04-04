@@ -58,6 +58,7 @@ fun CatalogRowSection(
     catalogRow: CatalogRow,
     onItemClick: (String, String, String) -> Unit,
     onSeeAll: () -> Unit = {},
+    showSeeAll: Boolean = catalogRow.items.size >= 15,
     posterCardStyle: PosterCardStyle = PosterCardDefaults.Style,
     showPosterLabels: Boolean = true,
     showAddonName: Boolean = true,
@@ -227,7 +228,7 @@ fun CatalogRowSection(
                 )
             }
 
-            if (catalogRow.items.size >= 15) {
+            if (showSeeAll) {
                 item(key = "${catalogRow.type}_${catalogRow.catalogId}_see_all") {
                     Card(
                         onClick = onSeeAll,
