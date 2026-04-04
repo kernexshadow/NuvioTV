@@ -847,6 +847,7 @@
     <string name="player_loading_buffering">Buffering…</string>
     <string name="player_engine_switching_title">Switching Player Engine</string>
     <string name="player_engine_switching_message">Startup failed. Switching to %1$s…</string>
+    <string name="player_engine_switching_manual_message">Switching to %1$s...</string>
     <string name="playback_show_loading_status">Show loading status</string>
     <string name="playback_show_loading_status_sub">Display step-by-step progress while the player is initializing.</string>
 
@@ -1331,6 +1332,7 @@
     <string name="cd_subtitles">Subtitles</string>
     <string name="cd_audio_tracks">Audio tracks</string>
     <string name="cd_sources">Sources</string>
+    <string name="cd_switch_player_engine">Switch player engine</string>
     <string name="cd_episodes">Episodes</string>
     <string name="cd_playback_speed">Playback speed</string>
     <string name="cd_aspect_ratio">Aspect ratio</string>

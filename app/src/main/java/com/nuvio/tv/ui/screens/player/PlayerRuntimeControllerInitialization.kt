@@ -598,12 +598,26 @@ internal suspend fun PlayerRuntimeController.prepareStartupSubtitles(
 }
 
 internal fun PlayerRuntimeController.resetAddonSubtitleStateForNewStream() {
+    logSwitchTrace(
+        stage = "reset-addon-state-new-stream",
+        message = "autoSubtitleSelectedBefore=$autoSubtitleSelected " +
+            "subtitleDisabledByPersistedPreference=$subtitleDisabledByPersistedPreference " +
+            "subtitleAddonRestoredByPersistedPreference=$subtitleAddonRestoredByPersistedPreference " +
+            "explicitSelectionBefore=${explicitSubtitleSelectionForEngineSwitch?.selection?.javaClass?.simpleName ?: "none"} " +
+            "effectiveSelectionBefore=${effectiveSubtitleSelectionForEngineSwitch?.selection?.javaClass?.simpleName ?: "none"}"
+    )
     autoSubtitleSelected = subtitleDisabledByPersistedPreference || subtitleAddonRestoredByPersistedPreference
     hasScannedTextTracksOnce = false
     pendingAddonSubtitleLanguage = null
     pendingAddonSubtitleTrackId = null
     pendingAudioSelectionAfterSubtitleRefresh = null
+    explicitSubtitleSelectionForEngineSwitch = null
+    effectiveSubtitleSelectionForEngineSwitch = null
     attachedAddonSubtitleKeys = emptySet()
+    logSwitchTrace(
+        stage = "reset-addon-state-new-stream",
+        message = "autoSubtitleSelectedAfter=$autoSubtitleSelected explicitSelectionAfter=none effectiveSelectionAfter=none"
+    )
     _uiState.update {
         it.copy(
             addonSubtitles = emptyList(),
