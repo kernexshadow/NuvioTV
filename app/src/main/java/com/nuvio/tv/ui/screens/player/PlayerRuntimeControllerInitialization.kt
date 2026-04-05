@@ -59,6 +59,13 @@ private suspend fun PlayerRuntimeController.resolveCurrentStreamMimeType(
     url: String,
     headers: Map<String, String>
 ) {
+    currentStreamMimeType?.let { resolvedMimeType ->
+        Log.d(
+            PlayerRuntimeController.TAG,
+            "Resolved stream mimeType=$resolvedMimeType for url=$url"
+        )
+        return
+    }
     currentStreamMimeType = PlayerMediaSourceFactory.probeMimeType(
         url = url,
         headers = headers,
@@ -122,10 +129,6 @@ internal fun PlayerRuntimeController.initializePlayer(
                     resolutionMatchingEnabled = playerSettings.resolutionMatchingEnabled
                 )
             }
-            resolveCurrentStreamMimeType(
-                url = url,
-                headers = headers
-            )
             if (effectiveInternalPlayerEngine == InternalPlayerEngine.MVP_PLAYER) {
                 mpvInitializationInProgress = true
                 try {
@@ -150,6 +153,10 @@ internal fun PlayerRuntimeController.initializePlayer(
                 }
                 return@launch
             }
+            resolveCurrentStreamMimeType(
+                url = url,
+                headers = headers
+            )
             mpvInitializationInProgress = false
             val startupSubtitlePreparation = prepareStreamStartSubtitles(playerSettings, showLoadingStatus)
             afrJob.await()
@@ -238,9 +245,10 @@ internal fun PlayerRuntimeController.initializePlayer(
                     extractorsFactory = null,
                     subtitleParserFactory = null
                 )
+                val playerDataSourceFactory = PlayerPlaybackNetworking.createHttpDataSourceFactory(context, url, emptyMap())
                 ExoPlayer.Builder(context)
                     .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
+                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, extractorsFactory))
                     .setRenderersFactory(renderersFactory)
                     .setLoadControl(loadControl)
                     .setReleaseTimeoutMs(3000)
@@ -248,15 +256,17 @@ internal fun PlayerRuntimeController.initializePlayer(
             }
 
             _exoPlayer = if (useLibass) {
+                val playerDataSourceFactory = PlayerPlaybackNetworking.createHttpDataSourceFactory(context, url, emptyMap())
                 ExoPlayer.Builder(context)
                     .setLoadControl(loadControl)
                     .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
+                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, extractorsFactory))
                     .setReleaseTimeoutMs(3000)
                     .buildWithAssSupportCompat(
                         context = context,
                         renderType = libassRenderType,
                         playerMediaSourceFactory = mediaSourceFactory,
+                        dataSourceFactory = playerDataSourceFactory,
                         extractorsFactory = extractorsFactory,
                         renderersFactory = renderersFactory
                     )
@@ -309,6 +319,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 val startupSubtitleConfigurations = buildStartupSubtitleConfigurations(startupSubtitlePreparation)
                 setMediaSource(
                     mediaSourceFactory.createMediaSource(
+                        context = context,
                         url = url,
                         headers = headers,
                         subtitleConfigurations = startupSubtitleConfigurations,

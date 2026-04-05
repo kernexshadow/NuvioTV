@@ -276,6 +276,7 @@ dependencies {
     implementation(libs.media3.exoplayer.smoothstreaming)
     implementation(libs.media3.exoplayer.rtsp)
     implementation(libs.media3.datasource)
+    implementation(libs.media3.datasource.cronet)
     implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.decoder)
     implementation(libs.media3.session)

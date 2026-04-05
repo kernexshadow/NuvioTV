@@ -483,6 +483,7 @@ internal fun PlayerRuntimeController.selectAddonSubtitle(subtitle: Subtitle) {
 
         player.setMediaSource(
             mediaSourceFactory.createMediaSource(
+                context = context,
                 url = currentStreamUrl,
                 headers = currentHeaders,
                 subtitleConfigurations = subtitleConfigurations,

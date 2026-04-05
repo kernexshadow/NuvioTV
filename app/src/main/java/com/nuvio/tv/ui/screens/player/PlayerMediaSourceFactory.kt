@@ -1,8 +1,8 @@
 package com.nuvio.tv.ui.screens.player
 
+import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.dash.DashMediaSource
@@ -10,46 +10,16 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.text.SubtitleParser
-import com.nuvio.tv.core.network.IPv4FirstDns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import java.io.InputStream
 import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLDecoder
-import java.security.SecureRandom
-import java.security.cert.X509Certificate
 import java.util.Locale
-import java.util.concurrent.TimeUnit
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
 
 internal class PlayerMediaSourceFactory {
     private var customExtractorsFactory: ExtractorsFactory? = null
     private var customSubtitleParserFactory: SubtitleParser.Factory? = null
-    private val playbackHttpClient by lazy {
-        val trustAllManager = object : X509TrustManager {
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
-            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-        }
-        val sslContext = SSLContext.getInstance("TLS").apply {
-            init(null, arrayOf<TrustManager>(trustAllManager), SecureRandom())
-        }
-        OkHttpClient.Builder()
-            .dns(IPv4FirstDns())
-            .sslSocketFactory(sslContext.socketFactory, trustAllManager)
-            .hostnameVerifier { _, _ -> true }
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .retryOnConnectionFailure(true)
-            .build()
-    }
 
     fun configureSubtitleParsing(
         extractorsFactory: ExtractorsFactory?,
@@ -60,6 +30,7 @@ internal class PlayerMediaSourceFactory {
     }
 
     fun createMediaSource(
+        context: Context,
         url: String,
         headers: Map<String, String>,
         subtitleConfigurations: List<MediaItem.SubtitleConfiguration> = emptyList(),
@@ -68,10 +39,7 @@ internal class PlayerMediaSourceFactory {
         mimeTypeOverride: String? = null
     ): MediaSource {
         val sanitizedHeaders = sanitizeHeaders(headers)
-        val httpDataSourceFactory = OkHttpDataSource.Factory(playbackHttpClient).apply {
-            setDefaultRequestProperties(sanitizedHeaders)
-            setUserAgent(DEFAULT_USER_AGENT)
-        }
+        val httpDataSourceFactory = PlayerPlaybackNetworking.createHttpDataSourceFactory(context, url, sanitizedHeaders)
 
         val resolvedMimeType = mimeTypeOverride ?: inferMimeType(
             url = url,
@@ -117,9 +85,15 @@ internal class PlayerMediaSourceFactory {
     companion object {
         private const val PROBE_TIMEOUT_MS = 4000
         private const val PROBE_BYTES = 1024
-        private const val DEFAULT_USER_AGENT =
+        private const val MIME_PROBE_CACHE_SIZE = 64
+        internal const val DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        private val mimeProbeCache = object : LinkedHashMap<String, String>(MIME_PROBE_CACHE_SIZE, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
+                return size > MIME_PROBE_CACHE_SIZE
+            }
+        }
 
         fun sanitizeHeaders(headers: Map<String, String>?): Map<String, String> {
             val raw: Map<*, *> = headers ?: return emptyMap()
@@ -226,10 +200,36 @@ internal class PlayerMediaSourceFactory {
             )?.let { return it }
 
             val sanitizedHeaders = sanitizeHeaders(headers)
+            val cacheKey = buildMimeProbeCacheKey(url, sanitizedHeaders)
 
-            return withContext(Dispatchers.IO) {
-                probeMimeTypeWithHead(url, sanitizedHeaders)
-                    ?: probeMimeTypeWithRangeGet(url, sanitizedHeaders)
+            synchronized(mimeProbeCache) {
+                mimeProbeCache[cacheKey]
+            }?.let { return it }
+
+            val probedMimeType = withContext(Dispatchers.IO) {
+                probeMimeTypeWithRangeGet(url, sanitizedHeaders)
+                    ?: probeMimeTypeWithHead(url, sanitizedHeaders)
+            }
+
+            if (probedMimeType != null) {
+                synchronized(mimeProbeCache) {
+                    mimeProbeCache[cacheKey] = probedMimeType
+                }
+            }
+
+            return probedMimeType
+        }
+
+        private fun buildMimeProbeCacheKey(url: String, headers: Map<String, String>): String {
+            if (headers.isEmpty()) return url
+            return buildString {
+                append(url)
+                headers.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (key, value) ->
+                    append('|')
+                    append(key)
+                    append('=')
+                    append(value)
+                }
             }
         }
 
@@ -396,19 +396,14 @@ internal class PlayerMediaSourceFactory {
             method: String,
             range: String? = null
         ): HttpURLConnection {
-            return (URL(url).openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = true
-                connectTimeout = PROBE_TIMEOUT_MS
-                readTimeout = PROBE_TIMEOUT_MS
-                requestMethod = method
-                setRequestProperty("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
-                headers.forEach { (key, value) ->
-                    if (key.equals("Range", ignoreCase = true)) return@forEach
-                    if (key.equals("User-Agent", ignoreCase = true)) return@forEach
-                    setRequestProperty(key, value)
-                }
-                range?.let { setRequestProperty("Range", it) }
-            }
+            return PlayerPlaybackNetworking.openConnection(
+                url = url,
+                headers = headers,
+                method = method,
+                connectTimeoutMs = PROBE_TIMEOUT_MS,
+                readTimeoutMs = PROBE_TIMEOUT_MS,
+                range = range
+            )
         }
 
         private fun readProbeSnippet(inputStream: InputStream?): String? {

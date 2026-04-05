@@ -405,6 +405,7 @@ internal fun PlayerRuntimeController.retryCurrentStreamFromStartAfter416() {
             player.clearMediaItems()
             player.setMediaSource(
                 mediaSourceFactory.createMediaSource(
+                    context = context,
                     url = currentStreamUrl,
                     headers = currentHeaders,
                     filename = currentFilename,
