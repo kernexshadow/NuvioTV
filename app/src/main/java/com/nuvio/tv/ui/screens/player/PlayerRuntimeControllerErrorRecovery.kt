@@ -12,6 +12,19 @@ import kotlinx.coroutines.launch
 
 private const val MAX_AUTO_RETRIES = 2
 private const val RETRY_DELAY_MS = 1_500L
+
+internal fun PlayerRuntimeController.showRecoveryOverlay() {
+    _uiState.update { state ->
+        state.copy(
+            error = null,
+            isBuffering = true,
+            showLoadingOverlay = true,
+            loadingMessage = context.getString(R.string.player_loading_buffering),
+            showPauseOverlay = false
+        )
+    }
+}
+
 /**
  * Determines whether the given [PlaybackException] is transient and worth retrying.
  *
@@ -112,9 +125,8 @@ private fun Throwable.findMostRelevantCauseMessage(): String? {
 /**
  * Attempts an automatic retry of the current stream, preserving the playback position.
  *
- * The player is fully torn down and re-initialised so that internal ExoPlayer state
- * (extractors, loaders, renderers) is clean - this is the most reliable way to recover
- * from the class of errors reported by users (corrupt parser state after pause/seek).
+ * The first retry re-prepares the current player, and the second retry fully rebuilds it,
+ * so recovery stays on the loading overlay until playback succeeds or finally fails.
  *
  * Returns `true` if a retry was scheduled, `false` if the error should be shown to the user.
  */
@@ -136,24 +148,14 @@ internal fun PlayerRuntimeController.attemptAutoRetry(
 
     // Capture the current position so we can resume after re-init.
     val savedPosition = _exoPlayer?.currentPosition?.takeIf { it > 0L } ?: 0L
-    val isFirstAttempt = attempt == 0
-
     errorRetryJob?.cancel()
     errorRetryJob = scope.launch {
-        _uiState.update {
-            it.copy(
-                error = null,
-                // Only show loading overlay on full teardown (second attempt).
-                showLoadingOverlay = if (isFirstAttempt) false else it.loadingOverlayEnabled,
-                showPauseOverlay = false
-            )
-        }
+        showRecoveryOverlay()
 
         delay(RETRY_DELAY_MS)
 
-        if (isFirstAttempt) {
-            // Lightweight recovery: re-prepare the same source without destroying
-            // the player. Keeps the last frame visible for a seamless experience.
+        if (attempt == 0) {
+            // Lightweight recovery: re-prepare the same source without destroying the player.
             val player = _exoPlayer
             if (player != null) {
                 if (savedPosition > 0L) {
@@ -223,15 +225,7 @@ internal fun PlayerRuntimeController.tryAudioTrackPcmFallback(
     )
 
     // Show loading overlay with fallback info instead of error screen.
-    val fallbackMessage = context.getString(R.string.player_loading_fallback_pcm_audio)
-    _uiState.update {
-        it.copy(
-            error = null,
-            showLoadingOverlay = true,
-            loadingMessage = fallbackMessage,
-            showPauseOverlay = false
-        )
-    }
+    showRecoveryOverlay()
 
     // An imperceptible speed offset disables audio passthrough and forces
     // software PCM decoding through the GainAudioProcessor pipeline.
@@ -283,16 +277,8 @@ internal fun PlayerRuntimeController.tryDv7HevcFallback(
     resetErrorRetryState()
 
     // Show loading overlay with fallback info instead of error screen.
-    val fallbackMessage = context.getString(R.string.player_loading_fallback_hevc_decoder)
     errorRetryJob = scope.launch {
-        _uiState.update {
-            it.copy(
-                error = null,
-                showLoadingOverlay = true,
-                loadingMessage = fallbackMessage,
-                showPauseOverlay = false
-            )
-        }
+        showRecoveryOverlay()
 
         releasePlayer(flushPlaybackState = false)
         if (savedPosition > 0L) {
