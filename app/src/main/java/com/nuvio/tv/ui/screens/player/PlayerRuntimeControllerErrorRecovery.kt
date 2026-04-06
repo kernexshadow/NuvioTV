@@ -148,13 +148,21 @@ internal fun PlayerRuntimeController.attemptAutoRetry(
 
     // Capture the current position so we can resume after re-init.
     val savedPosition = _exoPlayer?.currentPosition?.takeIf { it > 0L } ?: 0L
+    val isFirstAttempt = attempt == 0
+
     errorRetryJob?.cancel()
     errorRetryJob = scope.launch {
-        showRecoveryOverlay()
+        _uiState.update {
+            it.copy(
+                error = null,
+                showLoadingOverlay = if (isFirstAttempt) false else it.loadingOverlayEnabled,
+                showPauseOverlay = false
+            )
+        }
 
         delay(RETRY_DELAY_MS)
 
-        if (attempt == 0) {
+        if (isFirstAttempt) {
             // Lightweight recovery: re-prepare the same source without destroying the player.
             val player = _exoPlayer
             if (player != null) {
