@@ -261,6 +261,12 @@ object CollectionWebPage {
   .import-tab.active { display:block; }
   .import-tab-btn { font-size:0.8rem !important; padding:0.5rem 1rem !important; flex:1; }
   .import-tab-btn.active { background:rgba(255,255,255,0.1); border-color:rgba(255,255,255,0.3); }
+  .confirm-actions { display:flex; gap:0.75rem; margin-top:1.25rem; }
+  .confirm-copy { font-size:0.9rem; color:rgba(255,255,255,0.55); line-height:1.6; }
+  .btn-danger {
+    background:rgba(207,102,121,0.12); border-color:rgba(207,102,121,0.35); color:#fff;
+  }
+  .btn-danger:hover { background:#CF6679; border-color:#CF6679; color:#fff; }
   @media (max-width:480px) {
     .page { padding:0 1rem 5rem; }
     .header { padding:2rem 0 2rem; }
@@ -314,6 +320,17 @@ object CollectionWebPage {
     </div>
   </div>
 
+  <div class="import-overlay" id="deleteConfirmOverlay">
+    <div class="import-modal">
+      <div id="deleteConfirmTitle" style="font-size:1.1rem;font-weight:700;margin-bottom:0.75rem">Delete Item</div>
+      <div id="deleteConfirmMessage" class="confirm-copy"></div>
+      <div class="confirm-actions">
+        <button class="btn" onclick="dismissDeleteConfirm()" style="flex:1">Cancel</button>
+        <button class="btn btn-danger" id="deleteConfirmAction" onclick="confirmDeleteAction()" style="flex:1">Delete</button>
+      </div>
+    </div>
+  </div>
+
   <button class="btn btn-save" id="saveBtn" onclick="saveChanges()">${context.getString(R.string.web_btn_save)}</button>
 </div>
 
@@ -336,6 +353,7 @@ var consecutiveErrors = 0;
 var expandedCollection = null;
 var expandedFolder = null;
 var openEmojiPicker = null;
+var pendingDeleteAction = null;
 
 var EMOJI_CATEGORIES = [
   {name:'Streaming', emojis:['🎬','🎭','🎥','📺','🍿','🎞️','📽️','🎦','📡','📻']},
@@ -509,10 +527,18 @@ function addCollection() {
 }
 
 function removeCollection(ci) {
+  var collection = collections[ci];
+  if (!collection) return;
+  showDeleteConfirm(
+    'Delete Collection',
+    'Delete "' + escapeHtml(collection.title || 'Untitled Collection') + '" and all of its folders?',
+    function() {
   collections.splice(ci, 1);
   if (expandedCollection === ci) expandedCollection = null;
   else if (expandedCollection !== null && expandedCollection > ci) expandedCollection--;
   renderCollections();
+    }
+  );
 }
 
 function moveCollection(ci, dir) {
@@ -557,8 +583,18 @@ function addFolder(ci) {
 }
 
 function removeFolder(ci, fi) {
+  var collection = collections[ci];
+  var folder = collection && collection.folders ? collection.folders[fi] : null;
+  if (!folder) return;
+  showDeleteConfirm(
+    'Delete Folder',
+    'Delete folder "' + escapeHtml(folder.title || 'Untitled Folder') + '" from "' + escapeHtml(collection.title || 'Untitled Collection') + '"?',
+    function() {
   collections[ci].folders.splice(fi, 1);
+  if (expandedFolder === ci + '-' + fi) expandedFolder = null;
   renderCollections();
+    }
+  );
 }
 
 function moveFolder(ci, fi, dir) {
@@ -646,6 +682,24 @@ function getCollectionErrors(col) {
     }
   });
   return errors;
+}
+
+function showDeleteConfirm(title, message, onConfirm) {
+  pendingDeleteAction = onConfirm;
+  document.getElementById('deleteConfirmTitle').textContent = title;
+  document.getElementById('deleteConfirmMessage').innerHTML = message;
+  document.getElementById('deleteConfirmOverlay').classList.add('visible');
+}
+
+function dismissDeleteConfirm() {
+  pendingDeleteAction = null;
+  document.getElementById('deleteConfirmOverlay').classList.remove('visible');
+}
+
+function confirmDeleteAction() {
+  var action = pendingDeleteAction;
+  dismissDeleteConfirm();
+  if (action) action();
 }
 
 function updateSaveButtonState() {
