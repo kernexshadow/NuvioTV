@@ -479,7 +479,8 @@ fun NuvioNavHost(
                                 addonLogo = playbackInfo.addonLogo,
                                 streamDescription = playbackInfo.streamDescription,
                                 infoHash = playbackInfo.infoHash,
-                                fileIdx = playbackInfo.fileIdx
+                                fileIdx = playbackInfo.fileIdx,
+                                sources = playbackInfo.sources
                             )
                         )
                     }
@@ -517,7 +518,8 @@ fun NuvioNavHost(
                                 addonLogo = playbackInfo.addonLogo,
                                 streamDescription = playbackInfo.streamDescription,
                                 infoHash = playbackInfo.infoHash,
-                                fileIdx = playbackInfo.fileIdx
+                                fileIdx = playbackInfo.fileIdx,
+                                sources = playbackInfo.sources
                             )
                         ) {
                             popUpTo(Screen.Stream.route) { inclusive = true }
