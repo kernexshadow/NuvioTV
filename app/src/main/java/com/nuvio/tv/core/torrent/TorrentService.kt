@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -47,6 +48,7 @@ class TorrentService @Inject constructor(
     suspend fun startStream(
         infoHash: String,
         fileIdx: Int?,
+        filename: String? = null,
         trackers: List<String> = emptyList()
     ): String = withContext(Dispatchers.IO) {
         stopStream()
@@ -64,7 +66,7 @@ class TorrentService @Inject constructor(
         currentHash = hash
 
         // Resolve file index
-        val resolvedIdx = resolveFileIndex(hash, fileIdx)
+        val resolvedIdx = resolveFileIndex(hash, fileIdx, filename)
 
         // Get stream URL — TorrServer handles all buffering/piece management
         val streamUrl = api.getStreamUrl(magnetLink, resolvedIdx)
@@ -91,12 +93,12 @@ class TorrentService @Inject constructor(
         statsJob = null
 
         currentHash?.let { hash ->
-            scope.launch {
-                try {
+            try {
+                runBlocking(Dispatchers.IO) {
                     api.dropTorrent(hash)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error dropping torrent", e)
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error dropping torrent", e)
             }
         }
         currentHash = null
@@ -114,22 +116,63 @@ class TorrentService @Inject constructor(
         return "magnet:?xt=urn:btih:$infoHash$trackerParams"
     }
 
-    private suspend fun resolveFileIndex(hash: String, requestedIdx: Int?): Int {
-        val stats = api.getTorrentStats(hash)
-        val files = stats?.files ?: emptyList()
+    private suspend fun resolveFileIndex(hash: String, requestedIdx: Int?, filename: String?): Int {
+        // Poll for metadata — magnet links may not have it immediately
+        val deadline = System.currentTimeMillis() + 15_000L
+        var files: List<TorrServerFile> = emptyList()
+
+        while (System.currentTimeMillis() < deadline) {
+            files = api.getTorrentStats(hash)?.files ?: emptyList()
+            if (files.isNotEmpty()) break
+            Log.d(TAG, "Waiting for torrent metadata...")
+            delay(1_000L)
+        }
 
         if (files.isEmpty()) {
-            Log.w(TAG, "No files in torrent, using index 1")
-            return requestedIdx?.plus(1) ?: 1 // TorrServer uses 1-based indices
+            Log.w(TAG, "No files after metadata timeout, guessing index ${requestedIdx?.plus(1) ?: 1}")
+            return requestedIdx?.plus(1) ?: 1
         }
 
-        // If a specific file index was requested, use it (convert to 1-based)
+        Log.d(TAG, "Torrent has ${files.size} files")
+
+        // Strategy 1: Match by filename (most reliable for season packs)
+        if (!filename.isNullOrBlank()) {
+            val name = filename.trim()
+            // Exact basename match
+            val exact = files.firstOrNull { f ->
+                f.path.substringAfterLast('/').equals(name, ignoreCase = true)
+            }
+            if (exact != null) {
+                Log.d(TAG, "File resolved by exact filename match: ${exact.path} -> id=${exact.id}")
+                return exact.id
+            }
+            // Contains match (addon filename may be substring of full path)
+            val contains = files.firstOrNull { f ->
+                f.path.contains(name, ignoreCase = true)
+            }
+            if (contains != null) {
+                Log.d(TAG, "File resolved by filename contains match: ${contains.path} -> id=${contains.id}")
+                return contains.id
+            }
+        }
+
+        // Strategy 2: Match by ID offset (requestedIdx + 1)
         if (requestedIdx != null) {
-            val tsIdx = requestedIdx + 1 // TorrServer uses 1-based
-            if (files.any { it.id == tsIdx }) return tsIdx
+            val tsIdx = requestedIdx + 1
+            if (files.any { it.id == tsIdx }) {
+                Log.d(TAG, "File resolved by ID offset: id=$tsIdx")
+                return tsIdx
+            }
         }
 
-        // Auto-select: largest video file
+        // Strategy 3: Positional index (handles TorrServer alphabetical sort mismatch)
+        if (requestedIdx != null && requestedIdx in files.indices) {
+            val positionalFile = files[requestedIdx]
+            Log.d(TAG, "File resolved by positional index: [$requestedIdx] -> ${positionalFile.path} (id=${positionalFile.id})")
+            return positionalFile.id
+        }
+
+        // Strategy 4: Fallback to largest video file
         val videoFile = files
             .filter { f ->
                 val ext = f.path.substringAfterLast('.', "").lowercase()
@@ -137,7 +180,9 @@ class TorrentService @Inject constructor(
             }
             .maxByOrNull { it.length }
 
-        return videoFile?.id ?: files.maxByOrNull { it.length }?.id ?: 1
+        val result = videoFile?.id ?: files.maxByOrNull { it.length }?.id ?: 1
+        Log.d(TAG, "File resolved by largest video fallback: id=$result")
+        return result
     }
 
     private fun startStatsPolling(hash: String) {

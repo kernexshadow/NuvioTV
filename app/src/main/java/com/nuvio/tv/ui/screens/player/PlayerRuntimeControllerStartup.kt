@@ -22,7 +22,12 @@ internal fun PlayerRuntimeController.startInitialPlaybackIfNeeded() {
             try {
                 Log.d("PlayerStartup", "Starting torrent stream for $infoHash")
                 observeTorrentState()
-                val localUrl = startTorrentStream(infoHash, navigationArgs.fileIdx)
+                val localUrl = startTorrentStream(
+                    infoHash = infoHash,
+                    fileIdx = navigationArgs.fileIdx,
+                    filename = navigationArgs.filename,
+                    trackers = navigationArgs.torrentTrackers
+                )
                 Log.d("PlayerStartup", "Torrent stream ready: $localUrl")
                 currentStreamUrl = localUrl
                 currentHeaders = emptyMap()

@@ -16,7 +16,9 @@ private const val TAG = "PlayerTorrent"
  */
 internal suspend fun PlayerRuntimeController.startTorrentStream(
     infoHash: String,
-    fileIdx: Int?
+    fileIdx: Int?,
+    filename: String? = null,
+    trackers: List<String> = emptyList()
 ): String {
     isTorrentStream = true
     currentInfoHash = infoHash
@@ -31,7 +33,8 @@ internal suspend fun PlayerRuntimeController.startTorrentStream(
         )
     }
 
-    return torrentService.startStream(infoHash, fileIdx)
+    val effectiveFilename = filename ?: currentFilename
+    return torrentService.startStream(infoHash, fileIdx, effectiveFilename, trackers)
 }
 
 /**
@@ -147,7 +150,16 @@ internal fun PlayerRuntimeController.launchTorrentSourceStream(
         try {
             observeTorrentState()
 
-            val localUrl = startTorrentStream(infoHash, stream.fileIdx)
+            val trackers = stream.sources
+                ?.filter { it.startsWith("tracker:") }
+                ?.map { it.removePrefix("tracker:") }
+                ?: emptyList()
+            val localUrl = startTorrentStream(
+                infoHash = infoHash,
+                fileIdx = stream.fileIdx,
+                filename = stream.behaviorHints?.filename,
+                trackers = trackers
+            )
 
             currentStreamUrl = localUrl
             currentHeaders = emptyMap()
