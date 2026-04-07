@@ -182,6 +182,7 @@ data class PlayerSettings(
     val mpvHardwareDecodeMode: MpvHardwareDecodeMode = MpvHardwareDecodeMode.AUTO_SAFE,
     // Display settings
     val frameRateMatchingMode: FrameRateMatchingMode = FrameRateMatchingMode.OFF,
+    val frameRateDetectionMode: FrameRateDetectionMode = FrameRateDetectionMode.ACCURATE,
     val resolutionMatchingEnabled: Boolean = false,
     // Stream selection settings
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
@@ -218,6 +219,12 @@ enum class FrameRateMatchingMode {
     OFF,
     START,
     START_STOP
+}
+
+enum class FrameRateDetectionMode {
+    ACCURATE,
+    FAST,
+    SEAMLESS
 }
 
 enum class NextEpisodeThresholdMode {
@@ -311,6 +318,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val mpvHardwareDecodeModeKey = stringPreferencesKey("mpv_hardware_decode_mode")
     private val frameRateMatchingKey = booleanPreferencesKey("frame_rate_matching")
     private val frameRateMatchingModeKey = stringPreferencesKey("frame_rate_matching_mode")
+    private val frameRateDetectionModeKey = stringPreferencesKey("frame_rate_detection_mode")
     private val resolutionMatchingEnabledKey = booleanPreferencesKey("resolution_matching_enabled")
     private val streamAutoPlayModeKey = stringPreferencesKey("stream_auto_play_mode")
     private val streamAutoPlaySourceKey = stringPreferencesKey("stream_auto_play_source")
@@ -466,6 +474,9 @@ class PlayerSettingsDataStore @Inject constructor(
                 } else {
                     FrameRateMatchingMode.OFF
                 },
+                frameRateDetectionMode = prefs[frameRateDetectionModeKey]?.let {
+                    runCatching { FrameRateDetectionMode.valueOf(it) }.getOrNull()
+                } ?: FrameRateDetectionMode.ACCURATE,
                 resolutionMatchingEnabled = prefs[resolutionMatchingEnabledKey] ?: false,
                 streamAutoPlayMode = prefs[streamAutoPlayModeKey]?.let {
                     runCatching { StreamAutoPlayMode.valueOf(it) }.getOrDefault(StreamAutoPlayMode.MANUAL)
@@ -666,6 +677,12 @@ class PlayerSettingsDataStore @Inject constructor(
         store().edit { prefs ->
             prefs[frameRateMatchingModeKey] = mode.name
             prefs[frameRateMatchingKey] = mode != FrameRateMatchingMode.OFF
+        }
+    }
+
+    suspend fun setFrameRateDetectionMode(mode: FrameRateDetectionMode) {
+        store().edit { prefs ->
+            prefs[frameRateDetectionModeKey] = mode.name
         }
     }
 

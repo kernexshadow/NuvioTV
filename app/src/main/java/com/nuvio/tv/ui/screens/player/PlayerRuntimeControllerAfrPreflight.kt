@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.player
 import android.os.Build
 import android.util.Log
 import com.nuvio.tv.core.player.FrameRateUtils
+import com.nuvio.tv.data.local.FrameRateDetectionMode
 import com.nuvio.tv.data.local.FrameRateMatchingMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -17,6 +18,7 @@ internal suspend fun PlayerRuntimeController.runAfrPreflightIfEnabled(
     url: String,
     headers: Map<String, String>,
     frameRateMatchingMode: FrameRateMatchingMode,
+    frameRateDetectionMode: FrameRateDetectionMode,
     resolutionMatchingEnabled: Boolean
 ) {
     mpvDelayStartAfterAfrSwitch = false
@@ -51,37 +53,69 @@ internal suspend fun PlayerRuntimeController.runAfrPreflightIfEnabled(
     val probeHeaders = headers.filterKeys { !it.equals("Range", ignoreCase = true) }
 
     try {
-        val nextLibDetection = withTimeoutOrNull(AFR_PREFLIGHT_NEXTLIB_TIMEOUT_MS) {
-            withContext(Dispatchers.IO) {
-                FrameRateUtils.detectFrameRateFromNextLib(
-                    context = context,
-                    sourceUrl = url,
-                    headers = probeHeaders
-                )
+        val detection = when (frameRateDetectionMode) {
+            FrameRateDetectionMode.SEAMLESS -> {
+                Log.d(PlayerRuntimeController.TAG, "AFR preflight detection mode=SEAMLESS (skip probe)")
+                null
             }
-        }
-        val detection = if (nextLibDetection != null) {
-            nextLibDetection
-        } else {
-            Log.w(
-                PlayerRuntimeController.TAG,
-                "AFR preflight NextLib probe failed/timed out after ${AFR_PREFLIGHT_NEXTLIB_TIMEOUT_MS}ms; trying extractor fallback"
-            )
-            withTimeoutOrNull(AFR_PREFLIGHT_FALLBACK_TIMEOUT_MS) {
-                withContext(Dispatchers.IO) {
-                    FrameRateUtils.detectFrameRateFromExtractor(
-                        context = context,
-                        sourceUrl = url,
-                        headers = probeHeaders
+
+            FrameRateDetectionMode.FAST -> {
+                Log.d(PlayerRuntimeController.TAG, "AFR preflight detection mode=FAST (extractor-only)")
+                withTimeoutOrNull(AFR_PREFLIGHT_FALLBACK_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) {
+                        FrameRateUtils.detectFrameRateFromExtractor(
+                            context = context,
+                            sourceUrl = url,
+                            headers = probeHeaders
+                        )
+                    }
+                }
+            }
+
+            FrameRateDetectionMode.ACCURATE -> {
+                Log.d(PlayerRuntimeController.TAG, "AFR preflight detection mode=ACCURATE (NextLib first)")
+                val nextLibDetection = withTimeoutOrNull(AFR_PREFLIGHT_NEXTLIB_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) {
+                        FrameRateUtils.detectFrameRateFromNextLib(
+                            context = context,
+                            sourceUrl = url,
+                            headers = probeHeaders
+                        )
+                    }
+                }
+                if (nextLibDetection != null) {
+                    nextLibDetection
+                } else {
+                    Log.w(
+                        PlayerRuntimeController.TAG,
+                        "AFR preflight NextLib probe failed/timed out after ${AFR_PREFLIGHT_NEXTLIB_TIMEOUT_MS}ms; trying extractor fallback"
                     )
+                    withTimeoutOrNull(AFR_PREFLIGHT_FALLBACK_TIMEOUT_MS) {
+                        withContext(Dispatchers.IO) {
+                            FrameRateUtils.detectFrameRateFromExtractor(
+                                context = context,
+                                sourceUrl = url,
+                                headers = probeHeaders
+                            )
+                        }
+                    }
                 }
             }
         }
 
+        if (frameRateDetectionMode == FrameRateDetectionMode.SEAMLESS) {
+            return
+        }
+
         if (detection == null) {
+            val modeLabel = when (frameRateDetectionMode) {
+                FrameRateDetectionMode.ACCURATE -> "NextLib + extractor fallback"
+                FrameRateDetectionMode.FAST -> "extractor-only"
+                FrameRateDetectionMode.SEAMLESS -> "seamless"
+            }
             Log.w(
                 PlayerRuntimeController.TAG,
-                "AFR preflight probe timed out/failed (NextLib + extractor fallback)"
+                "AFR preflight probe timed out/failed ($modeLabel)"
             )
             return
         }

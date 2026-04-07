@@ -33,6 +33,7 @@ import androidx.media3.session.MediaSession
 import com.nuvio.tv.data.local.AddonSubtitleStartupMode
 import com.nuvio.tv.data.local.AudioLanguageOption
 import com.nuvio.tv.data.local.SUBTITLE_LANGUAGE_FORCED
+import com.nuvio.tv.data.local.FrameRateDetectionMode
 import com.nuvio.tv.data.local.FrameRateMatchingMode
 import com.nuvio.tv.data.local.InternalPlayerEngine
 import com.nuvio.tv.data.local.PlayerSettings
@@ -100,6 +101,23 @@ internal fun PlayerRuntimeController.initializePlayer(
             val effectiveInternalPlayerEngine = overrideInternalPlayerEngine ?: playerSettings.internalPlayerEngine
             runtimeInternalPlayerEngineOverride = overrideInternalPlayerEngine
             currentInternalPlayerEngine = effectiveInternalPlayerEngine
+            val supportsSeamlessAfr =
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                    effectiveInternalPlayerEngine == InternalPlayerEngine.EXOPLAYER
+            val effectiveFrameRateDetectionMode = when {
+                playerSettings.frameRateDetectionMode == FrameRateDetectionMode.SEAMLESS &&
+                    supportsSeamlessAfr -> FrameRateDetectionMode.SEAMLESS
+                playerSettings.frameRateDetectionMode == FrameRateDetectionMode.SEAMLESS ->
+                    FrameRateDetectionMode.ACCURATE
+                else -> playerSettings.frameRateDetectionMode
+            }
+            val exoVideoChangeFrameRateStrategy = if (
+                effectiveFrameRateDetectionMode == FrameRateDetectionMode.SEAMLESS
+            ) {
+                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS
+            } else {
+                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
+            }
             val showLoadingStatus = playerSettings.showPlayerLoadingStatus
             _uiState.update {
                 it.copy(
@@ -115,6 +133,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     url = url,
                     headers = headers,
                     frameRateMatchingMode = playerSettings.frameRateMatchingMode,
+                    frameRateDetectionMode = effectiveFrameRateDetectionMode,
                     resolutionMatchingEnabled = playerSettings.resolutionMatchingEnabled
                 )
             }
@@ -239,6 +258,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
                     .setRenderersFactory(renderersFactory)
                     .setLoadControl(loadControl)
+                    .setVideoChangeFrameRateStrategy(exoVideoChangeFrameRateStrategy)
                     .setReleaseTimeoutMs(3000)
                     .build()
             }
@@ -248,6 +268,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .setLoadControl(loadControl)
                     .setTrackSelector(trackSelector!!)
                     .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
+                    .setVideoChangeFrameRateStrategy(exoVideoChangeFrameRateStrategy)
                     .setReleaseTimeoutMs(3000)
                     .buildWithAssSupportCompat(
                         context = context,

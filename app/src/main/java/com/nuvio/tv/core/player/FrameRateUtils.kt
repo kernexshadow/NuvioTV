@@ -355,6 +355,7 @@ object FrameRateUtils {
         sourceUrl: String,
         headers: Map<String, String> = emptyMap()
     ): FrameRateDetection? {
+        Log.d(TAG, "probe=NextLib ENTER")
         return detectFrameRateWithNextLib(context, sourceUrl, headers)
     }
 
@@ -363,6 +364,7 @@ object FrameRateUtils {
         sourceUrl: String,
         headers: Map<String, String> = emptyMap()
     ): FrameRateDetection? {
+        Log.d(TAG, "probe=Extractor ENTER")
         if (isResolveProxyUrl(sourceUrl)) {
             val embeddedResolveUrl = extractEmbeddedResolveUrl(sourceUrl)
             if (!embeddedResolveUrl.isNullOrBlank()) {

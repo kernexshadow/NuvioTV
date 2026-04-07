@@ -247,6 +247,9 @@ fun PlaybackSettingsContent(
                 onSetOsdClockEnabled = { enabled -> coroutineScope.launch { viewModel.setOsdClockEnabled(enabled) } },
                 onSetSkipIntroEnabled = { enabled -> coroutineScope.launch { viewModel.setSkipIntroEnabled(enabled) } },
                 onSetFrameRateMatchingMode = { mode -> coroutineScope.launch { viewModel.setFrameRateMatchingMode(mode) } },
+                onSetFrameRateDetectionMode = { mode ->
+                    coroutineScope.launch { viewModel.setFrameRateDetectionMode(mode) }
+                },
                 onSetResolutionMatchingEnabled = { enabled ->
                     coroutineScope.launch { viewModel.setResolutionMatchingEnabled(enabled) }
                 },

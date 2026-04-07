@@ -348,6 +348,13 @@
     <string name="playback_afr_on_start_sub">Switch when playback starts.</string>
     <string name="playback_afr_on_start_stop">On start/stop</string>
     <string name="playback_afr_on_start_stop_sub">Switch on start and restore on stop.</string>
+    <string name="playback_frame_rate_detection">Frame Rate Detection</string>
+    <string name="playback_afr_detection_accurate">Accurate</string>
+    <string name="playback_afr_detection_accurate_sub">Use NextLib first, then MediaExtractor fallback.</string>
+    <string name="playback_afr_detection_fast">Fast</string>
+    <string name="playback_afr_detection_fast_sub">Use MediaExtractor only for faster startup.</string>
+    <string name="playback_afr_detection_seamless">Seamless (Android 11+, Exo only)</string>
+    <string name="playback_afr_detection_seamless_sub">Use Exo seamless switching. Skips AFR preflight probe.</string>
     <string name="playback_resolution_matching">Resolution matching</string>
     <string name="playback_resolution_matching_sub">Allow display mode changes to match video resolution.</string>
     <string name="playback_player_external_desc">Always open streams in an external app</string>

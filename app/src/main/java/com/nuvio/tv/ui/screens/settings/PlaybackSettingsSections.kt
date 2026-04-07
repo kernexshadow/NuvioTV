@@ -2,6 +2,7 @@
 
 package com.nuvio.tv.ui.screens.settings
 
+import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -56,6 +57,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.data.local.AddonSubtitleStartupMode
+import com.nuvio.tv.data.local.FrameRateDetectionMode
 import com.nuvio.tv.data.local.FrameRateMatchingMode
 import com.nuvio.tv.data.local.InternalPlayerEngine
 import com.nuvio.tv.data.local.PlayerPreference
@@ -126,6 +128,7 @@ internal fun PlaybackSettingsSections(
     onSetOsdClockEnabled: (Boolean) -> Unit,
     onSetSkipIntroEnabled: (Boolean) -> Unit,
     onSetFrameRateMatchingMode: (FrameRateMatchingMode) -> Unit,
+    onSetFrameRateDetectionMode: (FrameRateDetectionMode) -> Unit,
     onSetResolutionMatchingEnabled: (Boolean) -> Unit,
     onSetTrailerEnabled: (Boolean) -> Unit,
     onSetTrailerDelaySeconds: (Int) -> Unit,
@@ -285,9 +288,13 @@ internal fun PlaybackSettingsSections(
                 item(key = "general_afr_options") {
                     FrameRateMatchingModeOptions(
                         selectedMode = playerSettings.frameRateMatchingMode,
+                        selectedDetectionMode = playerSettings.frameRateDetectionMode,
                         resolutionMatchingEnabled = playerSettings.resolutionMatchingEnabled,
                         onSelect = onSetFrameRateMatchingMode,
+                        onSelectDetectionMode = onSetFrameRateDetectionMode,
                         onSetResolutionMatchingEnabled = onSetResolutionMatchingEnabled,
+                        seamlessDetectionSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                            playerSettings.internalPlayerEngine == InternalPlayerEngine.EXOPLAYER,
                         onFocused = { focusedSection = PlaybackSection.GENERAL },
                         enabled = !generalUi.isExternalPlayer
                     )
@@ -485,9 +492,12 @@ private fun PlaybackSectionHeader(
 @Composable
 private fun FrameRateMatchingModeOptions(
     selectedMode: FrameRateMatchingMode,
+    selectedDetectionMode: FrameRateDetectionMode,
     resolutionMatchingEnabled: Boolean,
     onSelect: (FrameRateMatchingMode) -> Unit,
+    onSelectDetectionMode: (FrameRateDetectionMode) -> Unit,
     onSetResolutionMatchingEnabled: (Boolean) -> Unit,
+    seamlessDetectionSupported: Boolean,
     onFocused: () -> Unit,
     enabled: Boolean
 ) {
@@ -525,6 +535,48 @@ private fun FrameRateMatchingModeOptions(
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        Text(
+            text = stringResource(R.string.playback_frame_rate_detection),
+            style = MaterialTheme.typography.bodySmall,
+            color = NuvioColors.TextSecondary,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        RenderTypeSettingsItem(
+            title = stringResource(R.string.playback_afr_detection_accurate),
+            subtitle = stringResource(R.string.playback_afr_detection_accurate_sub),
+            isSelected = selectedDetectionMode == FrameRateDetectionMode.ACCURATE,
+            onClick = { onSelectDetectionMode(FrameRateDetectionMode.ACCURATE) },
+            onFocused = onFocused,
+            enabled = enabled && selectedMode != FrameRateMatchingMode.OFF
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        RenderTypeSettingsItem(
+            title = stringResource(R.string.playback_afr_detection_fast),
+            subtitle = stringResource(R.string.playback_afr_detection_fast_sub),
+            isSelected = selectedDetectionMode == FrameRateDetectionMode.FAST,
+            onClick = { onSelectDetectionMode(FrameRateDetectionMode.FAST) },
+            onFocused = onFocused,
+            enabled = enabled && selectedMode != FrameRateMatchingMode.OFF
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        RenderTypeSettingsItem(
+            title = stringResource(R.string.playback_afr_detection_seamless),
+            subtitle = stringResource(R.string.playback_afr_detection_seamless_sub),
+            isSelected = selectedDetectionMode == FrameRateDetectionMode.SEAMLESS,
+            onClick = { onSelectDetectionMode(FrameRateDetectionMode.SEAMLESS) },
+            onFocused = onFocused,
+            enabled = enabled && selectedMode != FrameRateMatchingMode.OFF && seamlessDetectionSupported
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         ToggleSettingsItem(
             icon = Icons.Default.Image,
             title = stringResource(R.string.playback_resolution_matching),
@@ -532,7 +584,8 @@ private fun FrameRateMatchingModeOptions(
             isChecked = resolutionMatchingEnabled,
             onCheckedChange = onSetResolutionMatchingEnabled,
             onFocused = onFocused,
-            enabled = enabled
+            enabled = enabled && selectedMode != FrameRateMatchingMode.OFF &&
+                selectedDetectionMode != FrameRateDetectionMode.SEAMLESS
         )
     }
 }
