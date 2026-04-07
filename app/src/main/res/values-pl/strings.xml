@@ -597,10 +597,10 @@
     <string name="addon_empty">Brak zainstalowanych dodatków. Dodaj jeden, aby zacząć.</string>
     <string name="addon_remove">Usuń</string>
     <string name="addon_manage_from_phone_title">Zarządzaj z telefonu</string>
-    <string name="addon_manage_from_phone_subtitle">Zeskanuj kod QR, aby zarządzać dodatkami i katalogami z telefonu</string>
+    <string name="addon_manage_from_phone_subtitle">Zeskanuj kod QR, aby zarządzać dodatkami, katalogami i kolekcjami z telefonu</string>
     <string name="addon_reorder_title">Zmień kolejność katalogów</string>
-    <string name="addon_reorder_subtitle">Kontroluje kolejność wierszy katalogów na ekranie głównym</string>
-    <string name="addon_qr_scan_instruction">Zeskanuj telefonem, aby zarządzać dodatkami i katalogami</string>
+    <string name="addon_reorder_subtitle">Kontroluje kolejność wierszy katalogów i kolekcji na ekranie głównym</string>
+    <string name="addon_qr_scan_instruction">Zeskanuj telefonem, aby zarządzać dodatkami, katalogami i kolekcjami</string>
     <string name="addon_qr_close">Zamknij</string>
     <string name="addon_confirm_title">Potwierdź zmiany dodatków i katalogów</string>
     <string name="addon_confirm_subtitle">Następujące zmiany zostały wprowadzone z telefonu:</string>
