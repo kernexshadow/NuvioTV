@@ -165,6 +165,8 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
     scope.launch {
         playerSettingsDataStore.playerSettings.collect { settings ->
             val currentState = _uiState.value
+            val resolvedInternalPlayerEngine =
+                runtimeInternalPlayerEngineOverride ?: settings.internalPlayerEngine
             val resolvedAudioAmplificationDb = when {
                 !hasInitializedAudioAmplificationForSession -> {
                     hasInitializedAudioAmplificationForSession = true
@@ -193,6 +195,7 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
                     showLoadingOverlay = shouldShowOverlay,
                     pauseOverlayEnabled = settings.pauseOverlayEnabled,
                     osdClockEnabled = settings.osdClockEnabled,
+                    internalPlayerEngine = resolvedInternalPlayerEngine,
                     frameRateMatchingMode = settings.frameRateMatchingMode,
                     tunnelingEnabled = settings.tunnelingEnabled,
                     persistAudioAmplification = settings.persistAudioAmplification,
@@ -225,6 +228,8 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
                 schedulePauseOverlay()
             }
             streamReuseLastLinkEnabled = settings.streamReuseLastLinkEnabled
+            autoSwitchInternalPlayerOnErrorEnabled = settings.autoSwitchInternalPlayerOnError
+            currentInternalPlayerEngine = resolvedInternalPlayerEngine
             streamAutoPlayModeSetting = settings.streamAutoPlayMode
             _uiState.update { it.copy(streamAutoPlayMode = settings.streamAutoPlayMode) }
             streamAutoPlayNextEpisodeEnabledSetting = settings.streamAutoPlayNextEpisodeEnabled
@@ -233,6 +238,25 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
             nextEpisodeThresholdModeSetting = settings.nextEpisodeThresholdMode
             nextEpisodeThresholdPercentSetting = settings.nextEpisodeThresholdPercent
             nextEpisodeThresholdMinutesBeforeEndSetting = settings.nextEpisodeThresholdMinutesBeforeEnd
+            val previousMpvHardwareDecodeMode = mpvHardwareDecodeModeSetting
+            mpvHardwareDecodeModeSetting = settings.mpvHardwareDecodeMode
+            if (isUsingMpvEngine() && previousMpvHardwareDecodeMode != mpvHardwareDecodeModeSetting) {
+                mpvView?.applyHardwareDecodeMode(mpvHardwareDecodeModeSetting)
+            }
+
+            val resolvedAudioLanguages = resolvePreferredAudioLanguages(
+                preferredAudioLanguage = settings.preferredAudioLanguage,
+                secondaryPreferredAudioLanguage = settings.secondaryPreferredAudioLanguage,
+                deviceLanguages = resolveDeviceAudioLanguages(),
+                contentOriginalLanguage = contentLanguage
+            )
+            if (resolvedAudioLanguages != mpvPreferredAudioLanguages) {
+                mpvPreferredAudioLanguages = resolvedAudioLanguages
+                if (isUsingMpvEngine()) {
+                    mpvView?.applyAudioLanguagePreferences(resolvedAudioLanguages)
+                    updateMpvAvailableTracks()
+                }
+            }
 
             applySubtitlePreferences(
                 settings.subtitleStyle.preferredLanguage,
@@ -281,9 +305,16 @@ internal fun PlayerRuntimeController.loadSavedProgressFor(season: Int?, episode:
             
             if (saved.isInProgress()) {
                 pendingResumeProgress = saved
-                _exoPlayer?.let { player ->
-                    if (player.playbackState == Player.STATE_READY) {
-                        tryApplyPendingResumeProgress(player)
+                if (isUsingMpvEngine()) {
+                    _uiState.update { it.copy(pendingSeekPosition = null) }
+                    mpvView?.let { view ->
+                        applyPendingMpvSeekIfNeeded(view)
+                    }
+                } else {
+                    _exoPlayer?.let { player ->
+                        if (player.playbackState == Player.STATE_READY) {
+                            tryApplyPendingResumeProgress(player)
+                        }
                     }
                 }
             }
@@ -366,21 +397,19 @@ internal fun PlayerRuntimeController.retryCurrentStreamFromStartAfter416() {
     if (hasRetriedCurrentStreamAfter416) return
     hasRetriedCurrentStreamAfter416 = true
     pendingResumeProgress = null
-    _uiState.update {
-        it.copy(
-            pendingSeekPosition = null,
-            error = null,
-            showLoadingOverlay = it.loadingOverlayEnabled
-        )
-    }
+    showRecoveryOverlay()
+    _uiState.update { it.copy(pendingSeekPosition = null) }
     _exoPlayer?.let { player ->
         runCatching {
             player.stop()
             player.clearMediaItems()
             player.setMediaSource(
                 mediaSourceFactory.createMediaSource(
+                    context = context,
                     url = currentStreamUrl,
                     headers = currentHeaders,
+                    filename = currentFilename,
+                    responseHeaders = currentStreamResponseHeaders,
                     mimeTypeOverride = currentStreamMimeType
                 )
             )
@@ -390,7 +419,7 @@ internal fun PlayerRuntimeController.retryCurrentStreamFromStartAfter416() {
         }.onFailure { e ->
             _uiState.update {
                 it.copy(
-                    error = e.message ?: "Playback error",
+                    error = e.toDisplayMessage(),
                     showLoadingOverlay = false,
                     showPauseOverlay = false
                 )

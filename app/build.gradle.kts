@@ -44,8 +44,8 @@ android {
         applicationId = "com.nuvio.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 49
-        versionName = "0.5.6-beta"
+        versionCode = 50
+        versionName = "0.5.7-beta"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
@@ -177,6 +177,9 @@ android {
             pickFirsts += listOf(
                 "lib/*/libc++_shared.so",
                 "lib/*/libavcodec.so",
+                "lib/*/libavdevice.so",
+                "lib/*/libavfilter.so",
+                "lib/*/libavformat.so",
                 "lib/*/libavutil.so",
                 "lib/*/libswscale.so",
                 "lib/*/libswresample.so"
@@ -254,6 +257,7 @@ dependencies {
 
     // Image Loading
     implementation(libs.coil.compose)
+    implementation(libs.coil.gif)
     implementation(libs.coil.svg)
 
     // Navigation
@@ -292,8 +296,9 @@ dependencies {
 
     // libass-android for ASS/SSA subtitle support (from Maven Central)
     implementation("io.github.peerless2012:ass-media:0.4.0-beta01")
-    implementation("io.github.anilbeesetti:nextlib-mediainfo:1.9.1-0.11.0")
-    implementation("io.github.anilbeesetti:nextlib-media3ext:1.9.1-0.11.0")
+    // Local nextlib-mediainfo fork (static FFmpeg; no libav*.so in final AAR)
+    implementation(files("libs/nextlib-mediainfo-local.aar"))
+    implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
     implementation("dev.chrisbanes.haze:haze-android:0.7.3") {
         exclude(group = "org.jetbrains.compose.ui")
         exclude(group = "org.jetbrains.compose.foundation")
