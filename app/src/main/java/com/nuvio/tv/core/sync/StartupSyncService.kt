@@ -195,16 +195,17 @@ class StartupSyncService @Inject constructor(
 
             pluginManager.isSyncingFromRemote = true
             try {
-                val remotePluginUrls = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
+                val remotePlugins = pluginSyncService.getRemoteRepoUrls().getOrElse { throw it }
                 pluginManager.reconcileWithRemoteRepoUrls(
-                    remoteUrls = remotePluginUrls,
+                    remotePlugins = remotePlugins,
                     removeMissingLocal = true
                 )
-                Log.d(TAG, "Pulled ${remotePluginUrls.size} plugin repos from remote for profile $profileId")
+                Log.d(TAG, "Pulled ${remotePlugins.size} plugin repos from remote for profile $profileId")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to pull plugins from remote, keeping local cache", e)
             } finally {
                 pluginManager.isSyncingFromRemote = false
+                pluginManager.flushPendingSync()
             }
 
             addonRepository.isSyncingFromRemote = true

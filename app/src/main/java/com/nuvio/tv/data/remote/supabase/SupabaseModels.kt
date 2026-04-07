@@ -16,6 +16,7 @@ data class SupabasePlugin(
     val enabled: Boolean = true,
     @SerialName("sort_order") val sortOrder: Int = 0,
     @SerialName("profile_id") val profileId: Int = 1,
+    @SerialName("repo_type") val repoType: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
 )

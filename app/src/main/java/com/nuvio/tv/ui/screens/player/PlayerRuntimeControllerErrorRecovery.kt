@@ -113,18 +113,39 @@ internal fun PlaybackException.findInvalidResponseCodeException(): HttpDataSourc
 internal fun PlaybackException.toDisplayMessage(): String {
     val responseException = findInvalidResponseCodeException()
     if (responseException != null) {
+        val code = responseException.responseCode
         val statusText = responseException.responseMessage?.takeIf { it.isNotBlank() }
-        return buildString {
-            append("HTTP ")
-            append(responseException.responseCode)
-            statusText?.let {
-                append(' ')
-                append(it)
-            }
-            append(" [")
-            append(errorCodeName)
-            append(']')
+        val providerHint = when (code) {
+            403 -> "\n\nThe stream source is blocked or restricted. Try a different source."
+            404 -> "\n\nThe stream link has expired or been removed. Try a different source."
+            410 -> "\n\nThe stream link has expired. Try a different source."
+            429 -> "\n\nToo many requests to the stream source. Wait a moment and try again."
+            500, 502, 503 -> "\n\nThe stream server is currently unavailable. Try a different source."
+            else -> ""
         }
+        return buildString {
+            append("HTTP $code")
+            statusText?.let { append(" $it") }
+            append(" [$errorCodeName]")
+            append(providerHint)
+        }
+    }
+
+    // Check for unrecognized format (provider returned non-video content)
+    val isUnrecognizedFormat = findCauseOfType<androidx.media3.exoplayer.source.UnrecognizedInputFormatException>() != null
+    if (isUnrecognizedFormat) {
+        return "Source error: The stream source returned invalid or unplayable content. " +
+            "The link may have expired or the server returned an error page instead of video.\n\n" +
+            "Try a different source. [$errorCodeName]"
+    }
+
+    // Check for codec/renderer errors
+    val isRendererError = errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+        errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
+    if (isRendererError) {
+        val meaningfulMessage = findMostRelevantCauseMessage()
+        return "${meaningfulMessage ?: "Decoder error"}\n\n" +
+            "This stream uses a format your device may not support. Try a different source. [$errorCodeName]"
     }
 
     val meaningfulMessage = findMostRelevantCauseMessage()
@@ -133,6 +154,15 @@ internal fun PlaybackException.toDisplayMessage(): String {
     } else {
         errorCodeName
     }
+}
+
+private inline fun <reified T : Throwable> Throwable.findCauseOfType(): T? {
+    var current: Throwable? = this
+    while (current != null) {
+        if (current is T) return current
+        current = current.cause
+    }
+    return null
 }
 
 internal fun Throwable.toDisplayMessage(fallback: String = "Playback error"): String {

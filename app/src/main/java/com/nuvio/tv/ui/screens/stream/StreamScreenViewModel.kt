@@ -260,7 +260,9 @@ class StreamScreenViewModel @Inject constructor(
                     addonStreamGroups,
                     installedAddonOrder
                 )
+                // Pre-sort once — filterByAddon just filters without re-sorting
                 val allStreams = orderedAddonStreams.flatMap { it.streams }
+                    .sortedByDescending { it.qualityValue }
                 val availableAddons = orderedAddonStreams.map { it.addonName }
                 val selectedAutoPlayStream = if (autoPlayHandledForSession || !isAllLoaded) {
                     null
@@ -335,6 +337,7 @@ class StreamScreenViewModel @Inject constructor(
             var lastSuccessData: List<AddonStreams>? = null
             var autoSelectTriggered = false
             var timeoutElapsed = false
+            var pendingUpdate = false
 
             val streamLoadInner = viewModelScope.launch {
                 streamRepository.getStreamsFromAllAddons(
@@ -346,11 +349,18 @@ class StreamScreenViewModel @Inject constructor(
                     when (result) {
                         is NetworkResult.Success -> {
                             lastSuccessData = result.data
-                            applySuccess(result.data, isAllLoaded = false)
-                            // After timeout, auto-select on first result that arrives
-                            if (timeoutElapsed && !autoSelectTriggered) {
-                                autoSelectTriggered = true
-                                applySuccess(result.data, isAllLoaded = true)
+                            // Debounce UI updates — batch rapid results
+                            if (!pendingUpdate) {
+                                pendingUpdate = true
+                                kotlinx.coroutines.delay(150)
+                                pendingUpdate = false
+                                lastSuccessData?.let { data ->
+                                    applySuccess(data, isAllLoaded = false)
+                                    if (timeoutElapsed && !autoSelectTriggered) {
+                                        autoSelectTriggered = true
+                                        applySuccess(data, isAllLoaded = true)
+                                    }
+                                }
                             }
                         }
                         is NetworkResult.Error -> {
