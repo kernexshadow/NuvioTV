@@ -1082,9 +1082,17 @@ internal fun mergeContinueWatchingItems(
     inProgressItems.forEach { combined.add(it.progress.lastWatched to it) }
     filteredNextUpItems.forEach { combined.add(it.info.sortTimestamp to it) }
 
+    val seen = mutableSetOf<String>()
     return combined
         .sortedByDescending { it.first }
         .map { it.second }
+        .filter { item ->
+            val contentId = when (item) {
+                is ContinueWatchingItem.InProgress -> item.progress.contentId
+                is ContinueWatchingItem.NextUp -> item.info.contentId
+            }
+            contentId.isBlank() || seen.add(contentId)
+        }
 }
 
 private suspend fun HomeViewModel.buildNextUpItem(
