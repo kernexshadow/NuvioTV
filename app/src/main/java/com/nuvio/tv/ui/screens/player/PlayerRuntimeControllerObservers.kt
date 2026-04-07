@@ -52,7 +52,6 @@ internal suspend fun PlayerRuntimeController.fetchAddonSubtitlesNow(
                     url = url,
                     streamName = state.currentStreamName ?: title,
                     headers = currentHeaders,
-                    sourceUrls = currentStreamSourceUrls,
                     filename = currentFilename,
                     videoHash = currentVideoHash,
                     videoSize = currentVideoSize

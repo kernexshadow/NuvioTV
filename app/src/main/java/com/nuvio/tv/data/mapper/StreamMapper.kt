@@ -12,7 +12,6 @@ fun StreamDto.toDomain(addonName: String, addonLogo: String?): Stream = Stream(
     title = title,
     description = description,
     url = url,
-    sources = sources,
     ytId = ytId,
     infoHash = infoHash,
     fileIdx = fileIdx,

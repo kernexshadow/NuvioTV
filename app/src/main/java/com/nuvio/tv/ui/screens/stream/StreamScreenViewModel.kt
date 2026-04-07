@@ -222,7 +222,6 @@ class StreamScreenViewModel @Inject constructor(
                                 infoHash = null,
                                 ytId = null,
                                 headers = cached.headers,
-                                sourceUrls = cached.sourceUrls,
                                 contentId = contentId ?: videoId.substringBefore(":"),
                                 contentType = contentType,
                                 contentName = contentName ?: title,
@@ -643,7 +642,6 @@ class StreamScreenViewModel @Inject constructor(
             infoHash = stream.infoHash,
             ytId = stream.ytId,
             headers = stream.behaviorHints?.proxyHeaders?.request,
-            sourceUrls = stream.getStreamUrls(),
             contentId = contentId ?: videoId.substringBefore(":"),  // Use explicit contentId or extract from videoId
             contentType = contentType,
             contentName = contentName ?: title,
@@ -671,7 +669,6 @@ class StreamScreenViewModel @Inject constructor(
                     url = url,
                     streamName = playbackInfo.streamName,
                     headers = playbackInfo.headers,
-                    sourceUrls = playbackInfo.sourceUrls,
                     filename = playbackInfo.filename,
                     videoHash = playbackInfo.videoHash,
                     videoSize = playbackInfo.videoSize
@@ -700,7 +697,6 @@ data class StreamPlaybackInfo(
     val infoHash: String?,
     val ytId: String?,
     val headers: Map<String, String>?,
-    val sourceUrls: List<String> = emptyList(),
     // Watch progress metadata
     val contentId: String?,
     val contentType: String?,

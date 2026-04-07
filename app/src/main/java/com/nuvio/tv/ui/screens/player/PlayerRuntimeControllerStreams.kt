@@ -271,10 +271,7 @@ private fun PlayerRuntimeController.applySelectedStreamState(
     url: String,
     headers: Map<String, String>
 ) {
-    val candidateUrls = buildCandidateStreamUrls(stream = stream, selectedUrl = url)
     currentStreamUrl = url
-    currentStreamSourceUrls = candidateUrls
-    currentStreamSourceIndex = candidateUrls.indexOf(url).coerceAtLeast(0)
     currentHeaders = headers
     currentFilename = stream.behaviorHints?.filename ?: navigationArgs.filename
     currentStreamResponseHeaders = stream.behaviorHints?.proxyHeaders?.response.orEmpty()
@@ -295,16 +292,6 @@ private fun PlayerRuntimeController.applySelectedStreamState(
     currentVideoBitrate = null
 }
 
-private fun PlayerRuntimeController.buildCandidateStreamUrls(
-    stream: Stream,
-    selectedUrl: String
-): List<String> {
-    return (listOf(selectedUrl) + stream.getStreamUrls())
-        .map(String::trim)
-        .filter(String::isNotBlank)
-        .distinct()
-}
-
 private fun PlayerRuntimeController.persistSelectedStreamForReuse(
     stream: Stream,
     url: String,
@@ -322,7 +309,6 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
             url = url,
             streamName = streamName,
             headers = headers,
-            sourceUrls = currentStreamSourceUrls,
             filename = currentFilename,
             videoHash = currentVideoHash,
             videoSize = currentVideoSize
@@ -356,7 +342,7 @@ internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
     )
     persistSelectedStreamForReuse(stream = stream, url = url, headers = newHeaders)
     hasRetriedCurrentStreamAfter416 = false
-    errorRetryCount = 0
+    resetErrorRetryState()
     subtitleDisabledByPersistedPreference = false
     subtitleAddonRestoredByPersistedPreference = false
     pendingRestoredAddonSubtitle = null
@@ -632,7 +618,7 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
     subtitleAddonRestoredByPersistedPreference = false
     pendingRestoredAddonSubtitle = null
     hasRetriedCurrentStreamAfter416 = false
-    errorRetryCount = 0
+    resetErrorRetryState()
     currentVideoId = targetVideo?.id ?: _uiState.value.episodeStreamsForVideoId ?: currentVideoId
     currentSeason = targetVideo?.season ?: _uiState.value.episodeStreamsSeason ?: currentSeason
     currentEpisode = targetVideo?.episode ?: _uiState.value.episodeStreamsEpisode ?: currentEpisode

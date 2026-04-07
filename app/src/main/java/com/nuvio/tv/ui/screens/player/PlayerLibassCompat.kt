@@ -25,7 +25,7 @@ internal fun ExoPlayer.Builder.buildWithAssSupportCompat(
     context: Context,
     renderType: AssRenderType = AssRenderType.CUES,
     playerMediaSourceFactory: PlayerMediaSourceFactory? = null,
-    dataSourceFactory: DataSource.Factory = PlayerPlaybackNetworking.createHttpDataSourceFactory(context, null, emptyMap()),
+    dataSourceFactory: DataSource.Factory = PlayerPlaybackNetworking.createDataSourceFactory(context),
     extractorsFactory: ExtractorsFactory = DefaultExtractorsFactory(),
     renderersFactory: RenderersFactory = DefaultRenderersFactory(context)
 ): ExoPlayer {

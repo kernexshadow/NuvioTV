@@ -116,7 +116,6 @@ fun LocalScraperResult.toStream(scraper: ScraperInfo): com.nuvio.tv.domain.model
         title = displayTitle,
         description = size,
         url = url,
-        sources = null,
         ytId = null,
         infoHash = infoHash,
         fileIdx = null,

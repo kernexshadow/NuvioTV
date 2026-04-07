@@ -138,13 +138,7 @@ class PlayerRuntimeController(
     internal var currentVideoWidth: Int? = null
     internal var currentVideoHeight: Int? = null
     internal var currentVideoBitrate: Int? = null
-    internal var currentStreamSourceUrls: List<String> =
-        (listOf(initialStreamUrl) + navigationArgs.sourceUrls)
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .distinct()
     internal var currentStreamUrl: String = initialStreamUrl
-    internal var currentStreamSourceIndex: Int = currentStreamSourceUrls.indexOf(initialStreamUrl).coerceAtLeast(0)
     internal var currentStreamResponseHeaders: Map<String, String> = emptyMap()
     internal var currentStreamMimeType: String? =
         PlayerMediaSourceFactory.inferMimeType(
@@ -283,6 +277,7 @@ class PlayerRuntimeController(
     internal var hasTriedAudioPcmFallback: Boolean = false
     internal var hasTriedDv7HevcFallback: Boolean = false
     internal var forceDv7ToHevc: Boolean = false
+    internal var startupRetryCount: Int = 0
     internal var errorRetryCount: Int = 0
     internal var errorRetryJob: Job? = null
     internal var currentScrobbleItem: TraktScrobbleItem? = null

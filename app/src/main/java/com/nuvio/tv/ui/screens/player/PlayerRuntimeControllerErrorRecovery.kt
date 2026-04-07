@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private const val MAX_STARTUP_AUTO_RETRIES = 2
 private const val MAX_AUTO_RETRIES = 2
 private const val RETRY_DELAY_MS = 1_500L
 
@@ -23,6 +24,42 @@ internal fun PlayerRuntimeController.showRecoveryOverlay() {
             showPauseOverlay = false
         )
     }
+}
+
+internal fun PlayerRuntimeController.attemptStartupRecovery(
+    error: PlaybackException,
+    detailedError: String
+): Boolean {
+    if (hasRenderedFirstFrame) return false
+    if (!isRetryablePlaybackError(error)) return false
+    if (startupRetryCount >= MAX_STARTUP_AUTO_RETRIES) return false
+
+    val attempt = startupRetryCount
+    startupRetryCount++
+
+    Log.w(
+        PlayerRuntimeController.TAG,
+        "Startup recovery ${attempt + 1}/$MAX_STARTUP_AUTO_RETRIES after ${RETRY_DELAY_MS}ms for: $detailedError"
+    )
+
+    errorRetryJob?.cancel()
+    errorRetryJob = scope.launch {
+        _uiState.update {
+            it.copy(
+                error = null,
+                isBuffering = true,
+                showLoadingOverlay = it.loadingOverlayEnabled,
+                loadingMessage = context.getString(R.string.player_loading_buffering),
+                showPauseOverlay = false
+            )
+        }
+
+        delay(RETRY_DELAY_MS)
+
+        releasePlayer(flushPlaybackState = false)
+        initializePlayer(currentStreamUrl, currentHeaders)
+    }
+    return true
 }
 
 /**
@@ -195,6 +232,7 @@ internal fun PlayerRuntimeController.attemptAutoRetry(
  * (first frame rendered, or user-initiated retry).
  */
 internal fun PlayerRuntimeController.resetErrorRetryState() {
+    startupRetryCount = 0
     errorRetryCount = 0
     errorRetryJob?.cancel()
     errorRetryJob = null

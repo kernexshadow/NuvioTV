@@ -245,7 +245,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     extractorsFactory = null,
                     subtitleParserFactory = null
                 )
-                val playerDataSourceFactory = PlayerPlaybackNetworking.createHttpDataSourceFactory(context, url, emptyMap())
+                val playerDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, headers)
                 ExoPlayer.Builder(context)
                     .setTrackSelector(trackSelector!!)
                     .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, extractorsFactory))
@@ -256,7 +256,7 @@ internal fun PlayerRuntimeController.initializePlayer(
             }
 
             _exoPlayer = if (useLibass) {
-                val playerDataSourceFactory = PlayerPlaybackNetworking.createHttpDataSourceFactory(context, url, emptyMap())
+                val playerDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, headers)
                 ExoPlayer.Builder(context)
                     .setLoadControl(loadControl)
                     .setTrackSelector(trackSelector!!)
@@ -458,7 +458,10 @@ internal fun PlayerRuntimeController.initializePlayer(
                         if (tryDv7HevcFallback(error)) {
                             return
                         }
-                        if (attemptAutoRetry(error, detailedError)) {
+                        if (attemptStartupRecovery(error, detailedError)) {
+                            return
+                        }
+                        if (hasRenderedFirstFrame && attemptAutoRetry(error, detailedError)) {
                             return
                         }
                         _uiState.update {

@@ -39,7 +39,7 @@ internal class PlayerMediaSourceFactory {
         mimeTypeOverride: String? = null
     ): MediaSource {
         val sanitizedHeaders = sanitizeHeaders(headers)
-        val httpDataSourceFactory = PlayerPlaybackNetworking.createHttpDataSourceFactory(context, url, sanitizedHeaders)
+        val httpDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, sanitizedHeaders)
 
         val resolvedMimeType = mimeTypeOverride ?: inferMimeType(
             url = url,

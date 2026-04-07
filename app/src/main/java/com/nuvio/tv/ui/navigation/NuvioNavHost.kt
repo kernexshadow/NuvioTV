@@ -455,7 +455,6 @@ fun NuvioNavHost(
                                 streamName = playbackInfo.streamName,
                                 year = playbackInfo.year,
                                 headers = playbackInfo.headers,
-                                sourceUrls = playbackInfo.sourceUrls,
                                 contentId = playbackInfo.contentId,
                                 contentType = playbackInfo.contentType,
                                 contentName = playbackInfo.contentName,
@@ -490,7 +489,6 @@ fun NuvioNavHost(
                                 streamName = playbackInfo.streamName,
                                 year = playbackInfo.year,
                                 headers = playbackInfo.headers,
-                                sourceUrls = playbackInfo.sourceUrls,
                                 contentId = playbackInfo.contentId,
                                 contentType = playbackInfo.contentType,
                                 contentName = playbackInfo.contentName,
@@ -646,11 +644,6 @@ fun NuvioNavHost(
                     nullable = true
                     defaultValue = null
                 },
-                navArgument("sources") {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                }
             )
         ) { backStackEntry ->
             PlayerScreen(
