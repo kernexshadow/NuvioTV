@@ -788,6 +788,16 @@ private fun FolderEditorContent(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Focus GIF", style = MaterialTheme.typography.labelLarge, color = NuvioColors.TextSecondary)
+                Spacer(modifier = Modifier.height(8.dp))
+                NuvioTextField(
+                    value = folder.focusGifUrl.orEmpty(),
+                    onValueChange = { viewModel.updateFolderFocusGifUrl(it) },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "Animated GIF URL (plays only while focused)"
+                )
             }
 
             item {

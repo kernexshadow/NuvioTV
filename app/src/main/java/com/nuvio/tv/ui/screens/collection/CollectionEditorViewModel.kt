@@ -186,6 +186,12 @@ class CollectionEditorViewModel @Inject constructor(
         }
     }
 
+    fun updateFolderFocusGifUrl(url: String) {
+        _uiState.update { state ->
+            state.copy(editingFolder = state.editingFolder?.copy(focusGifUrl = url.ifBlank { null }))
+        }
+    }
+
     fun updateFolderCoverEmoji(emoji: String) {
         _uiState.update { state ->
             state.copy(editingFolder = state.editingFolder?.copy(

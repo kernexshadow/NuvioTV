@@ -585,7 +585,7 @@ function updateCollectionFocusGlow(ci, checked) {
 }
 
 function addFolder(ci) {
-  collections[ci].folders.push({ id: generateId(), title: 'New Folder', coverImageUrl: null, coverEmoji: null, tileShape: 'SQUARE', hideTitle: false, catalogSources: [] });
+  collections[ci].folders.push({ id: generateId(), title: 'New Folder', coverImageUrl: null, focusGifUrl: null, coverEmoji: null, tileShape: 'SQUARE', hideTitle: false, catalogSources: [] });
   expandedFolder = ci + '-' + (collections[ci].folders.length - 1);
   renderCollections();
 }
@@ -627,6 +627,10 @@ function updateFolderCoverImage(ci, fi, val) {
   } else {
     if (img) img.style.display = 'none';
   }
+}
+
+function updateFolderFocusGifUrl(ci, fi, val) {
+  collections[ci].folders[fi].focusGifUrl = val || null;
 }
 
 function updateFolderTileShape(ci, fi, val) {
@@ -900,6 +904,9 @@ function renderCollections() {
                 '<img id="cover-preview-' + ci + '-' + fi + '" src="' + escapeAttr(folder.coverImageUrl || '') + '" style="' + (folder.coverImageUrl ? '' : 'display:none') + '" onerror="this.style.display=\'none\'">' +
                 '<input type="url" placeholder="Cover image URL" value="' + escapeAttr(folder.coverImageUrl || '') + '" oninput="updateFolderCoverImage(' + ci + ',' + fi + ',this.value)">' +
               '</div>' : '') +
+              '<div class="folder-setting-item">' +
+                '<input type="url" placeholder="Focused GIF URL (optional)" value="' + escapeAttr(folder.focusGifUrl || '') + '" oninput="updateFolderFocusGifUrl(' + ci + ',' + fi + ',this.value)">' +
+              '</div>' +
             '</div>' +
             '<div class="folder-settings-group">' +
               '<div class="folder-settings-group-label">Display</div>' +

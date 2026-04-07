@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -123,6 +124,7 @@ private fun FolderCard(
 ) {
     val tileWidth: Dp
     val tileHeight: Dp
+    var isFocused by remember { mutableStateOf(false) }
     when (folder.tileShape) {
         PosterShape.POSTER -> { tileWidth = 126.dp; tileHeight = 189.dp }
         PosterShape.LANDSCAPE -> { tileWidth = 224.dp; tileHeight = 126.dp }
@@ -141,7 +143,10 @@ private fun FolderCard(
         modifier = modifier
             .width(tileWidth)
             .height(tileHeight)
-            .onFocusChanged { if (it.isFocused) onFocused() },
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) onFocused()
+            },
         shape = CardDefaults.shape(shape = shape),
         colors = CardDefaults.colors(
             containerColor = NuvioColors.BackgroundCard,
@@ -157,9 +162,10 @@ private fun FolderCard(
         glow = cardGlow
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (!folder.coverImageUrl.isNullOrBlank()) {
+            val activeImageUrl = collectionFolderCardImageUrl(folder, isFocused)
+            if (!activeImageUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = folder.coverImageUrl,
+                    model = activeImageUrl,
                     contentDescription = folder.title,
                     modifier = Modifier
                         .fillMaxSize()

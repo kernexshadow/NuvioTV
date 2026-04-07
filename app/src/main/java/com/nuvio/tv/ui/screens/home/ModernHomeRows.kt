@@ -764,12 +764,19 @@ private fun ModernCarouselCard(
         frozenBackdropUrl.value = item.heroPreview.backdrop
     }
     val effectiveBackdropUrl = frozenBackdropUrl.value
-    val imageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
+    var isFocused by remember { mutableStateOf(false) }
+    val payload = item.payload as? ModernPayload.CollectionFolder
+    val baseImageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
         item.heroPreview.backdrop ?: item.imageUrl ?: item.heroPreview.poster
     } else if (useLandscapeOverlayTreatment) {
         effectiveBackdropUrl ?: item.heroPreview.poster
     } else {
         item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
+    }
+    val imageUrl = when {
+        payload == null -> baseImageUrl
+        isFocused -> payload.focusGifUrl ?: baseImageUrl
+        else -> baseImageUrl ?: payload.focusGifUrl
     }
     val imageContentScale = when (item.payload) {
         is ModernPayload.CollectionFolder -> ContentScale.FillBounds
@@ -830,7 +837,6 @@ private fun ModernCarouselCard(
         (useLandscapeOverlayTreatment || isBackdropExpanded) &&
             !effectiveLogoUrl.isNullOrBlank() &&
             !landscapeLogoLoadFailed
-    var isFocused by remember { mutableStateOf(false) }
     var longPressTriggered by remember { mutableStateOf(false) }
     val backgroundCardColor = NuvioColors.BackgroundCard
     val focusRingColor = NuvioColors.FocusRing
@@ -842,7 +848,7 @@ private fun ModernCarouselCard(
             shape = cardShape
         )
     }
-    val cardGlow = when (val payload = item.payload) {
+    val cardGlow = when (payload) {
         is ModernPayload.CollectionFolder -> rememberArtworkBackedCardGlow(
             imageUrl = imageUrl,
             fallbackSeed = "${item.title}:${payload.collectionTitle}",
