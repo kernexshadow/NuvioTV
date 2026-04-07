@@ -337,7 +337,6 @@ class StreamScreenViewModel @Inject constructor(
             var lastSuccessData: List<AddonStreams>? = null
             var autoSelectTriggered = false
             var timeoutElapsed = false
-            var pendingUpdate = false
 
             val streamLoadInner = viewModelScope.launch {
                 streamRepository.getStreamsFromAllAddons(
@@ -349,18 +348,10 @@ class StreamScreenViewModel @Inject constructor(
                     when (result) {
                         is NetworkResult.Success -> {
                             lastSuccessData = result.data
-                            // Debounce UI updates — batch rapid results
-                            if (!pendingUpdate) {
-                                pendingUpdate = true
-                                kotlinx.coroutines.delay(150)
-                                pendingUpdate = false
-                                lastSuccessData?.let { data ->
-                                    applySuccess(data, isAllLoaded = false)
-                                    if (timeoutElapsed && !autoSelectTriggered) {
-                                        autoSelectTriggered = true
-                                        applySuccess(data, isAllLoaded = true)
-                                    }
-                                }
+                            applySuccess(result.data, isAllLoaded = false)
+                            if (timeoutElapsed && !autoSelectTriggered) {
+                                autoSelectTriggered = true
+                                applySuccess(result.data, isAllLoaded = true)
                             }
                         }
                         is NetworkResult.Error -> {
