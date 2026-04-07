@@ -12,6 +12,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 
 private const val AFR_PREFLIGHT_NEXTLIB_TIMEOUT_MS = 30000L
+private const val AFR_PREFLIGHT_FAST_EXTRACTOR_TIMEOUT_MS = 30000L
 private const val AFR_PREFLIGHT_FALLBACK_TIMEOUT_MS = 5500L
 
 internal suspend fun PlayerRuntimeController.runAfrPreflightIfEnabled(
@@ -61,7 +62,7 @@ internal suspend fun PlayerRuntimeController.runAfrPreflightIfEnabled(
 
             FrameRateDetectionMode.FAST -> {
                 Log.d(PlayerRuntimeController.TAG, "AFR preflight detection mode=FAST (extractor-only)")
-                withTimeoutOrNull(AFR_PREFLIGHT_FALLBACK_TIMEOUT_MS) {
+                withTimeoutOrNull(AFR_PREFLIGHT_FAST_EXTRACTOR_TIMEOUT_MS) {
                     withContext(Dispatchers.IO) {
                         FrameRateUtils.detectFrameRateFromExtractor(
                             context = context,
