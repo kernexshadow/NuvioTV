@@ -25,6 +25,7 @@ internal fun PlayerRuntimeController.showEpisodesPanel() {
             showAudioOverlay = false,
             showSubtitleOverlay = false,
             showSubtitleStylePanel = false,
+            showSubtitleTimingDialog = false,
             showSpeedDialog = false,
             showMoreDialog = false
         )
@@ -47,6 +48,7 @@ internal fun PlayerRuntimeController.showSourcesPanel() {
             showAudioOverlay = false,
             showSubtitleOverlay = false,
             showSubtitleStylePanel = false,
+            showSubtitleTimingDialog = false,
             showSpeedDialog = false,
             showMoreDialog = false,
             showEpisodesPanel = false,
@@ -690,6 +692,7 @@ internal fun PlayerRuntimeController.showEpisodeStreamPicker(video: Video, force
             showAudioOverlay = false,
             showSubtitleOverlay = false,
             showSubtitleStylePanel = false,
+            showSubtitleTimingDialog = false,
             showSpeedDialog = false,
             showMoreDialog = false,
             episodesSelectedSeason = video.season ?: it.episodesSelectedSeason

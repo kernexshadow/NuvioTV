@@ -123,6 +123,7 @@ internal fun PlayerRuntimeController.refreshSubtitlesForCurrentEpisode() {
     pendingAddonSubtitleLanguage = null
     pendingAddonSubtitleTrackId = null
     pendingAudioSelectionAfterSubtitleRefresh = null
+    resetSubtitleAutoSyncState()
     attachedAddonSubtitleKeys = emptySet()
     _uiState.update {
         it.copy(
