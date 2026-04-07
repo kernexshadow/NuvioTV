@@ -134,18 +134,27 @@ class PlayerRuntimeController(
     internal var currentAddonName: String? = navigationArgs.addonName
     internal var currentAddonLogo: String? = navigationArgs.addonLogo
     internal var currentStreamDescription: String? = navigationArgs.streamDescription
+    internal val contentLanguage: String? = navigationArgs.contentLanguage
     internal var currentVideoCodec: String? = null
     internal var currentVideoWidth: Int? = null
     internal var currentVideoHeight: Int? = null
     internal var currentVideoBitrate: Int? = null
-    internal var currentStreamUrl: String = initialStreamUrl
-    internal var currentStreamMimeType: String? =
-        PlayerMediaSourceFactory.inferMimeType(
-            url = initialStreamUrl,
+    internal var currentStreamUrl: String
+    internal var currentStreamMimeType: String?
+    internal var currentHeaders: Map<String, String>
+
+    init {
+        val (cleanInitialUrl, mergedInitialHeaders) = PlayerMediaSourceFactory.extractUserInfoAuth(
+            initialStreamUrl,
+            PlayerMediaSourceFactory.sanitizeHeaders(PlayerMediaSourceFactory.parseHeaders(headersJson))
+        )
+        currentStreamUrl = cleanInitialUrl
+        currentStreamMimeType = PlayerMediaSourceFactory.inferMimeType(
+            url = cleanInitialUrl,
             filename = currentFilename
         )
-    internal var currentHeaders: Map<String, String> =
-        PlayerMediaSourceFactory.sanitizeHeaders(PlayerMediaSourceFactory.parseHeaders(headersJson))
+        currentHeaders = mergedInitialHeaders
+    }
 
     fun getCurrentStreamUrl(): String = currentStreamUrl
     fun getCurrentHeaders(): Map<String, String> = currentHeaders
@@ -289,11 +298,12 @@ class PlayerRuntimeController(
     internal var libassPipelineDecisionStreamUrl: String? = null
     internal var episodeStreamsJob: Job? = null
     internal var episodeStreamsCacheRequestKey: String? = null
-    internal val streamCacheKey: String? by lazy {
-        val type = contentType?.lowercase()
-        val vid = currentVideoId
-        if (type.isNullOrBlank() || vid.isNullOrBlank()) null else "$type|$vid"
-    }
+    internal val streamCacheKey: String?
+        get() {
+            val type = contentType?.lowercase()
+            val vid = currentVideoId
+            return if (type.isNullOrBlank() || vid.isNullOrBlank()) null else "$type|$vid"
+        }
 
     init {
         if (!navigationArgs.startFromBeginning) {

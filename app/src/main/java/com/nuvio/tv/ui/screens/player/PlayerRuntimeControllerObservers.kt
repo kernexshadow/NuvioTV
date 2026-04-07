@@ -247,7 +247,8 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
             val resolvedAudioLanguages = resolvePreferredAudioLanguages(
                 preferredAudioLanguage = settings.preferredAudioLanguage,
                 secondaryPreferredAudioLanguage = settings.secondaryPreferredAudioLanguage,
-                deviceLanguages = resolveDeviceAudioLanguages()
+                deviceLanguages = resolveDeviceAudioLanguages(),
+                contentOriginalLanguage = contentLanguage
             )
             if (resolvedAudioLanguages != mpvPreferredAudioLanguages) {
                 mpvPreferredAudioLanguages = resolvedAudioLanguages
