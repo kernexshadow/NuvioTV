@@ -43,9 +43,11 @@ internal suspend fun PlayerRuntimeController.fetchAddonSubtitlesNow(
             currentVideoHash = result.hash
             if (currentVideoSize == null) currentVideoSize = result.fileSize
             // Update cache now that we have the computed hash
+            // Skip caching torrent streams — the localhost URL is ephemeral
+            // and won't survive app restarts (TorrServer dies with the process)
             val key = streamCacheKey
             val url = currentStreamUrl.takeIf { it.isNotBlank() }
-            if (key != null && url != null) {
+            if (key != null && url != null && !isTorrentStream) {
                 val state = _uiState.value
                 streamLinkCacheDataStore.save(
                     contentKey = key,
