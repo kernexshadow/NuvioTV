@@ -36,6 +36,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.Collections
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -652,6 +653,11 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 val allSeedContentIds = nextUpSeeds
                     .map { it.contentId }
                     .toSet()
+                // Exclude cached older items for series that the fresh pipeline evaluated
+                // but didn't produce a next-up for (e.g. fully watched series).
+                val rejectedByFreshPipeline = synchronized(cwLastProcessedNextUpContentIds) {
+                    cwLastProcessedNextUpContentIds.toSet()
+                } - recentIds
                 val olderToInclude = (persistedOlderItems + cachedOlderNextUp)
                     .distinctBy { it.info.contentId }
                     .filter {
@@ -659,6 +665,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             it.info.contentId in allSeedContentIds &&
                             it.info.contentId !in recentIds &&
                             it.info.contentId !in inProgressIds &&
+                            it.info.contentId !in rejectedByFreshPipeline &&
                             nextUpDismissKey(it.info.contentId, it.info.seedSeason, it.info.seedEpisode) !in dismissedNextUp &&
                             !watchProgressRepository.isDroppedShow(it.info.contentId)
                     }
@@ -998,10 +1005,12 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
     val lookupSemaphore = Semaphore(CW_MAX_NEXT_UP_CONCURRENCY)
     val mergeMutex = Mutex()
     val nextUpByContent = linkedMapOf<String, ContinueWatchingItem.NextUp>()
+    val processedContentIds = Collections.synchronizedSet(mutableSetOf<String>())
 
     val jobs = latestCompletedBySeries.map { progress ->
         launch(Dispatchers.IO) {
             lookupSemaphore.withPermit {
+                processedContentIds.add(progress.contentId)
                 val nextUp = buildNextUpItem(
                     progress = progress,
                     showUnairedNextUp = showUnairedNextUp,
@@ -1019,6 +1028,12 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
         }
     }
     jobs.joinAll()
+
+    // Store which contentIds were evaluated so olderToInclude can skip fully-watched series.
+    synchronized(cwLastProcessedNextUpContentIds) {
+        cwLastProcessedNextUpContentIds.clear()
+        cwLastProcessedNextUpContentIds.addAll(processedContentIds)
+    }
 
     nextUpByContent.values.toList()
 }
