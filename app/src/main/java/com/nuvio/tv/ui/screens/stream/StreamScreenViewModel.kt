@@ -72,6 +72,7 @@ class StreamScreenViewModel @Inject constructor(
     private val year: String? = savedStateHandle.getOptionalString("year")
     private val contentId: String? = savedStateHandle.getOptionalString("contentId")
     private val contentName: String? = savedStateHandle.getOptionalString("contentName")
+    private val contentLanguage: String? = savedStateHandle.getOptionalString("contentLanguage")
     private val manualSelection: Boolean = savedStateHandle.get<String>("manualSelection")
         ?.toBooleanStrictOrNull()
         ?: false
@@ -235,7 +236,8 @@ class StreamScreenViewModel @Inject constructor(
                                 bingeGroup = null,
                                 filename = cached.filename,
                                 videoHash = cached.videoHash,
-                                videoSize = cached.videoSize
+                                videoSize = cached.videoSize,
+                                contentLanguage = contentLanguage
                             )
                         )
                     }
@@ -658,7 +660,8 @@ class StreamScreenViewModel @Inject constructor(
             videoSize = stream.behaviorHints?.videoSize,
             addonName = stream.addonName,
             addonLogo = stream.addonLogo,
-            streamDescription = stream.description
+            streamDescription = stream.description,
+            contentLanguage = contentLanguage
         )
 
         val url = playbackInfo.url
@@ -714,5 +717,6 @@ data class StreamPlaybackInfo(
     val videoSize: Long? = null,
     val addonName: String? = null,
     val addonLogo: String? = null,
-    val streamDescription: String? = null
+    val streamDescription: String? = null,
+    val contentLanguage: String? = null
 )

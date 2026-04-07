@@ -202,6 +202,8 @@
     <string name="audio_section">Audio</string>
     <string name="audio_lang_default">Domyślny (plik multimedialny)</string>
     <string name="audio_lang_device">Język urządzenia</string>
+    <string name="audio_lang_original">Język oryginalny</string>
+    <string name="audio_lang_original_hint">Wymaga włączonego wzbogacania TMDB</string>
     <string name="audio_preferred_lang">Preferowany język audio</string>
     <string name="audio_skip_silence">Pomijaj ciszę</string>
     <string name="audio_skip_silence_sub">Pomijaj ciche fragmenty podczas odtwarzania</string>

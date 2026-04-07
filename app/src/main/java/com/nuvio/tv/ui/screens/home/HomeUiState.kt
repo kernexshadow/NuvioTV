@@ -66,7 +66,8 @@ sealed class ContinueWatchingItem {
         val episodeThumbnail: String? = null,
         val episodeImdbRating: Float? = null,
         val genres: List<String> = emptyList(),
-        val releaseInfo: String? = null
+        val releaseInfo: String? = null,
+        val contentLanguage: String? = null
     ) : ContinueWatchingItem()
 
     @Immutable
@@ -99,7 +100,8 @@ data class NextUpInfo(
     val isReleaseAlert: Boolean = false,
     val isNewSeasonRelease: Boolean = false,
     val seedSeason: Int? = null,
-    val seedEpisode: Int? = null
+    val seedEpisode: Int? = null,
+    val contentLanguage: String? = null
 )
 
 @Immutable
