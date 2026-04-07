@@ -298,11 +298,12 @@ class PlayerRuntimeController(
     internal var libassPipelineDecisionStreamUrl: String? = null
     internal var episodeStreamsJob: Job? = null
     internal var episodeStreamsCacheRequestKey: String? = null
-    internal val streamCacheKey: String? by lazy {
-        val type = contentType?.lowercase()
-        val vid = currentVideoId
-        if (type.isNullOrBlank() || vid.isNullOrBlank()) null else "$type|$vid"
-    }
+    internal val streamCacheKey: String?
+        get() {
+            val type = contentType?.lowercase()
+            val vid = currentVideoId
+            return if (type.isNullOrBlank() || vid.isNullOrBlank()) null else "$type|$vid"
+        }
 
     init {
         if (!navigationArgs.startFromBeginning) {
