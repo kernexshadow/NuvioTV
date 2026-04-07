@@ -397,21 +397,19 @@ internal fun PlayerRuntimeController.retryCurrentStreamFromStartAfter416() {
     if (hasRetriedCurrentStreamAfter416) return
     hasRetriedCurrentStreamAfter416 = true
     pendingResumeProgress = null
-    _uiState.update {
-        it.copy(
-            pendingSeekPosition = null,
-            error = null,
-            showLoadingOverlay = it.loadingOverlayEnabled
-        )
-    }
+    showRecoveryOverlay()
+    _uiState.update { it.copy(pendingSeekPosition = null) }
     _exoPlayer?.let { player ->
         runCatching {
             player.stop()
             player.clearMediaItems()
             player.setMediaSource(
                 mediaSourceFactory.createMediaSource(
+                    context = context,
                     url = currentStreamUrl,
                     headers = currentHeaders,
+                    filename = currentFilename,
+                    responseHeaders = currentStreamResponseHeaders,
                     mimeTypeOverride = currentStreamMimeType
                 )
             )
@@ -421,7 +419,7 @@ internal fun PlayerRuntimeController.retryCurrentStreamFromStartAfter416() {
         }.onFailure { e ->
             _uiState.update {
                 it.copy(
-                    error = e.message ?: "Playback error",
+                    error = e.toDisplayMessage(),
                     showLoadingOverlay = false,
                     showPauseOverlay = false
                 )

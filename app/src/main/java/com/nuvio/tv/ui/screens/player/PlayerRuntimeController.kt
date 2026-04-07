@@ -140,6 +140,7 @@ class PlayerRuntimeController(
     internal var currentVideoHeight: Int? = null
     internal var currentVideoBitrate: Int? = null
     internal var currentStreamUrl: String
+    internal var currentStreamResponseHeaders: Map<String, String> = emptyMap()
     internal var currentStreamMimeType: String?
     internal var currentHeaders: Map<String, String>
 
@@ -151,7 +152,8 @@ class PlayerRuntimeController(
         currentStreamUrl = cleanInitialUrl
         currentStreamMimeType = PlayerMediaSourceFactory.inferMimeType(
             url = cleanInitialUrl,
-            filename = currentFilename
+            filename = currentFilename,
+            responseHeaders = currentStreamResponseHeaders
         )
         currentHeaders = mergedInitialHeaders
     }
@@ -190,7 +192,6 @@ class PlayerRuntimeController(
     val exoPlayer: ExoPlayer?
         get() = _exoPlayer
     internal var playbackSpeedAwareAudioOutputProvider: PlaybackSpeedAwareAudioOutputProvider? = null
-    internal var isReleasingPlayer: Boolean = false
 
     internal var progressJob: Job? = null
     internal var hideControlsJob: Job? = null
@@ -280,6 +281,12 @@ class PlayerRuntimeController(
     internal var pendingPreviewSeekPosition: Long? = null
     internal var pendingResumeProgress: WatchProgress? = null
     internal var hasRetriedCurrentStreamAfter416: Boolean = false
+    internal var isReleasingPlayer: Boolean = false
+    internal var cachedDecoderPriority: Int = 1
+    internal var hasTriedAudioPcmFallback: Boolean = false
+    internal var hasTriedDv7HevcFallback: Boolean = false
+    internal var forceDv7ToHevc: Boolean = false
+    internal var startupRetryCount: Int = 0
     internal var errorRetryCount: Int = 0
     internal var errorRetryJob: Job? = null
     internal var currentScrobbleItem: TraktScrobbleItem? = null

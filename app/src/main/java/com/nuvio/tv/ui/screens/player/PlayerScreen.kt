@@ -87,6 +87,7 @@ import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -137,6 +138,7 @@ fun PlayerScreen(
     val skipIntroFocusRequester = remember { FocusRequester() }
     var skipButtonActuallyVisible by remember { mutableStateOf(false) }
     val nextEpisodeFocusRequester = remember { FocusRequester() }
+    var exoPlayerView by remember { mutableStateOf<PlayerView?>(null) }
     val exitPlayer: () -> Unit = {
         viewModel.stopAndRelease()
         onBackPress(uiState.currentSeason, uiState.currentEpisode, uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL)
@@ -513,7 +515,29 @@ fun PlayerScreen(
         } else {
             viewModel.exoPlayer?.let { player ->
                 val subtitleStyle = uiState.subtitleStyle
-                val resizeMode = uiState.resizeMode
+                val aspectMode = uiState.aspectMode
+
+                DisposableEffect(player, exoPlayerView, aspectMode) {
+                    val boundView = exoPlayerView
+                    if (boundView == null) {
+                        onDispose { }
+                    } else {
+                        val listener = object : androidx.media3.common.Player.Listener {
+                            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                                boundView.post { applyExoAspectMode(boundView, aspectMode) }
+                            }
+
+                            override fun onRenderedFirstFrame() {
+                                boundView.post { applyExoAspectMode(boundView, aspectMode) }
+                            }
+                        }
+                        player.addListener(listener)
+                        boundView.post { applyExoAspectMode(boundView, aspectMode) }
+                        onDispose {
+                            player.removeListener(listener)
+                        }
+                    }
+                }
 
                 AndroidView(
                     factory = { context ->
@@ -522,13 +546,15 @@ fun PlayerScreen(
                             useController = false
                             keepScreenOn = false
                             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                            exoPlayerView = this
                         }
                     },
                     update = { playerView ->
+                        exoPlayerView = playerView
                         // Keep device awake only while playback is active (or buffering), not when paused.
                         playerView.keepScreenOn = uiState.isPlaying || uiState.isBuffering
-                        Log.d("PlayerScreen", "Applying resizeMode: $resizeMode")
-                        playerView.resizeMode = resizeMode
+                        playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        applyExoAspectMode(playerView, aspectMode)
                         playerView.subtitleView?.apply {
                             // Calculate font size based on percentage (100% = 24sp base)
                             val baseFontSize = 24f
