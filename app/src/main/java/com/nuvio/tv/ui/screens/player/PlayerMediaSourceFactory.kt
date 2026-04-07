@@ -281,5 +281,42 @@ internal class PlayerMediaSourceFactory {
             if (read <= 0) return null
             return String(buffer, 0, read, Charsets.UTF_8)
         }
+
+        /**
+         * Extracts `user:password` from a URL's userinfo component and converts it
+         * to a Basic Auth header. Returns the cleaned URL (without userinfo) and
+         * merged headers. If the URL has no userinfo, returns the original URL and headers unchanged.
+         *
+         * Example: `https://user:pass@host/path` → URL `https://host/path` + header `Authorization: Basic dXNlcjpwYXNz`
+         */
+        fun extractUserInfoAuth(
+            url: String,
+            headers: Map<String, String>
+        ): Pair<String, Map<String, String>> {
+            if (url.isBlank()) return url to headers
+            val uri = try { java.net.URI(url) } catch (_: Exception) { return url to headers }
+            val userInfo = uri.userInfo ?: return url to headers
+            if (userInfo.isBlank()) return url to headers
+            // Already has an Authorization header — don't override
+            if (headers.any { it.key.equals("Authorization", ignoreCase = true) }) {
+                return url to headers
+            }
+            val encoded = android.util.Base64.encodeToString(
+                userInfo.toByteArray(Charsets.UTF_8),
+                android.util.Base64.NO_WRAP
+            )
+            val cleanUri = java.net.URI(
+                uri.scheme,
+                null, // no userinfo
+                uri.host,
+                uri.port,
+                uri.path,
+                uri.query,
+                uri.fragment
+            )
+            val mergedHeaders = LinkedHashMap(headers)
+            mergedHeaders["Authorization"] = "Basic $encoded"
+            return cleanUri.toString() to mergedHeaders
+        }
     }
 }

@@ -73,7 +73,8 @@ class HomeViewModel @Inject constructor(
     internal val trailerService: TrailerService,
     internal val watchedItemsPreferences: WatchedItemsPreferences,
     internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
-    internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache
+    internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
+    private val profileManager: com.nuvio.tv.core.profile.ProfileManager
 ) : ViewModel() {
     companion object {
         internal const val TAG = "HomeViewModel"
@@ -195,6 +196,16 @@ class HomeViewModel @Inject constructor(
         loadContinueWatching()
         observeCollections()
         observeInstalledAddons()
+        // Clear CW state when profile changes so items don't leak between profiles.
+        viewModelScope.launch {
+            var previousProfileId = profileManager.activeProfileId.value
+            profileManager.activeProfileId.collect { newId ->
+                if (newId != previousProfileId) {
+                    previousProfileId = newId
+                    _uiState.update { it.copy(continueWatchingItems = emptyList()) }
+                }
+            }
+        }
         viewModelScope.launch {
             delay(STARTUP_GRACE_PERIOD_MS)
             startupGracePeriodActive = false

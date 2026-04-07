@@ -90,6 +90,7 @@ fun SeasonTabs(
     onSeasonSelected: (Int) -> Unit,
     onSeasonLongPress: (Int) -> Unit = {},
     selectedTabFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester? = null,
     downFocusRequester: FocusRequester? = null
 ) {
     // Move season 0 (specials) to the end
@@ -148,6 +149,9 @@ fun SeasonTabs(
                     .focusProperties {
                         if (isSelected && downFocusRequester != null) {
                             down = downFocusRequester
+                        }
+                        if (upFocusRequester != null) {
+                            up = upFocusRequester
                         }
                     }
                     .onFocusChanged {

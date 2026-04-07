@@ -92,7 +92,8 @@ internal fun PlayerRuntimeController.initializePlayer(
             val preferredAudioLanguages = resolvePreferredAudioLanguages(
                 preferredAudioLanguage = playerSettings.preferredAudioLanguage,
                 secondaryPreferredAudioLanguage = playerSettings.secondaryPreferredAudioLanguage,
-                deviceLanguages = resolveDeviceAudioLanguages()
+                deviceLanguages = resolveDeviceAudioLanguages(),
+                contentOriginalLanguage = contentLanguage
             )
             mpvPreferredAudioLanguages = preferredAudioLanguages
             mpvHardwareDecodeModeSetting = playerSettings.mpvHardwareDecodeMode
@@ -477,7 +478,8 @@ internal fun PlayerRuntimeController.initializePlayer(
 internal fun resolvePreferredAudioLanguages(
     preferredAudioLanguage: String,
     secondaryPreferredAudioLanguage: String?,
-    deviceLanguages: List<String>
+    deviceLanguages: List<String>,
+    contentOriginalLanguage: String? = null
 ): List<String> {
     fun normalize(language: String?): String? {
         val normalized = language
@@ -488,6 +490,7 @@ internal fun resolvePreferredAudioLanguages(
         return when (normalized) {
             AudioLanguageOption.DEFAULT,
             AudioLanguageOption.DEVICE,
+            AudioLanguageOption.ORIGINAL,
             SUBTITLE_LANGUAGE_FORCED -> null
             else -> normalized
         }
@@ -502,6 +505,21 @@ internal fun resolvePreferredAudioLanguages(
             .mapNotNull(::normalize)
             + listOfNotNull(normalize(secondaryPreferredAudioLanguage))
             ).distinct()
+        AudioLanguageOption.ORIGINAL -> {
+            val originalLang = normalize(contentOriginalLanguage)
+            if (originalLang != null) {
+                listOfNotNull(
+                    originalLang,
+                    normalize(secondaryPreferredAudioLanguage)
+                ).distinct()
+            } else {
+                // Fallback to device languages when original language is unknown
+                (deviceLanguages
+                    .mapNotNull(::normalize)
+                    + listOfNotNull(normalize(secondaryPreferredAudioLanguage))
+                ).distinct()
+            }
+        }
         else -> listOfNotNull(
             normalize(preferredAudioLanguage),
             normalize(secondaryPreferredAudioLanguage)
