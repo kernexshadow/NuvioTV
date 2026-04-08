@@ -263,13 +263,14 @@ private fun TabbedGridContent(
                             horizontalAlignment = Alignment.Start
                         ) {
                             Text(
-                                text = tab.label,
+                                text = if (tab.isAllTab) stringResource(R.string.collections_tab_all) else tab.label,
                                 style = MaterialTheme.typography.labelLarge
                             )
                             if (tab.typeLabel.isNotBlank()) {
-                                val localizedType = when (tab.rawType.lowercase()) {
-                                    "movie" -> stringResource(R.string.type_movie)
-                                    "series" -> stringResource(R.string.type_series)
+                                val localizedType = when {
+                                    tab.isAllTab -> stringResource(R.string.collections_tab_combined)
+                                    tab.rawType.lowercase() == "movie" -> stringResource(R.string.type_movie)
+                                    tab.rawType.lowercase() == "series" -> stringResource(R.string.type_series)
                                     else -> tab.typeLabel
                                 }
                                 Text(
