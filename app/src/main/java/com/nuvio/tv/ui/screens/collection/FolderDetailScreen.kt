@@ -144,12 +144,19 @@ private fun FolderHeader(folder: com.nuvio.tv.domain.model.CollectionFolder) {
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         if (!folder.coverImageUrl.isNullOrBlank()) {
+            val iconWidth: androidx.compose.ui.unit.Dp
+            val iconHeight: androidx.compose.ui.unit.Dp
+            when (folder.tileShape) {
+                com.nuvio.tv.domain.model.PosterShape.POSTER -> { iconWidth = 32.dp; iconHeight = 48.dp }
+                com.nuvio.tv.domain.model.PosterShape.LANDSCAPE -> { iconWidth = 64.dp; iconHeight = 36.dp }
+                com.nuvio.tv.domain.model.PosterShape.SQUARE -> { iconWidth = 48.dp; iconHeight = 48.dp }
+            }
             AsyncImage(
                 model = folder.coverImageUrl,
                 contentDescription = folder.title,
                 modifier = Modifier
-                    .width(48.dp)
-                    .height(48.dp)
+                    .width(iconWidth)
+                    .height(iconHeight)
                     .clip(RoundedCornerShape(8.dp)),
                 contentScale = ContentScale.FillBounds
             )
@@ -189,12 +196,19 @@ private fun TabbedGridContent(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (!folder.coverImageUrl.isNullOrBlank()) {
+            val iconWidth: androidx.compose.ui.unit.Dp
+            val iconHeight: androidx.compose.ui.unit.Dp
+            when (folder.tileShape) {
+                com.nuvio.tv.domain.model.PosterShape.POSTER -> { iconWidth = 32.dp; iconHeight = 48.dp }
+                com.nuvio.tv.domain.model.PosterShape.LANDSCAPE -> { iconWidth = 64.dp; iconHeight = 36.dp }
+                com.nuvio.tv.domain.model.PosterShape.SQUARE -> { iconWidth = 48.dp; iconHeight = 48.dp }
+            }
             AsyncImage(
                 model = folder.coverImageUrl,
                 contentDescription = folder.title,
                 modifier = Modifier
-                    .width(48.dp)
-                    .height(48.dp)
+                    .width(iconWidth)
+                    .height(iconHeight)
                     .clip(RoundedCornerShape(8.dp)),
                 contentScale = ContentScale.FillBounds
             )

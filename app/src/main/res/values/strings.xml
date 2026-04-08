@@ -6,13 +6,13 @@
 
     <!-- WebConfigServers -->
     <string name="web_manage_addons_title">Manage Addons</string>
-    <string name="web_manage_addons_subtitle">Manage addons and home catalogs</string>
+    <string name="web_manage_addons_subtitle">Manage addons, catalogs, and collections</string>
     <string name="web_add_addon_url">Add addon by URL</string>
     <string name="web_placeholder_url">https://example.com/manifest.json</string>
     <string name="web_btn_add">Add</string>
     <string name="web_installed_addons">Installed Addons</string>
     <string name="web_no_addons">No addons installed</string>
-    <string name="web_home_catalogs">Home Catalogs</string>
+    <string name="web_home_catalogs">Home Catalogs and Collections</string>
     <string name="web_no_catalogs">No home catalogs available</string>
     <string name="web_btn_save">Save Changes</string>
     <string name="web_connection_lost">Connection to TV lost</string>

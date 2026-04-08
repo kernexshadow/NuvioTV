@@ -102,7 +102,7 @@ fun CollectionManagementScreen(
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val clipboardManager = LocalClipboardManager.current
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -127,10 +127,7 @@ fun CollectionManagementScreen(
             importError = uiState.importError,
             onTextChange = { viewModel.updateImportText(it) },
             onImport = { viewModel.importCollections() },
-            onPaste = {
-                val clip = clipboardManager.getText()?.text ?: ""
-                viewModel.updateImportText(clip)
-            },
+            onPaste = {},
             onBack = { viewModel.hideImportDialog() },
             importMode = uiState.importMode,
             onModeChange = { viewModel.setImportMode(it) },
@@ -171,13 +168,6 @@ fun CollectionManagementScreen(
                 repeat(3) { withFrameNanos { } }
                 try { newButtonFocusRequester.requestFocus() } catch (_: Exception) {}
             }
-            var showCopied by remember { mutableStateOf(false) }
-            LaunchedEffect(showCopied) {
-                if (showCopied) {
-                    kotlinx.coroutines.delay(2000)
-                    showCopied = false
-                }
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (uiState.collections.isNotEmpty()) {
                     NuvioButton(onClick = {
@@ -208,13 +198,6 @@ fun CollectionManagementScreen(
                         }
                     }) {
                         Text(exportMessage ?: "Export File")
-                    }
-                    NuvioButton(onClick = {
-                        val json = viewModel.exportCollections()
-                        clipboardManager.setText(AnnotatedString(json))
-                        showCopied = true
-                    }) {
-                        Text(if (showCopied) "Copied!" else "Copy JSON")
                     }
                 }
                 NuvioButton(onClick = { viewModel.showImportDialog() }) {
@@ -326,7 +309,7 @@ private fun ImportContent(
 
                 // Mode tabs
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ImportMode.entries.forEach { mode ->
+                    ImportMode.entries.filter { it != ImportMode.PASTE }.forEach { mode ->
                         val label = when (mode) {
                             ImportMode.PASTE -> "Paste JSON"
                             ImportMode.FILE -> "From File"

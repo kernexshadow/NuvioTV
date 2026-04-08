@@ -192,9 +192,9 @@ object AddonWebPage {
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
   .addon-order {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.2rem;
     flex-shrink: 0;
   }
   .btn-order {
@@ -312,6 +312,19 @@ object AddonWebPage {
     text-transform: uppercase;
     color: rgba(207, 102, 121, 0.95);
     border: 1px solid rgba(207, 102, 121, 0.35);
+    padding: 0.12rem 0.45rem;
+    border-radius: 100px;
+    margin-left: 0.5rem;
+    vertical-align: middle;
+  }
+  .badge-collection {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgba(130, 170, 255, 0.95);
+    border: 1px solid rgba(130, 170, 255, 0.35);
     padding: 0.12rem 0.45rem;
     border-radius: 100px;
     margin-left: 0.5rem;
@@ -859,7 +872,7 @@ object AddonWebPage {
 
   <div class="tabs">
     <button class="tab active" type="button" onclick="switchTab('addons')">Addons</button>
-    <button class="tab" type="button" onclick="switchTab('catalogs')">Catalogs</button>
+    <button class="tab" type="button" onclick="switchTab('catalogs')">Home Layout</button>
     <button class="tab" type="button" onclick="switchTab('collections')">Collections</button>
   </div>
 
@@ -894,8 +907,8 @@ object AddonWebPage {
     <div class="section-block">
       <div class="section-label">Collections</div>
       <div class="add-section" style="display:flex;gap:0.5rem">
-        <button class="btn" onclick="enableAllCollections()" style="flex:1">Enable All</button>
-        <button class="btn" onclick="disableAllCollections()" style="flex:1">Disable All</button>
+        <button class="btn" onclick="enableAllCollections()" style="flex:1">Show All</button>
+        <button class="btn" onclick="disableAllCollections()" style="flex:1">Hide All</button>
       </div>
       <div class="add-section" style="display:flex;gap:0.5rem">
         <button class="btn" onclick="addCollection()" style="flex:1">+ New Collection</button>
@@ -1219,15 +1232,22 @@ function renderCatalogs() {
 
     li.innerHTML =
       '<div class="addon-order">' +
-        '<button class="btn-order" onclick="moveCatalog(' + i + ',-1)"' + (isFirst ? ' disabled' : '') + '>' +
+        '<button class="btn-order" onclick="moveCatalogToTop(' + i + ')"' + (isFirst ? ' disabled' : '') + ' title="Send to top">' +
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11l-6-6-6 6"/><path d="M18 18l-6-6-6 6"/></svg>' +
+        '</button>' +
+        '<button class="btn-order" onclick="moveCatalog(' + i + ',-1)"' + (isFirst ? ' disabled' : '') + ' title="Move up">' +
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>' +
         '</button>' +
-        '<button class="btn-order" onclick="moveCatalog(' + i + ',1)"' + (isLast ? ' disabled' : '') + '>' +
+        '<button class="btn-order" onclick="moveCatalog(' + i + ',1)"' + (isLast ? ' disabled' : '') + ' title="Move down">' +
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>' +
+        '</button>' +
+        '<button class="btn-order" onclick="moveCatalogToBottom(' + i + ')"' + (isLast ? ' disabled' : '') + ' title="Send to bottom">' +
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l6 6 6-6"/><path d="M6 13l6 6 6-6"/></svg>' +
         '</button>' +
       '</div>' +
       '<div class="catalog-info">' +
         '<div class="catalog-name">' + escapeHtml(formatCatalogTitle(catalog.catalogName, catalog.type)) +
+          (isCollection ? '<span class="badge-collection">Collection</span>' : '') +
           (catalog.isDisabled ? '<span class="badge-disabled">${context.getString(R.string.web_badge_disabled).replace("'", "\\'")}</span>' : '') +
         '</div>' +
         '<div class="catalog-meta">' + escapeHtml(catalog.addonName) + '</div>' +
@@ -1255,6 +1275,20 @@ function moveCatalog(index, direction) {
   if (newIndex < 0 || newIndex >= catalogs.length) return;
   var item = catalogs.splice(index, 1)[0];
   catalogs.splice(newIndex, 0, item);
+  renderCatalogs();
+}
+
+function moveCatalogToTop(index) {
+  if (index <= 0) return;
+  var item = catalogs.splice(index, 1)[0];
+  catalogs.unshift(item);
+  renderCatalogs();
+}
+
+function moveCatalogToBottom(index) {
+  if (index >= catalogs.length - 1) return;
+  var item = catalogs.splice(index, 1)[0];
+  catalogs.push(item);
   renderCatalogs();
 }
 

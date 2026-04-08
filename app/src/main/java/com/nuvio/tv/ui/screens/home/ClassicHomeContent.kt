@@ -46,7 +46,8 @@ private const val KEY_REPEAT_THROTTLE_MS = 80L
 
 private class FocusSnapshot(
     var rowIndex: Int,
-    var itemIndex: Int
+    var itemIndex: Int,
+    var rowKey: String? = null
 )
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -298,7 +299,9 @@ fun ClassicHomeContent(
                 is HomeRow.Catalog -> {
                     val catalogRow = homeRow.row
                     val catalogKey = "${catalogRow.addonId}_${catalogRow.apiType}_${catalogRow.catalogId}"
-                    val shouldRestoreFocus = restoringFocus && index == focusState.focusedRowIndex
+                    // Match by saved row key first, fall back to index
+                    val shouldRestoreFocus = restoringFocus &&
+                        (currentFocusSnapshot.rowKey == catalogKey || index == focusState.focusedRowIndex)
                     val shouldInitialFocusFirstCatalogRow =
                         shouldRequestInitialFocus &&
                             !heroVisible &&
@@ -351,12 +354,21 @@ fun ClassicHomeContent(
                             if (restoringFocus) restoringFocus = false
                             currentFocusSnapshot.rowIndex = index
                             currentFocusSnapshot.itemIndex = itemIndex
+                            currentFocusSnapshot.rowKey = catalogKey
                         }
                     )
                 }
 
                 is HomeRow.CollectionRow -> {
                     val collectionKey = "collection_${homeRow.collection.id}"
+                    // Match by saved row key first, fall back to index
+                    val shouldRestoreCollectionFocus = restoringFocus &&
+                        (currentFocusSnapshot.rowKey == collectionKey || index == focusState.focusedRowIndex)
+                    val collectionFocusedItemIndex = if (shouldRestoreCollectionFocus) {
+                        focusState.focusedItemIndex
+                    } else {
+                        -1
+                    }
                     val listState = rowStates.getOrPut(collectionKey) {
                         LazyListState(
                             firstVisibleItemIndex = focusState.catalogRowScrollStates[collectionKey] ?: 0
@@ -367,10 +379,12 @@ fun ClassicHomeContent(
                         collection = homeRow.collection,
                         onFolderClick = onNavigateToFolderDetail,
                         listState = listState,
+                        focusedItemIndex = collectionFocusedItemIndex,
                         onItemFocused = { itemIndex ->
                             if (restoringFocus) restoringFocus = false
                             currentFocusSnapshot.rowIndex = index
                             currentFocusSnapshot.itemIndex = itemIndex
+                            currentFocusSnapshot.rowKey = collectionKey
                         }
                     )
                 }
