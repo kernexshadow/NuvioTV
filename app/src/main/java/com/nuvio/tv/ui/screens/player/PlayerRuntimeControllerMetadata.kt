@@ -109,14 +109,16 @@ private suspend fun PlayerRuntimeController.enrichDescriptionFromTmdb(id: String
     } else null
 
     val tmdbDescription = episodeEnrichment?.overview ?: enrichment.description
-    if (!tmdbDescription.isNullOrBlank()) {
+    if (settings.useBasicInfo && !tmdbDescription.isNullOrBlank()) {
         _uiState.update { it.copy(description = tmdbDescription) }
     }
 
     // Enrich title from TMDB (localized).
-    val tmdbTitle = enrichment.localizedTitle
-    if (!tmdbTitle.isNullOrBlank()) {
-        _uiState.update { it.copy(title = tmdbTitle) }
+    if (settings.useBasicInfo) {
+        val tmdbTitle = enrichment.localizedTitle
+        if (!tmdbTitle.isNullOrBlank()) {
+            _uiState.update { it.copy(title = tmdbTitle) }
+        }
     }
 
     // Enrich logo from TMDB if artwork is enabled.
@@ -128,13 +130,15 @@ private suspend fun PlayerRuntimeController.enrichDescriptionFromTmdb(id: String
     }
 
     // Also enrich episode title from TMDB if available.
-    val tmdbEpisodeTitle = episodeEnrichment?.title
-    if (!tmdbEpisodeTitle.isNullOrBlank()) {
-        _uiState.update { it.copy(currentEpisodeTitle = tmdbEpisodeTitle) }
+    if (settings.useBasicInfo) {
+        val tmdbEpisodeTitle = episodeEnrichment?.title
+        if (!tmdbEpisodeTitle.isNullOrBlank()) {
+            _uiState.update { it.copy(currentEpisodeTitle = tmdbEpisodeTitle) }
+        }
     }
 
     // Enrich cast from TMDB if addon didn't provide any.
-    if (enrichment.castMembers.isNotEmpty()) {
+    if (settings.useBasicInfo && enrichment.castMembers.isNotEmpty()) {
         _uiState.update { state ->
             if (state.castMembers.isEmpty()) state.copy(castMembers = enrichment.castMembers)
             else state
