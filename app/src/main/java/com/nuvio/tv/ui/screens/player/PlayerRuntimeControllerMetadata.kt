@@ -132,6 +132,14 @@ private suspend fun PlayerRuntimeController.enrichDescriptionFromTmdb(id: String
     if (!tmdbEpisodeTitle.isNullOrBlank()) {
         _uiState.update { it.copy(currentEpisodeTitle = tmdbEpisodeTitle) }
     }
+
+    // Enrich cast from TMDB if addon didn't provide any.
+    if (enrichment.castMembers.isNotEmpty()) {
+        _uiState.update { state ->
+            if (state.castMembers.isEmpty()) state.copy(castMembers = enrichment.castMembers)
+            else state
+        }
+    }
 }
 
 internal fun PlayerRuntimeController.recomputeNextEpisode(resetVisibility: Boolean) {
