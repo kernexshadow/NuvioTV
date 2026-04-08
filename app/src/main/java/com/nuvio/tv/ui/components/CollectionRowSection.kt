@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -97,6 +98,7 @@ fun CollectionRowSection(
             ) { index, folder ->
                 FolderCard(
                     folder = folder,
+                    collection = collection,
                     onClick = { onFolderClick(collection.id, folder.id) },
                     onFocused = {
                         if (lastFocusedItemIndex != index) {
@@ -115,12 +117,14 @@ fun CollectionRowSection(
 @Composable
 private fun FolderCard(
     folder: CollectionFolder,
+    collection: Collection,
     onClick: () -> Unit,
     onFocused: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tileWidth: Dp
     val tileHeight: Dp
+    var isFocused by remember { mutableStateOf(false) }
     when (folder.tileShape) {
         PosterShape.POSTER -> { tileWidth = 126.dp; tileHeight = 189.dp }
         PosterShape.LANDSCAPE -> { tileWidth = 224.dp; tileHeight = 126.dp }
@@ -128,13 +132,21 @@ private fun FolderCard(
     }
 
     val shape = RoundedCornerShape(12.dp)
+    val cardGlow = rememberArtworkBackedCardGlow(
+        imageUrl = folder.coverImageUrl,
+        fallbackSeed = "${collection.title}:${folder.title}:${folder.coverEmoji.orEmpty()}",
+        enabled = collection.focusGlowEnabled
+    )
 
     Card(
         onClick = onClick,
         modifier = modifier
             .width(tileWidth)
             .height(tileHeight)
-            .onFocusChanged { if (it.isFocused) onFocused() },
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) onFocused()
+            },
         shape = CardDefaults.shape(shape = shape),
         colors = CardDefaults.colors(
             containerColor = NuvioColors.BackgroundCard,
@@ -146,12 +158,14 @@ private fun FolderCard(
                 shape = shape
             )
         ),
-        scale = CardDefaults.scale(focusedScale = 1.05f)
+        scale = CardDefaults.scale(focusedScale = 1.05f),
+        glow = cardGlow
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (!folder.coverImageUrl.isNullOrBlank()) {
+            val activeImageUrl = collectionFolderCardImageUrl(folder, isFocused)
+            if (!activeImageUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = folder.coverImageUrl,
+                    model = activeImageUrl,
                     contentDescription = folder.title,
                     modifier = Modifier
                         .fillMaxSize()

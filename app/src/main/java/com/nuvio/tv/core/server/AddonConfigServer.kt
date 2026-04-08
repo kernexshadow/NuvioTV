@@ -36,6 +36,7 @@ class AddonConfigServer(
         val title: String,
         val backdropImageUrl: String? = null,
         val pinToTop: Boolean = false,
+        val focusGlowEnabled: Boolean = true,
         val viewMode: String = "TABBED_GRID",
         val showAllTab: Boolean = true,
         val folders: List<FolderInfo>
@@ -45,6 +46,8 @@ class AddonConfigServer(
         val id: String,
         val title: String,
         val coverImageUrl: String?,
+        val focusGifUrl: String?,
+        val focusGifEnabled: Boolean = true,
         val coverEmoji: String?,
         val tileShape: String,
         val hideTitle: Boolean,

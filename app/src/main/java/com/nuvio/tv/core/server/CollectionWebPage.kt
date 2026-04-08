@@ -520,7 +520,7 @@ function filterActiveSources(ci, fi, query) {
 }
 
 function addCollection() {
-  collections.push({ id: generateId(), title: 'New Collection', backdropImageUrl: null, pinToTop: false, viewMode: 'TABBED_GRID', showAllTab: true, folders: [] });
+  collections.push({ id: generateId(), title: 'New Collection', backdropImageUrl: null, pinToTop: false, focusGlowEnabled: true, viewMode: 'TABBED_GRID', showAllTab: true, folders: [] });
   expandedCollection = collections.length - 1;
   expandedFolder = null;
   renderCollections();
@@ -580,8 +580,12 @@ function updateCollectionPinToTop(ci, checked) {
   collections[ci].pinToTop = checked;
 }
 
+function updateCollectionFocusGlow(ci, checked) {
+  collections[ci].focusGlowEnabled = checked;
+}
+
 function addFolder(ci) {
-  collections[ci].folders.push({ id: generateId(), title: 'New Folder', coverImageUrl: null, coverEmoji: null, tileShape: 'SQUARE', hideTitle: false, catalogSources: [] });
+  collections[ci].folders.push({ id: generateId(), title: 'New Folder', coverImageUrl: null, focusGifUrl: null, coverEmoji: null, tileShape: 'SQUARE', hideTitle: false, catalogSources: [] });
   expandedFolder = ci + '-' + (collections[ci].folders.length - 1);
   renderCollections();
 }
@@ -624,6 +628,15 @@ function updateFolderCoverImage(ci, fi, val) {
     if (img) img.style.display = 'none';
   }
 }
+
+function updateFolderFocusGifUrl(ci, fi, val) {
+  collections[ci].folders[fi].focusGifUrl = val || null;
+}
+
+function updateFolderFocusGifEnabled(ci, fi, checked) {
+  collections[ci].folders[fi].focusGifEnabled = checked;
+}
+  collections[ci].folders.push({ id: generateId(), title: 'New Folder', coverImageUrl: null, focusGifUrl: null, focusGifEnabled: true, coverEmoji: null, tileShape: 'SQUARE', hideTitle: false, catalogSources: [] });
 
 function updateFolderTileShape(ci, fi, val) {
   collections[ci].folders[fi].tileShape = val;
@@ -771,6 +784,14 @@ function renderCollections() {
           '</label>' +
         '</div>' +
         '<div class="col-setting-row">' +
+          '<span class="toggle-label">Focus glow on cards</span>' +
+          '<label class="toggle-switch" onclick="event.stopPropagation()">' +
+            '<input type="checkbox"' + (col.focusGlowEnabled !== false ? ' checked' : '') + ' onchange="updateCollectionFocusGlow(' + ci + ',this.checked)">' +
+            '<span class="toggle-track"></span>' +
+            '<span class="toggle-thumb"></span>' +
+          '</label>' +
+        '</div>' +
+        '<div class="col-setting-row">' +
           '<span class="col-meta-label">View Mode</span>' +
           '<div class="cover-mode-picker">' +
             '<button class="cover-mode-btn' + ((col.viewMode === 'TABBED_GRID' || !col.viewMode) ? ' active' : '') + '" onclick="updateCollectionViewMode(' + ci + ',\'TABBED_GRID\')">Tabs</button>' +
@@ -888,6 +909,17 @@ function renderCollections() {
                 '<img id="cover-preview-' + ci + '-' + fi + '" src="' + escapeAttr(folder.coverImageUrl || '') + '" style="' + (folder.coverImageUrl ? '' : 'display:none') + '" onerror="this.style.display=\'none\'">' +
                 '<input type="url" placeholder="Cover image URL" value="' + escapeAttr(folder.coverImageUrl || '') + '" oninput="updateFolderCoverImage(' + ci + ',' + fi + ',this.value)">' +
               '</div>' : '') +
+              '<div class="folder-setting-item">' +
+                '<input type="url" placeholder="Focused GIF URL (optional)" value="' + escapeAttr(folder.focusGifUrl || '') + '" oninput="updateFolderFocusGifUrl(' + ci + ',' + fi + ',this.value)">' +
+              '</div>' +
+              '<div class="folder-setting-item">' +
+                '<span class="toggle-label">Play GIF on focus</span>' +
+                '<label class="toggle-switch">' +
+                  '<input type="checkbox"' + (folder.focusGifEnabled !== false ? ' checked' : '') + ' onchange="updateFolderFocusGifEnabled(' + ci + ',' + fi + ',this.checked)">' +
+                  '<span class="toggle-track"></span>' +
+                  '<span class="toggle-thumb"></span>' +
+                '</label>' +
+              '</div>' +
             '</div>' +
             '<div class="folder-settings-group">' +
               '<div class="folder-settings-group-label">Display</div>' +

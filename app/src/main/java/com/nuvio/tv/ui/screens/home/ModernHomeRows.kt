@@ -84,6 +84,7 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.TrailerPlayer
+import com.nuvio.tv.ui.components.rememberArtworkBackedCardGlow
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.abs
@@ -763,12 +764,20 @@ private fun ModernCarouselCard(
         frozenBackdropUrl.value = item.heroPreview.backdrop
     }
     val effectiveBackdropUrl = frozenBackdropUrl.value
-    val imageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
+    var isFocused by remember { mutableStateOf(false) }
+    val payload = item.payload as? ModernPayload.CollectionFolder
+    val baseImageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
         item.heroPreview.backdrop ?: item.imageUrl ?: item.heroPreview.poster
     } else if (useLandscapeOverlayTreatment) {
         effectiveBackdropUrl ?: item.heroPreview.poster
     } else {
         item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
+    }
+    val imageUrl = when {
+        payload == null -> baseImageUrl
+        !payload.focusGifEnabled -> baseImageUrl
+        isFocused -> payload.focusGifUrl ?: baseImageUrl
+        else -> baseImageUrl ?: payload.focusGifUrl
     }
     val imageContentScale = when (item.payload) {
         is ModernPayload.CollectionFolder -> ContentScale.FillBounds
@@ -829,7 +838,6 @@ private fun ModernCarouselCard(
         (useLandscapeOverlayTreatment || isBackdropExpanded) &&
             !effectiveLogoUrl.isNullOrBlank() &&
             !landscapeLogoLoadFailed
-    var isFocused by remember { mutableStateOf(false) }
     var longPressTriggered by remember { mutableStateOf(false) }
     val backgroundCardColor = NuvioColors.BackgroundCard
     val focusRingColor = NuvioColors.FocusRing
@@ -841,17 +849,30 @@ private fun ModernCarouselCard(
             shape = cardShape
         )
     }
+    val cardGlow = when (payload) {
+        is ModernPayload.CollectionFolder -> rememberArtworkBackedCardGlow(
+            imageUrl = imageUrl,
+            fallbackSeed = "${item.title}:${payload.collectionTitle}",
+            enabled = payload.focusGlowEnabled
+        )
+        else -> remember { CardDefaults.glow(focusedGlow = androidx.tv.material3.Glow.None) }
+    }
     val titleStyle = remember(titleMedium) {
         titleMedium.copy(fontWeight = FontWeight.Medium)
     }
-
-    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
     Column(
         modifier = modifier.width(animatedCardWidth),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(
+        Card(
+            onClick = {
+                if (longPressTriggered) {
+                    longPressTriggered = false
+                } else {
+                    onClick()
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(cardHeight)
@@ -889,20 +910,15 @@ private fun ModernCarouselCard(
                         return@onPreviewKeyEvent true
                     }
                     false
-                }
-                .clip(cardShape)
-                .border(if (isFocused) focusedBorder.border else BorderStroke(0.dp, Color.Transparent), cardShape)
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                    onClick = {
-                        if (longPressTriggered) {
-                            longPressTriggered = false
-                        } else {
-                            onClick()
-                        }
-                    }
-                )
+                },
+            shape = CardDefaults.shape(cardShape),
+            colors = CardDefaults.colors(
+                containerColor = backgroundCardColor,
+                focusedContainerColor = backgroundCardColor
+            ),
+            border = CardDefaults.border(focusedBorder = focusedBorder),
+            scale = CardDefaults.scale(focusedScale = 1f),
+            glow = cardGlow
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 val mediaLayerModifier = remember(hasLandscapeLogo) {

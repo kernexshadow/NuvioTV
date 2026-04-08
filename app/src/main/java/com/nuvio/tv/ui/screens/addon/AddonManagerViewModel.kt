@@ -522,6 +522,7 @@ class AddonManagerViewModel @Inject constructor(
                 title = col.title,
                 backdropImageUrl = col.backdropImageUrl,
                 pinToTop = col.pinToTop,
+                focusGlowEnabled = col.focusGlowEnabled,
                 viewMode = col.viewMode.name,
                 showAllTab = col.showAllTab,
                 folders = col.folders.map { folder ->
@@ -529,6 +530,8 @@ class AddonManagerViewModel @Inject constructor(
                         id = folder.id,
                         title = folder.title,
                         coverImageUrl = folder.coverImageUrl,
+                        focusGifUrl = folder.focusGifUrl,
+                        focusGifEnabled = folder.focusGifEnabled,
                         coverEmoji = folder.coverEmoji,
                         tileShape = folder.tileShape.name,
                         hideTitle = folder.hideTitle,

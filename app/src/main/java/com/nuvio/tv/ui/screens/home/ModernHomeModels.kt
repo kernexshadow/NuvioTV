@@ -75,7 +75,10 @@ sealed class ModernPayload {
         val collectionId: String,
         val collectionTitle: String,
         val folderId: String,
-        val posterShape: PosterShape
+        val posterShape: PosterShape,
+        val focusGlowEnabled: Boolean,
+        val focusGifEnabled: Boolean,
+        val focusGifUrl: String?
     ) : ModernPayload()
 }
 
@@ -491,7 +494,10 @@ internal fun buildCollectionFolderItem(
             collectionId = collection.id,
             collectionTitle = collection.title,
             folderId = folder.id,
-            posterShape = folder.tileShape
+            posterShape = folder.tileShape,
+            focusGlowEnabled = collection.focusGlowEnabled,
+            focusGifEnabled = folder.focusGifEnabled,
+            focusGifUrl = folder.focusGifUrl
         )
     )
 }
