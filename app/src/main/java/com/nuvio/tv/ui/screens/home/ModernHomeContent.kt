@@ -1002,6 +1002,11 @@ fun ModernHomeContent(
                                         if (lastFocusedContinueWatchingIndexRef.get() != index) {
                                             lastFocusedContinueWatchingIndexRef.set(index)
                                         }
+                                    }
+                                    // Clear catalog selection when focusing any
+                                    // non-catalog row (CW, collection) so stale
+                                    // trailer requests don't fire in the hero.
+                                    if (isContinueWatchingRow || row.items.getOrNull(index)?.payload is ModernPayload.CollectionFolder) {
                                         if (focusedCatalogSelection != null) {
                                             focusedCatalogSelection = null
                                         }
