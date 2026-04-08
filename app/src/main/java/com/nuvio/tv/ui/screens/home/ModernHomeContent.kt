@@ -172,7 +172,16 @@ fun ModernHomeContent(
                 trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA)
     val visibleHomeRows = remember(uiState.homeRows, uiState.catalogRows) {
         if (uiState.homeRows.isNotEmpty()) {
-            uiState.homeRows
+            val latestCatalogByKey = uiState.catalogRows.associateBy { catalogRowKey(it) }
+            uiState.homeRows.map { homeRow ->
+                when (homeRow) {
+                    is HomeRow.Catalog -> {
+                        val latest = latestCatalogByKey[catalogRowKey(homeRow.row)]
+                        if (latest != null && latest !== homeRow.row) HomeRow.Catalog(latest) else homeRow
+                    }
+                    else -> homeRow
+                }
+            }
         } else {
             uiState.catalogRows.filter { it.items.isNotEmpty() }.map { HomeRow.Catalog(it) }
         }
