@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.delay
 
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -151,13 +152,15 @@ fun ClassicHomeContent(
 
     val heroVisible = uiState.heroSectionEnabled && uiState.heroItems.isNotEmpty()
 
-    // Hero is "expected" when the user has explicitly selected hero catalogs —
-    // those load late via loadHeroCatalogsPipeline (after the 300ms preference
-    // debounce).  Until the hero resolves, we defer content focus so rows
-    // can't steal it.
-    val heroExpected = uiState.heroSectionEnabled && uiState.heroCatalogKeys.isNotEmpty()
+    val heroExpected = uiState.heroSectionEnabled
     val heroResolved = !heroExpected || heroVisible
-    val deferContentFocus = shouldRequestInitialFocus && !heroResolved
+    var heroDeferTimedOut by remember { mutableStateOf(false) }
+    LaunchedEffect(shouldRequestInitialFocus, heroExpected) {
+        if (!shouldRequestInitialFocus || !heroExpected) return@LaunchedEffect
+        delay(2000)
+        heroDeferTimedOut = true
+    }
+    val deferContentFocus = shouldRequestInitialFocus && !heroResolved && !heroDeferTimedOut
 
     LaunchedEffect(shouldRequestInitialFocus, heroVisible) {
         if (!shouldRequestInitialFocus || !heroVisible) return@LaunchedEffect

@@ -176,6 +176,16 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         previousState.hideUnreleasedContent != prefs.hideUnreleasedContent ||
                         previousState.posterCardWidthDp != prefs.posterCardWidthDp
                 currentHeroCatalogKeys = prefs.heroCatalogKeys
+                // Reset focus state when layout changes so the outgoing
+                // layout's onDispose doesn't poison the incoming layout
+                // (e.g., Modern dispose saves hasSavedFocus=true right
+                // before Classic composes, preventing hero initial focus).
+                if (previousState.homeLayout != prefs.layout) {
+                    // Suppress the outgoing layout's onDispose from saving
+                    // stale focus state before the incoming layout composes.
+                    suppressFocusSave = true
+                    clearFocusState()
+                }
                 _uiState.update {
                     it.copy(
                         homeLayout = prefs.layout,
