@@ -73,7 +73,13 @@ internal fun HomeViewModel.observeTmdbSettingsPipeline() {
         tmdbSettingsDataStore.settings
             .distinctUntilChanged()
             .collectLatest { settings ->
+                val languageChanged = currentTmdbSettings.language != settings.language
                 currentTmdbSettings = settings
+                if (languageChanged) {
+                    // Allow re-enrichment with the new language on next focus.
+                    prefetchedTmdbIds.clear()
+                    prefetchedExternalMetaIds.clear()
+                }
                 scheduleUpdateCatalogRows()
             }
     }
