@@ -96,13 +96,17 @@ fun FolderDetailScreen(
         { item -> uiState.movieWatchedStatus[com.nuvio.tv.ui.screens.home.homeItemStatusKey(item.id, item.apiType)] == true }
     }
 
+    val enrichingItemId by viewModel.enrichingItemId.collectAsStateWithLifecycle()
+
     if (uiState.viewMode == FolderViewMode.FOLLOW_LAYOUT) {
         FollowLayoutContent(
             uiState = uiState,
             focusState = followLayoutFocusState,
+            enrichingItemId = enrichingItemId,
             onNavigateToDetail = onNavigateToDetail,
             onSaveFocusState = viewModel::saveFollowLayoutFocusState,
-            onSaveGridFocusState = viewModel::saveFollowLayoutGridFocusState
+            onSaveGridFocusState = viewModel::saveFollowLayoutGridFocusState,
+            onItemFocus = viewModel::onItemFocused
         )
     } else {
         Column(
@@ -534,9 +538,11 @@ private fun RowsContent(
 private fun FollowLayoutContent(
     uiState: FolderDetailUiState,
     focusState: HomeScreenFocusState,
+    enrichingItemId: String? = null,
     onNavigateToDetail: (String, String, String) -> Unit,
     onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>) -> Unit,
-    onSaveGridFocusState: (Int, Int, String?) -> Unit
+    onSaveGridFocusState: (Int, Int, String?) -> Unit,
+    onItemFocus: (MetaPreview) -> Unit = {}
 ) {
     val homeState = uiState.followLayoutHomeState
 
@@ -593,6 +599,7 @@ private fun FollowLayoutContent(
         HomeLayout.MODERN -> ModernHomeContent(
             uiState = homeState,
             focusState = focusState,
+            enrichingItemId = enrichingItemId,
             trailerPreviewUrls = emptyMap(),
             trailerPreviewAudioUrls = emptyMap(),
             onNavigateToDetail = onNavigateToDetail,
@@ -602,6 +609,7 @@ private fun FollowLayoutContent(
             onRemoveContinueWatching = noOpRemoveCw,
             isCatalogItemWatched = isItemWatched,
             onNavigateToFolderDetail = noOpFolderDetail,
+            onItemFocus = onItemFocus,
             onSaveFocusState = onSaveFocusState
         )
     }

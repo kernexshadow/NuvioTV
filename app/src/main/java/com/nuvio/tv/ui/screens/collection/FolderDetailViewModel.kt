@@ -69,7 +69,13 @@ class FolderDetailViewModel @Inject constructor(
     private val catalogRepository: CatalogRepository,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val watchProgressRepository: WatchProgressRepository,
-    private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder
+    private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
+    private val tmdbService: com.nuvio.tv.core.tmdb.TmdbService,
+    private val tmdbMetadataService: com.nuvio.tv.core.tmdb.TmdbMetadataService,
+    private val tmdbSettingsDataStore: com.nuvio.tv.data.local.TmdbSettingsDataStore,
+    private val mdbListRepository: com.nuvio.tv.data.repository.MDBListRepository,
+    private val mdbListSettingsDataStore: com.nuvio.tv.data.local.MDBListSettingsDataStore,
+    private val metaRepository: com.nuvio.tv.domain.repository.MetaRepository
 ) : ViewModel() {
 
     private val collectionId: String = savedStateHandle["collectionId"] ?: ""
@@ -80,6 +86,10 @@ class FolderDetailViewModel @Inject constructor(
 
     private var movieWatchedJob: Job? = null
     private var seriesWatchedJob: Job? = null
+    private var enrichFocusJob: Job? = null
+    private val enrichedItemIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val _enrichingItemId = MutableStateFlow<String?>(null)
+    val enrichingItemId: StateFlow<String?> = _enrichingItemId.asStateFlow()
 
     private val _rowsFocusState = MutableStateFlow(com.nuvio.tv.ui.screens.home.HomeScreenFocusState())
     val rowsFocusState: StateFlow<com.nuvio.tv.ui.screens.home.HomeScreenFocusState> = _rowsFocusState.asStateFlow()
@@ -463,5 +473,140 @@ class FolderDetailViewModel @Inject constructor(
             typeLabel
         }
         return name to typeLabel
+    }
+
+    fun onItemFocused(item: MetaPreview) {
+        // Clear enriching for previous item immediately.
+        if (_enrichingItemId.value != null && _enrichingItemId.value != item.id) {
+            _enrichingItemId.value = null
+        }
+        if (item.id in enrichedItemIds) return
+
+        // Check if any enrichment source is active — if so, signal enriching immediately
+        // so hero content hides until enrichment completes.
+        val viewMode = _uiState.value.viewMode
+        if (viewMode == FolderViewMode.FOLLOW_LAYOUT && _uiState.value.homeLayout == HomeLayout.MODERN) {
+            _enrichingItemId.value = item.id
+        }
+
+        enrichFocusJob?.cancel()
+        enrichFocusJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.delay(350)
+            val tmdbSettings = tmdbSettingsDataStore.settings.first()
+            val mdbSettings = mdbListSettingsDataStore.settings.first()
+            val homeLayout = _uiState.value.homeLayout
+            val tmdbEnabled = tmdbSettings.enabled &&
+                (homeLayout != HomeLayout.MODERN || tmdbSettings.modernHomeEnabled)
+            val mdbEnabled = mdbSettings.enabled && mdbSettings.apiKey.isNotBlank()
+            val externalMetaEnabled = layoutPreferenceDataStore.preferExternalMetaAddonDetail.first()
+            if (!tmdbEnabled && !mdbEnabled && !externalMetaEnabled) {
+                if (_enrichingItemId.value == item.id) _enrichingItemId.value = null
+                return@launch
+            }
+
+            val mdbRating = if (mdbEnabled) {
+                runCatching { mdbListRepository.getImdbRatingForItem(item.id, item.apiType) }.getOrNull()
+            } else null
+
+            var enrichment: com.nuvio.tv.core.tmdb.TmdbEnrichment? = null
+            if (tmdbEnabled) {
+                val tmdbId = runCatching { tmdbService.ensureTmdbId(item.id, item.apiType) }.getOrNull()
+                if (tmdbId != null) {
+                    enrichment = runCatching {
+                        tmdbMetadataService.fetchEnrichment(
+                            tmdbId = tmdbId,
+                            contentType = item.type,
+                            language = tmdbSettings.language
+                        )
+                    }.getOrNull()
+                }
+            }
+
+            if (enrichment == null && mdbRating == null && !externalMetaEnabled) return@launch
+            enrichedItemIds.add(item.id)
+
+            // Apply TMDB + MDB enrichment if available.
+            if (enrichment != null || mdbRating != null) {
+                val finalEnrichment = enrichment
+                val finalMdbRating = mdbRating
+
+                updateItemInTabs(item.id) { merged ->
+                    var result = merged
+                if (finalEnrichment != null) {
+                    if (tmdbSettings.useBasicInfo) {
+                        result = result.copy(
+                            name = finalEnrichment.localizedTitle ?: result.name,
+                            description = finalEnrichment.description ?: result.description,
+                            genres = if (finalEnrichment.genres.isNotEmpty()) finalEnrichment.genres else result.genres,
+                            imdbRating = finalEnrichment.rating?.toFloat() ?: result.imdbRating
+                        )
+                    }
+                    if (tmdbSettings.useArtwork) {
+                        result = result.copy(
+                            background = finalEnrichment.backdrop ?: result.background,
+                            logo = finalEnrichment.logo ?: result.logo
+                        )
+                    }
+                    if (tmdbSettings.useReleaseDates) {
+                        result = result.copy(
+                            releaseInfo = finalEnrichment.releaseInfo ?: result.releaseInfo
+                        )
+                    }
+                    if (tmdbSettings.useDetails) {
+                        result = result.copy(
+                            ageRating = finalEnrichment.ageRating ?: result.ageRating,
+                            status = finalEnrichment.status ?: result.status
+                        )
+                    }
+                }
+                if (finalMdbRating != null && result.imdbRating == null) {
+                    result = result.copy(imdbRating = finalMdbRating.toFloat())
+                }
+                result
+            }
+            }
+
+            // External meta addon fallback when TMDB didn't enrich.
+            if (enrichment == null && externalMetaEnabled) {
+                val metaResult = metaRepository.getMetaFromAllAddons(item.apiType, item.id)
+                    .first { it is NetworkResult.Success || it is NetworkResult.Error }
+                if (metaResult is NetworkResult.Success) {
+                    val meta = metaResult.data
+                    updateItemInTabs(item.id) { merged ->
+                        merged.copy(
+                            name = meta.name.takeIf { it.isNotBlank() } ?: merged.name,
+                            description = meta.description?.takeIf { it.isNotBlank() } ?: merged.description,
+                            background = meta.background?.takeIf { it.isNotBlank() } ?: merged.background,
+                            logo = meta.logo?.takeIf { it.isNotBlank() } ?: merged.logo,
+                            genres = meta.genres.takeIf { it.isNotEmpty() } ?: merged.genres,
+                            imdbRating = meta.imdbRating ?: merged.imdbRating,
+                            releaseInfo = meta.releaseInfo?.takeIf { it.isNotBlank() } ?: merged.releaseInfo
+                        )
+                    }
+                }
+            }
+
+            // Sync enriched tabs into followLayoutHomeState for FOLLOW_LAYOUT mode.
+            if (_enrichingItemId.value == item.id) _enrichingItemId.value = null
+            rebuildFollowLayoutState()
+        }
+    }
+
+    private fun updateItemInTabs(itemId: String, transform: (MetaPreview) -> MetaPreview) {
+        _uiState.update { state ->
+            var changed = false
+            val updatedTabs = state.tabs.map { tab ->
+                val row = tab.catalogRow ?: return@map tab
+                val idx = row.items.indexOfFirst { it.id == itemId }
+                if (idx < 0) return@map tab
+                val merged = transform(row.items[idx])
+                if (merged == row.items[idx]) return@map tab
+                changed = true
+                val items = row.items.toMutableList()
+                items[idx] = merged
+                tab.copy(catalogRow = row.copy(items = items))
+            }
+            if (changed) state.copy(tabs = updatedTabs) else state
+        }
     }
 }
