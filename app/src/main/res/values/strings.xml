@@ -124,6 +124,7 @@
     <!-- CatalogRowSection -->
     <string name="catalog_from_addon">from %1$s</string>
     <string name="action_see_all">See All</string>
+    <string name="action_load_more">Load More</string>
 
     <!-- HeroSection -->
     <string name="hero_creator">Creator: %1$s</string>

@@ -81,7 +81,7 @@
     <string name="error_state_prefix_tried_meta_addons">Addons consultados:</string>
     <string name="error_state_fix_tried_meta_addons">instale um addon que suporte este ID ou atualize as configurações e tente novamente.</string>
     <string name="error_state_issue_missing_metadata_for_id">não possui informações para este ID</string>
-    <string name="error_state_fix_missing_metadata_for_id">abra este título em outro addon, desative 'Preferir addon de meta externo' ou confirme se o addon suporta este ID.</string>
+    <string name="error_state_fix_missing_metadata_for_id">abra este título em outro addon, desative \'Preferir addon de meta externo\' ou confirme se o addon suporta este ID.</string>
     <string name="error_state_issue_addon_unreachable">está inacessível</string>
     <string name="error_state_fix_addon_unreachable">verifique sua conexão com a internet ou se a URL do addon ainda está ativa.</string>
     <string name="error_state_issue_addon_connection_failed">recusou a conexão</string>
@@ -493,7 +493,7 @@
     <string name="autoplay_scope_all_desc">Use tanto addons quanto plugins.</string>
     <string name="autoplay_scope_addons_desc">Considere apenas fontes de addons instalados.</string>
     <string name="autoplay_scope_plugins_desc">Considere apenas fontes de plugins ativos.</string>
-    <string name="autoplay_threshold_pct_desc">Ative por % se não houver marcação de créditos.</string>
+    <string name="autoplay_threshold_pct_desc">Ative por %% se não houver marcação de créditos.</string>
     <string name="autoplay_threshold_min_desc">Ative por tempo se não houver marcação de créditos.</string>
     <string name="autoplay_regex_matches">Filtre nome, descrição ou URL. Ex: 4K|Remux</string>
     <string name="autoplay_regex_presets">Predefinições</string>

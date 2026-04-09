@@ -12,6 +12,8 @@ import com.nuvio.tv.domain.model.CollectionFolder
 import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.skipStep
+import com.nuvio.tv.domain.model.supportsExtra
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
 import com.nuvio.tv.ui.screens.home.GridItem
@@ -207,7 +209,12 @@ class FolderDetailViewModel @Inject constructor(
         val loadedRows = sourceTabs.mapNotNull { it.catalogRow }
         if (loadedRows.isEmpty()) return
 
-        val homeRows = loadedRows.map { HomeRow.Catalog(it) }
+        // Strip descriptions from catalog items so the Modern hero area
+        // doesn't redundantly show the collection/catalog description.
+        val strippedRows = loadedRows.map { row ->
+            row.copy(items = row.items.map { it.copy(description = null) })
+        }
+        val homeRows = strippedRows.map { HomeRow.Catalog(it) }
         val gridItems = buildList<GridItem> {
             loadedRows.forEach { row ->
                 add(GridItem.SectionDivider(
@@ -223,6 +230,13 @@ class FolderDetailViewModel @Inject constructor(
                         addonBaseUrl = row.addonBaseUrl,
                         catalogId = row.catalogId,
                         catalogName = row.catalogName
+                    ))
+                }
+                if (row.hasMore && !row.isLoading) {
+                    add(GridItem.SeeAll(
+                        catalogId = row.catalogId,
+                        addonId = row.addonId,
+                        type = row.apiType
                     ))
                 }
             }
@@ -296,6 +310,9 @@ class FolderDetailViewModel @Inject constructor(
             val tab = _uiState.value.tabs.getOrNull(tabIndex)
             val catalogName = catalog?.name ?: tab?.label?.takeIf { it != tab?.typeLabel } ?: source.catalogId
 
+            val supportsSkip = catalog?.supportsExtra("skip") ?: false
+            val skipStep = catalog?.skipStep() ?: 100
+
             catalogRepository.getCatalog(
                 addonBaseUrl = effectiveAddon.baseUrl,
                 addonId = effectiveAddon.id,
@@ -303,7 +320,9 @@ class FolderDetailViewModel @Inject constructor(
                 catalogId = source.catalogId,
                 catalogName = catalogName,
                 type = source.type,
-                skip = 0
+                skip = 0,
+                skipStep = skipStep,
+                supportsSkip = supportsSkip
             ).collect { result ->
                 when (result) {
                     is NetworkResult.Success -> {
@@ -336,6 +355,101 @@ class FolderDetailViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun loadMoreItems(tabIndex: Int) {
+        val state = _uiState.value
+        val tab = state.tabs.getOrNull(tabIndex) ?: return
+
+        // All tab: load more from all source tabs that still have more
+        if (tab.isAllTab && hasAllTab) {
+            val tabOffset = 1
+            state.tabs.drop(tabOffset).forEachIndexed { index, sourceTab ->
+                val sourceRow = sourceTab.catalogRow ?: return@forEachIndexed
+                if (sourceRow.hasMore && !sourceRow.isLoading) {
+                    loadMoreItems(index + tabOffset)
+                }
+            }
+            return
+        }
+
+        val row = tab.catalogRow ?: return
+        if (!row.hasMore || row.isLoading) return
+
+        // Mark the tab's catalogRow as loading
+        _uiState.update { s ->
+            val tabs = s.tabs.toMutableList()
+            if (tabIndex < tabs.size) {
+                tabs[tabIndex] = tabs[tabIndex].copy(
+                    catalogRow = row.copy(isLoading = true)
+                )
+            }
+            s.copy(tabs = tabs)
+        }
+        rebuildAllTab()
+        rebuildFollowLayoutState()
+
+        viewModelScope.launch {
+            val nextSkip = (row.currentPage + 1) * row.skipStep
+
+            catalogRepository.getCatalog(
+                addonBaseUrl = row.addonBaseUrl,
+                addonId = row.addonId,
+                addonName = row.addonName,
+                catalogId = row.catalogId,
+                catalogName = row.catalogName,
+                type = row.apiType,
+                skip = nextSkip,
+                skipStep = row.skipStep,
+                supportsSkip = row.supportsSkip
+            ).collect { result ->
+                when (result) {
+                    is NetworkResult.Success -> {
+                        _uiState.update { s ->
+                            val currentTab = s.tabs.getOrNull(tabIndex)
+                            val currentRow = currentTab?.catalogRow ?: return@update s
+                            val existingIds = currentRow.items.map { "${it.apiType}:${it.id}" }.toHashSet()
+                            val newItems = result.data.items.filter { "${it.apiType}:${it.id}" !in existingIds }
+                            val mergedItems = currentRow.items + newItems
+                            val hasMore = if (newItems.isEmpty()) false else result.data.hasMore
+
+                            val tabs = s.tabs.toMutableList()
+                            tabs[tabIndex] = tabs[tabIndex].copy(
+                                catalogRow = result.data.copy(
+                                    items = mergedItems,
+                                    hasMore = hasMore,
+                                    isLoading = false
+                                )
+                            )
+                            s.copy(tabs = tabs)
+                        }
+                        rebuildAllTab()
+                        rebuildFollowLayoutState()
+                        observeWatchedStatus()
+                    }
+                    is NetworkResult.Error -> {
+                        _uiState.update { s ->
+                            val currentRow = s.tabs.getOrNull(tabIndex)?.catalogRow ?: return@update s
+                            val tabs = s.tabs.toMutableList()
+                            tabs[tabIndex] = tabs[tabIndex].copy(
+                                catalogRow = currentRow.copy(isLoading = false)
+                            )
+                            s.copy(tabs = tabs)
+                        }
+                    }
+                    NetworkResult.Loading -> {}
+                }
+            }
+        }
+    }
+
+    fun loadMoreForCatalog(catalogId: String, addonId: String, type: String) {
+        val state = _uiState.value
+        val tabIndex = state.tabs.indexOfFirst { tab ->
+            val row = tab.catalogRow ?: return@indexOfFirst false
+            row.catalogId == catalogId && row.addonId == addonId && row.apiType == type
+        }
+        if (tabIndex >= 0) loadMoreItems(tabIndex)
     }
 
     fun selectTab(index: Int) {
