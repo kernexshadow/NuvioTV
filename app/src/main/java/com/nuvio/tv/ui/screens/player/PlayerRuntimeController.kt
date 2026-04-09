@@ -186,6 +186,7 @@ class PlayerRuntimeController(
             showLoadingOverlay = true,
             currentSeason = currentSeason,
             currentEpisode = currentEpisode,
+            currentVideoId = currentVideoId,
             currentEpisodeTitle = currentEpisodeTitle
         )
     )
