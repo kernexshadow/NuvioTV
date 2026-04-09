@@ -432,6 +432,10 @@ internal fun PlayerRuntimeController.initializePlayer(
                             it.copy(
                                 showLoadingOverlay = false,
                                 loadingMessage = null,
+                                // Snap the loading-logo fill to 100% so the logo
+                                // appears fully filled as the overlay fades out
+                                // (rather than freezing at the partial buffer %).
+                                loadingProgress = if (it.loadingProgress != null) 1f else null,
                                 showPlayerEngineSwitchInfo = false
                             )
                         }

@@ -137,9 +137,16 @@ fun LoadingOverlay(
                 ) {
                     if (showLogo) {
                         val isLogoFillActive = progress != null
+                        val targetFill = (progress ?: 0f).coerceIn(0f, 1f)
                         val animatedFill by animateFloatAsState(
-                            targetValue = (progress ?: 0f).coerceIn(0f, 1f),
-                            animationSpec = tween(durationMillis = 400),
+                            targetValue = targetFill,
+                            // When completing (target ≈ 1.0), animate faster so the
+                            // fill finishes before the overlay's 200ms fade-out;
+                            // otherwise use the smoother 400ms tween for buffering.
+                            animationSpec = tween(
+                                durationMillis = if (targetFill >= 0.999f) 160 else 400,
+                                easing = LinearEasing
+                            ),
                             label = "loadingLogoFill"
                         )
                         Box(

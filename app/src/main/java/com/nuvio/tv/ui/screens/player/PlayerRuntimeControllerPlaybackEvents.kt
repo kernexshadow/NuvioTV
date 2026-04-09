@@ -67,6 +67,9 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                             isPlaying = playingNow,
                             isBuffering = !firstFrameReady || cacheBuffering,
                             showLoadingOverlay = if (state.loadingOverlayEnabled) !firstFrameReady else false,
+                            // Snap the loading-logo fill to 100% once playback is
+                            // ready so the logo finishes filling on dismissal.
+                            loadingProgress = if (firstFrameReady && state.loadingProgress != null) 1f else state.loadingProgress,
                             playbackEnded = ended
                         )
                     }
