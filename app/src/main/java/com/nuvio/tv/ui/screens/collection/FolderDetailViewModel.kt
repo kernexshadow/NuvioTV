@@ -653,6 +653,7 @@ class FolderDetailViewModel @Inject constructor(
                     }
                     if (tmdbSettings.useDetails) {
                         result = result.copy(
+                            runtime = finalEnrichment.runtimeMinutes?.toString() ?: result.runtime,
                             ageRating = finalEnrichment.ageRating ?: result.ageRating,
                             status = finalEnrichment.status ?: result.status
                         )

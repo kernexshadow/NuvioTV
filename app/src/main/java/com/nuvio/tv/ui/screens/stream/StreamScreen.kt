@@ -875,8 +875,8 @@ private fun StreamsList(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
     ) {
-        itemsIndexed(streams, key = { _, stream ->
-            stream.stableKey()
+        itemsIndexed(streams, key = { index, stream ->
+            stream.stableKey(index)
         }) { index, stream ->
             StreamCard(
                 stream = stream,
