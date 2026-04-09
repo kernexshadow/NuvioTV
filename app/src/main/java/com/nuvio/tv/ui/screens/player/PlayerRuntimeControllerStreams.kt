@@ -319,6 +319,30 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
     }
 }
 
+private fun PlayerRuntimeController.persistTorrentStreamForReuse(stream: Stream) {
+    if (!streamReuseLastLinkEnabled) return
+
+    val key = streamCacheKey ?: return
+    val infoHash = stream.infoHash ?: return
+    val streamName = (stream.name?.takeIf { it.isNotBlank() } ?: stream.addonName)?.takeIf { it.isNotBlank() }
+        ?: title
+
+    scope.launch {
+        streamLinkCacheDataStore.save(
+            contentKey = key,
+            url = "",
+            streamName = streamName,
+            headers = emptyMap(),
+            filename = stream.behaviorHints?.filename,
+            videoHash = stream.behaviorHints?.videoHash,
+            videoSize = stream.behaviorHints?.videoSize,
+            infoHash = infoHash,
+            fileIdx = stream.fileIdx,
+            sources = stream.sources
+        )
+    }
+}
+
 @androidx.annotation.OptIn(UnstableApi::class)
 internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
     // Torrent streams: delegate to torrent-aware path
@@ -355,6 +379,7 @@ internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
         showStreamSourceIndicator(stream)
         resetNextEpisodeCardState(clearEpisode = false)
         launchTorrentSourceStream(stream, infoHash, loadSavedProgress = true)
+        persistTorrentStreamForReuse(stream)
         return
     }
 

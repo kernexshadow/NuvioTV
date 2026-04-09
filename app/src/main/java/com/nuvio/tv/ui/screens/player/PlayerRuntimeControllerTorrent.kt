@@ -150,6 +150,7 @@ internal fun PlayerRuntimeController.launchTorrentSourceStream(
         try {
             observeTorrentState()
 
+            currentTorrentSources = stream.sources
             val trackers = stream.sources
                 ?.filter { it.startsWith("tracker:") }
                 ?.map { it.removePrefix("tracker:") }

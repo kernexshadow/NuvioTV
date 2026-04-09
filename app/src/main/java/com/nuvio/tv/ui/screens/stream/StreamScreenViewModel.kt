@@ -219,16 +219,17 @@ class StreamScreenViewModel @Inject constructor(
                 if (cached != null) {
                     autoPlayHandledForSession = true
                     resolvedAutoPlayTarget = true
+                    val isCachedTorrent = cached.infoHash != null
                     updateUiStateIfChanged {
                         it.copy(
                             autoPlayPlaybackInfo = StreamPlaybackInfo(
-                                url = cached.url,
+                                url = cached.url.takeIf { u -> u.isNotBlank() },
                                 title = title,
                                 streamName = cached.streamName,
                                 year = year,
                                 isExternal = false,
-                                isTorrent = false,
-                                infoHash = null,
+                                isTorrent = isCachedTorrent,
+                                infoHash = cached.infoHash,
                                 ytId = null,
                                 headers = cached.headers,
                                 contentId = contentId ?: videoId.substringBefore(":"),
@@ -245,6 +246,8 @@ class StreamScreenViewModel @Inject constructor(
                                 filename = cached.filename,
                                 videoHash = cached.videoHash,
                                 videoSize = cached.videoSize,
+                                fileIdx = cached.fileIdx,
+                                sources = cached.sources,
                                 contentLanguage = contentLanguage
                             )
                         )

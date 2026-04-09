@@ -169,14 +169,16 @@ fun StreamScreen(
     LaunchedEffect(uiState.autoPlayStream) {
         val stream = uiState.autoPlayStream ?: return@LaunchedEffect
         val playbackInfo = viewModel.getStreamForPlayback(stream)
-        if (playbackInfo.url != null) {
+        // Torrent streams have url == null but carry an infoHash; navigation
+        // builds a torrent:// sentinel URL downstream.
+        if (playbackInfo.url != null || (playbackInfo.isTorrent && playbackInfo.infoHash != null)) {
             routeAutoPlay(playbackInfo)
         }
     }
 
     LaunchedEffect(uiState.autoPlayPlaybackInfo) {
         val playbackInfo = uiState.autoPlayPlaybackInfo ?: return@LaunchedEffect
-        if (playbackInfo.url != null) {
+        if (playbackInfo.url != null || (playbackInfo.isTorrent && playbackInfo.infoHash != null)) {
             onAutoPlayResolved(playbackInfo)
             viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
         }

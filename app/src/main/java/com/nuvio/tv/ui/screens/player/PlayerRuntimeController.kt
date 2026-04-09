@@ -315,6 +315,15 @@ class PlayerRuntimeController(
     internal var isTorrentStream: Boolean = navigationArgs.infoHash != null
     internal var currentInfoHash: String? = navigationArgs.infoHash
     internal var currentFileIdx: Int? = navigationArgs.fileIdx
+    internal var currentTorrentSources: List<String>? =
+        navigationArgs.sourcesJson?.let { raw ->
+            runCatching {
+                val arr = org.json.JSONArray(raw)
+                (0 until arr.length()).mapNotNull { i ->
+                    arr.optString(i).takeIf { s -> s.isNotEmpty() }
+                }
+            }.getOrNull()?.takeIf { it.isNotEmpty() }
+        }
 
     internal var episodeStreamsJob: Job? = null
     internal var episodeStreamsCacheRequestKey: String? = null
