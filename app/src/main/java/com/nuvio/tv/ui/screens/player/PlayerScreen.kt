@@ -729,6 +729,11 @@ fun PlayerScreen(
             onFocused = { viewModel.scheduleHideControls() },
             focusRequester = skipIntroFocusRequester,
             downFocusRequester = if (uiState.showControls) progressBarFocusRequester else null,
+            upFocusRequester = null,
+            onHideControls = {
+                if (uiState.showControls) viewModel.hideControls()
+                else viewModel.onEvent(PlayerEvent.OnToggleControls)
+            },
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = 32.dp, bottom = skipButtonBottomPadding)
