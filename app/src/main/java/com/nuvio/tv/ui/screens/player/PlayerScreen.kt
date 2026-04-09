@@ -729,6 +729,11 @@ fun PlayerScreen(
             onFocused = { viewModel.scheduleHideControls() },
             focusRequester = skipIntroFocusRequester,
             downFocusRequester = if (uiState.showControls) progressBarFocusRequester else null,
+            upFocusRequester = null,
+            onHideControls = {
+                if (uiState.showControls) viewModel.hideControls()
+                else viewModel.onEvent(PlayerEvent.OnToggleControls)
+            },
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = 32.dp, bottom = skipButtonBottomPadding)
@@ -1329,6 +1334,7 @@ private fun PlayerControlsOverlay(
                 focusRequester = progressBarFocusRequester,
                 upFocusRequester = progressBarUpFocusRequester,
                 downFocusRequester = playPauseFocusRequester,
+                onUpKey = onHideControls,
                 onFocused = onResetHideTimer
 )
 
@@ -1597,6 +1603,7 @@ private fun ProgressBar(
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
     downFocusRequester: FocusRequester? = null,
+    onUpKey: (() -> Unit)? = null,
     onFocused: (() -> Unit)? = null
 ) {
     val progress = if (duration > 0) {
@@ -1665,6 +1672,9 @@ private fun ProgressBar(
                                     upFocusRequester.requestFocus()
                                 } catch (_: Exception) {
                                 }
+                                true
+                            } else if (onUpKey != null) {
+                                onUpKey.invoke()
                                 true
                             } else {
                                 false
