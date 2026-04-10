@@ -38,6 +38,7 @@ data class PlayerUiState(
     val loadingOverlayEnabled: Boolean = true,
     val showLoadingOverlay: Boolean = true,
     val loadingMessage: String? = null,
+    val loadingProgress: Float? = null,
     val pauseOverlayEnabled: Boolean = true,
     val osdClockEnabled: Boolean = true,
     val showPauseOverlay: Boolean = false,
@@ -144,7 +145,22 @@ data class PlayerUiState(
     val aspectRatioIndicatorText: String = "",
     // Stream info overlay
     val showStreamInfoOverlay: Boolean = false,
-    val streamInfoData: StreamInfoData? = null
+    val streamInfoData: StreamInfoData? = null,
+    // Torrent streaming state
+    val isTorrentStream: Boolean = false,
+    val torrentDownloadSpeed: Long = 0L,
+    val torrentUploadSpeed: Long = 0L,
+    val torrentPeers: Int = 0,
+    val torrentSeeds: Int = 0,
+    val torrentBufferProgress: Float = 0f,
+    val torrentTotalProgress: Float = 0f,
+    val showTorrentStats: Boolean = false,
+    // Torrent mid-playback rebuffering (shown on the buffering spinner, not loading overlay)
+    val torrentBufferingMessage: String? = null,
+    val torrentBufferingProgress: Float = 0f,
+    // When true, suppress all torrent stats text (buffer, seeds, peers, speed)
+    // from loading overlay, rebuffering indicator, and corner overlay.
+    val hideTorrentStats: Boolean = true
 )
 
 data class TrackInfo(
@@ -242,6 +258,7 @@ sealed class PlayerEvent {
     data object OnSwitchInternalPlayerEngine : PlayerEvent()
     data object OnShowStreamInfo : PlayerEvent()
     data object OnDismissStreamInfo : PlayerEvent()
+    data object OnToggleTorrentStats : PlayerEvent()
 }
 
 data class ParentalWarning(
