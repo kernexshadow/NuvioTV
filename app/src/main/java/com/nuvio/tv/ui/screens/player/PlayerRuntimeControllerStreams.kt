@@ -314,7 +314,8 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
             headers = headers,
             filename = currentFilename,
             videoHash = currentVideoHash,
-            videoSize = currentVideoSize
+            videoSize = currentVideoSize,
+            bingeGroup = stream.behaviorHints?.bingeGroup
         )
     }
 }
@@ -338,7 +339,8 @@ private fun PlayerRuntimeController.persistTorrentStreamForReuse(stream: Stream)
             videoSize = stream.behaviorHints?.videoSize,
             infoHash = infoHash,
             fileIdx = stream.fileIdx,
-            sources = stream.sources
+            sources = stream.sources,
+            bingeGroup = stream.behaviorHints?.bingeGroup
         )
     }
 }

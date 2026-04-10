@@ -242,7 +242,7 @@ class StreamScreenViewModel @Inject constructor(
                                 season = season,
                                 episode = episode,
                                 episodeTitle = episodeName,
-                                bingeGroup = null,
+                                bingeGroup = cached.bingeGroup,
                                 filename = cached.filename,
                                 videoHash = cached.videoHash,
                                 videoSize = cached.videoSize,
@@ -688,7 +688,8 @@ class StreamScreenViewModel @Inject constructor(
                     headers = playbackInfo.headers,
                     filename = playbackInfo.filename,
                     videoHash = playbackInfo.videoHash,
-                    videoSize = playbackInfo.videoSize
+                    videoSize = playbackInfo.videoSize,
+                    bingeGroup = playbackInfo.bingeGroup
                 )
             }
         }

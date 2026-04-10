@@ -672,6 +672,11 @@
     <string name="qr_login_approved">Login approved. Finishing sign in…</string>
     <string name="qr_login_pending">Waiting for approval on your phone…</string>
     <string name="qr_login_expired">QR login expired. Generate a new code.</string>
+    <string name="qr_login_scan_prompt">Scan QR and sign in on your phone</string>
+    <string name="qr_login_start_failed">Failed to start QR login</string>
+    <string name="qr_login_signing_in">Signing you in…</string>
+    <string name="qr_login_success">Signed in successfully</string>
+    <string name="qr_login_exchange_failed">Could not complete QR sign in</string>
     <string name="trakt_code_expires">Code expires in %1$s</string>
     <string name="trakt_token_refreshes">Trakt access token refreshes in %1$s</string>
     <string name="trakt_login_instruction">Press Login to start Trakt device authentication. A QR code will appear here.</string>
