@@ -77,6 +77,10 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.updater.UpdateUiState
 import kotlinx.coroutines.delay
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.runtime.DisposableEffect
 import com.nuvio.tv.R
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -112,6 +116,19 @@ fun UpdatePromptDialog(
         } else {
             installButtonEnabled = true
         }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, state.showUnknownSourcesDialog) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (state.showUnknownSourcesDialog) {
+                    onInstall()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Dialog(
