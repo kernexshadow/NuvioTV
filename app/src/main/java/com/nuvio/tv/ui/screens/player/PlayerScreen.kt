@@ -1179,7 +1179,7 @@ fun PlayerScreen(
                 .zIndex(2.6f)
         )
 
-        AnimatedVisibility(
+        PlayerOverlayScaffold(
             visible = uiState.showSubtitleTimingDialog &&
                 uiState.error == null &&
                 !uiState.showLoadingOverlay &&
@@ -1192,14 +1192,15 @@ fun PlayerScreen(
                 !uiState.showSubtitleDelayOverlay &&
                 !uiState.showSpeedDialog &&
                 !uiState.showMoreDialog,
-            enter = fadeIn(animationSpec = tween(140)),
-            exit = fadeOut(animationSpec = tween(140)),
+            onDismiss = { viewModel.onEvent(PlayerEvent.OnDismissSubtitleTimingDialog) },
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 44.dp)
-                .zIndex(2.35f)
+                .fillMaxSize()
+                .zIndex(2.35f),
+            captureKeys = false,
+            contentPadding = PaddingValues(top = 44.dp)
         ) {
             SubtitleTimingDialog(
+                modifier = Modifier.align(Alignment.TopCenter),
                 currentPositionMs = uiState.currentPosition,
                 selectedAddonSubtitle = uiState.selectedAddonSubtitle,
                 cues = uiState.subtitleAutoSyncCues,
