@@ -114,7 +114,10 @@ fun UpdatePromptDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         var isVisible by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
             isVisible = true
@@ -132,19 +135,21 @@ fun UpdatePromptDialog(
         )
 
         val shape = RoundedCornerShape(16.dp)
-        Box(
-            modifier = Modifier
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    this.alpha = alpha
-                }
-                .fillMaxWidth(0.9f)
-                .background(NuvioColors.BackgroundCard, shape)
-                .border(BorderStroke(2.dp, NuvioColors.FocusRing), shape)
-                .padding(32.dp)
-        ) {
-            Column(
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        this.alpha = alpha
+                    }
+                    .width(500.dp)
+                    .fillMaxWidth(0.9f)
+                    .background(NuvioColors.BackgroundCard, shape)
+                    .border(BorderStroke(2.dp, NuvioColors.FocusRing), shape)
+                    .padding(32.dp)
+            ) {
+                Column(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Row(
@@ -492,6 +497,7 @@ fun UpdatePromptDialog(
                     }
                 }
             }
+        }
         }
     }
 
