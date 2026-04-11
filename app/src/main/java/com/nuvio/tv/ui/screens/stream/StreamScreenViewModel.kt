@@ -153,10 +153,14 @@ class StreamScreenViewModel @Inject constructor(
                     return
                 }
                 autoPlayHandledForSession = true
+                directAutoPlayFlowEnabledForSession = false
                 updateUiStateIfChanged {
                     it.copy(
                         autoPlayStream = null,
-                        autoPlayPlaybackInfo = null
+                        autoPlayPlaybackInfo = null,
+                        isDirectAutoPlayFlow = false,
+                        showDirectAutoPlayOverlay = false,
+                        directAutoPlayMessage = null
                     )
                 }
             }
@@ -275,7 +279,12 @@ class StreamScreenViewModel @Inject constructor(
                 val allStreams = orderedAddonStreams.flatMap { it.streams }
                     .sortedByDescending { it.qualityValue }
                 val availableAddons = orderedAddonStreams.map { it.addonName }
-                val selectedAutoPlayStream = if (autoPlayHandledForSession || !isAllLoaded) {
+                // For FIRST_STREAM mode, run the selector as soon as any
+                // addon returns results (don't wait for all addons or the
+                // timeout). Other modes still wait for the full result set.
+                val shouldAutoSelect = !autoPlayHandledForSession && !resolvedAutoPlayTarget &&
+                    (isAllLoaded || playerSettings.streamAutoPlayMode == StreamAutoPlayMode.FIRST_STREAM)
+                val selectedAutoPlayStream = if (!shouldAutoSelect) {
                     null
                 } else {
                     StreamAutoPlaySelector.selectAutoPlayStream(

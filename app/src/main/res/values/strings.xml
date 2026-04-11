@@ -837,9 +837,11 @@
     <string name="addon_remove">Remove</string>
     <string name="addon_manage_from_phone_title">Manage from phone</string>
     <string name="addon_manage_from_phone_subtitle">Scan a QR code to manage addons, catalogs, and collections from your phone</string>
+    <string name="addon_manage_collections_from_phone_subtitle">Scan a QR code to manage collections from your phone</string>
     <string name="addon_reorder_title">Reorder home catalogs</string>
     <string name="addon_reorder_subtitle">Controls catalog and collection row order on Home (Classic + Modern + Grid)</string>
     <string name="addon_qr_scan_instruction">Scan with your phone to manage addons, catalogs, and collections</string>
+    <string name="addon_qr_collections_scan_instruction">Scan with your phone to manage collections</string>
     <string name="addon_qr_close">Close</string>
     <string name="addon_confirm_title">Confirm addon &amp; catalog changes</string>
     <string name="addon_confirm_subtitle">The following changes were made from your phone:</string>
