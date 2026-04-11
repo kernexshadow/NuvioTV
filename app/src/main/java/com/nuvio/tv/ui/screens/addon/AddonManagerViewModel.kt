@@ -47,9 +47,11 @@ class AddonManagerViewModel @Inject constructor(
 
     val isReadOnly: Boolean
         get() {
-            val profile = profileManager.activeProfile ?: return false
-            return !profile.isPrimary && profile.usesPrimaryAddons
+            return AddonManagementAccess.isReadOnly(profileManager.activeProfile)
         }
+
+    val webConfigMode: AddonConfigServer.WebConfigMode
+        get() = AddonManagementAccess.webConfigMode(profileManager.activeProfile)
 
     private var server: AddonConfigServer? = null
     private var logoBytes: ByteArray? = null
@@ -205,6 +207,7 @@ class AddonManagerViewModel @Inject constructor(
 
         server = AddonConfigServer.startOnAvailablePort(
             context = context,
+            webConfigMode = webConfigMode,
             currentPageStateProvider = {
                 val addons = _uiState.value.installedAddons
                 val orderedCatalogs = buildOrderedCatalogEntries(
