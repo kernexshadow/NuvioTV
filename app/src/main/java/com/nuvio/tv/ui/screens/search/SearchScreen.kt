@@ -783,7 +783,10 @@ private fun SearchInputField(
                     }
                     false
                 },
-            keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+            keyboardOptions = KeyboardOptions.Default.copy(
+                 imeAction = ImeAction.Done,
+                 autoCorrectEnabled = false
+             ),
             keyboardActions = KeyboardActions(
                 onDone = {
                     onSubmit()
