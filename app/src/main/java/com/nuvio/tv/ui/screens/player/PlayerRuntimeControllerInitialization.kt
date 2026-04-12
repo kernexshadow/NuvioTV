@@ -241,6 +241,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 onPlaybackSpeedAwareAudioOutputProviderCreated = { playbackSpeedAwareAudioOutputProvider = it }
             ).setExtensionRendererMode(playerSettings.decoderPriority)
                 .setMapDV7ToHevc(playerSettings.mapDV7ToHevc || forceDv7ToHevc)
+                .enableMediaCodecVideoRendererDurationToProgressUsIfAvailable()
 
             if (showLoadingStatus) _uiState.update { it.copy(loadingMessage = context.getString(R.string.player_loading_building)) }
             val buildDefaultPlayer = {
@@ -255,6 +256,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .setRenderersFactory(renderersFactory)
                     .setLoadControl(loadControl)
                     .setReleaseTimeoutMs(3000)
+                    .enableDynamicSchedulingIfAvailable()
                     .build()
             }
 
@@ -265,6 +267,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .setTrackSelector(trackSelector!!)
                     .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, extractorsFactory))
                     .setReleaseTimeoutMs(3000)
+                    .enableDynamicSchedulingIfAvailable()
                     .buildWithAssSupportCompat(
                         context = context,
                         renderType = libassRenderType,
@@ -829,4 +832,32 @@ private class SubtitleOffsetRenderer(
         
         super.render(adjustedPositionUs, elapsedRealtimeUs)
     }
+}
+
+private fun DefaultRenderersFactory.enableMediaCodecVideoRendererDurationToProgressUsIfAvailable(): DefaultRenderersFactory {
+    runCatching {
+        javaClass
+            .getMethod("setEnableMediaCodecVideoRendererDurationToProgressUs", java.lang.Boolean.TYPE)
+            .invoke(this, true)
+    }.onFailure {
+        Log.d(
+            PlayerRuntimeController.TAG,
+            "Media3 duration-to-progress optimization unavailable: ${it.message}"
+        )
+    }
+    return this
+}
+
+private fun ExoPlayer.Builder.enableDynamicSchedulingIfAvailable(): ExoPlayer.Builder {
+    runCatching {
+        javaClass
+            .getMethod("experimentalSetDynamicSchedulingEnabled", java.lang.Boolean.TYPE)
+            .invoke(this, true)
+    }.onFailure {
+        Log.d(
+            PlayerRuntimeController.TAG,
+            "Media3 dynamic scheduling unavailable: ${it.message}"
+        )
+    }
+    return this
 }
