@@ -109,6 +109,7 @@ import com.nuvio.tv.core.player.ExternalPlayerLauncher
 import com.nuvio.tv.data.local.InternalPlayerEngine
 import com.nuvio.tv.data.local.SubtitleStyleSettings
 import com.nuvio.tv.data.local.StreamAutoPlayMode
+import com.nuvio.tv.domain.model.Subtitle
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
 import android.text.format.DateFormat
@@ -840,10 +841,7 @@ fun PlayerScreen(
                 .padding(end = 28.dp, top = 24.dp)
                 .zIndex(2.15f)
         ) {
-            PlayerClockOverlay(
-                currentPosition = uiState.currentPosition,
-                duration = uiState.duration
-            )
+            PlayerClockOverlayHost(viewModel = viewModel)
         }
 
         // Controls overlay
@@ -994,7 +992,7 @@ fun PlayerScreen(
             exit = fadeOut(animationSpec = tween(150)),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            SeekOverlay(uiState = uiState)
+            SeekOverlayHost(viewModel = viewModel)
         }
 
         // Episodes/streams side panel (slides in from right)
@@ -1174,9 +1172,9 @@ fun PlayerScreen(
             captureKeys = false,
             contentPadding = PaddingValues(top = 44.dp)
         ) {
-            SubtitleTimingDialog(
+            SubtitleTimingDialogHost(
+                viewModel = viewModel,
                 modifier = Modifier.align(Alignment.TopCenter),
-                currentPositionMs = uiState.currentPosition,
                 selectedAddonSubtitle = uiState.selectedAddonSubtitle,
                 cues = uiState.subtitleAutoSyncCues,
                 capturedVideoMs = uiState.subtitleAutoSyncCapturedVideoMs,
@@ -1412,21 +1410,14 @@ private fun PlayerControlsOverlay(
 
             // Progress bar — always LTR regardless of locale
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            ProgressBar(
-                currentPosition = uiState.pendingPreviewSeekPosition ?: uiState.currentPosition,
-                duration = uiState.duration,
-                onSeekPreview = { delta ->
-                    viewModel.onEvent(PlayerEvent.OnPreviewSeekBy(delta))
-                },
-                onSeekCommit = {
-                    viewModel.onEvent(PlayerEvent.OnCommitPreviewSeek)
-                },
-                focusRequester = progressBarFocusRequester,
-                upFocusRequester = progressBarUpFocusRequester,
-                downFocusRequester = playPauseFocusRequester,
-                onUpKey = onHideControls,
-                onFocused = onResetHideTimer
-            )
+                PlayerControlsProgressBarHost(
+                    viewModel = viewModel,
+                    focusRequester = progressBarFocusRequester,
+                    upFocusRequester = progressBarUpFocusRequester,
+                    downFocusRequester = playPauseFocusRequester,
+                    onUpKey = onHideControls,
+                    onFocused = onResetHideTimer
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -1600,15 +1591,50 @@ private fun PlayerControlsOverlay(
                 }
 
                 // Right side - Time display only
-                Text(
-                    text = "${formatTime(uiState.currentPosition)} / ${formatTime(uiState.duration)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.9f)
-                )
+                PlayerControlsTimeTextHost(viewModel = viewModel)
             }
             }
         }
     }
+}
+
+@Composable
+private fun PlayerControlsProgressBarHost(
+    viewModel: PlayerViewModel,
+    focusRequester: FocusRequester,
+    upFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
+    onUpKey: (() -> Unit)? = null,
+    onFocused: (() -> Unit)? = null
+) {
+    val playbackTimeline by viewModel.playbackTimeline.collectAsState()
+
+    ProgressBar(
+        currentPosition = playbackTimeline.currentPosition,
+        duration = playbackTimeline.duration,
+        onSeekPreview = { delta ->
+            viewModel.onEvent(PlayerEvent.OnPreviewSeekBy(delta))
+        },
+        onSeekCommit = {
+            viewModel.onEvent(PlayerEvent.OnCommitPreviewSeek)
+        },
+        focusRequester = focusRequester,
+        upFocusRequester = upFocusRequester,
+        downFocusRequester = downFocusRequester,
+        onUpKey = onUpKey,
+        onFocused = onFocused
+    )
+}
+
+@Composable
+private fun PlayerControlsTimeTextHost(viewModel: PlayerViewModel) {
+    val playbackTimeline by viewModel.playbackTimeline.collectAsState()
+
+    Text(
+        text = "${formatTime(playbackTimeline.currentPosition)} / ${formatTime(playbackTimeline.duration)}",
+        style = MaterialTheme.typography.bodyMedium,
+        color = Color.White.copy(alpha = 0.9f)
+    )
 }
 
 @Composable
@@ -1803,7 +1829,10 @@ private fun ProgressBar(
 }
 
 @Composable
-private fun SeekOverlay(uiState: PlayerUiState) {
+private fun SeekOverlay(
+    currentPosition: Long,
+    duration: Long
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1811,8 +1840,8 @@ private fun SeekOverlay(uiState: PlayerUiState) {
     ) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             ProgressBar(
-                currentPosition = uiState.currentPosition,
-                duration = uiState.duration,
+                currentPosition = currentPosition,
+                duration = duration,
                 onSeekPreview = {},
                 onSeekCommit = {}
             )
@@ -1826,12 +1855,22 @@ private fun SeekOverlay(uiState: PlayerUiState) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "${formatTime(uiState.currentPosition)} / ${formatTime(uiState.duration)}",
+                text = "${formatTime(currentPosition)} / ${formatTime(duration)}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.9f)
             )
         }
     }
+}
+
+@Composable
+private fun SeekOverlayHost(viewModel: PlayerViewModel) {
+    val playbackTimeline by viewModel.playbackTimeline.collectAsState()
+
+    SeekOverlay(
+        currentPosition = playbackTimeline.currentPosition,
+        duration = playbackTimeline.duration
+    )
 }
 
 @Composable
@@ -1878,6 +1917,45 @@ private fun PlayerClockOverlay(
             color = Color.White.copy(alpha = 0.78f)
         )
     }
+}
+
+@Composable
+private fun PlayerClockOverlayHost(viewModel: PlayerViewModel) {
+    val playbackTimeline by viewModel.playbackTimeline.collectAsState()
+
+    PlayerClockOverlay(
+        currentPosition = playbackTimeline.currentPosition,
+        duration = playbackTimeline.duration
+    )
+}
+
+@Composable
+private fun SubtitleTimingDialogHost(
+    viewModel: PlayerViewModel,
+    modifier: Modifier = Modifier,
+    selectedAddonSubtitle: Subtitle?,
+    cues: List<SubtitleSyncCue>,
+    capturedVideoMs: Long?,
+    statusMessage: String?,
+    errorMessage: String?,
+    isLoadingCues: Boolean,
+    onCaptureNow: () -> Unit,
+    onCueSelected: (SubtitleSyncCue) -> Unit
+) {
+    val playbackTimeline by viewModel.playbackTimeline.collectAsState()
+
+    SubtitleTimingDialog(
+        modifier = modifier,
+        currentPositionMs = playbackTimeline.currentPosition,
+        selectedAddonSubtitle = selectedAddonSubtitle,
+        cues = cues,
+        capturedVideoMs = capturedVideoMs,
+        statusMessage = statusMessage,
+        errorMessage = errorMessage,
+        isLoadingCues = isLoadingCues,
+        onCaptureNow = onCaptureNow,
+        onCueSelected = onCueSelected
+    )
 }
 
 @Composable
