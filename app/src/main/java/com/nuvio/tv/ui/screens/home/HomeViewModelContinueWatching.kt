@@ -424,12 +424,6 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             nextUpItems = cachedNextUpItems
                         )
                     )
-                    _uiState.update { state ->                        if (state.continueWatchingItems == initialItems) {
-                            state
-                        } else {
-                            state.copy(continueWatchingItems = initialItems)
-                        }
-                    }
                     _uiState.update { state ->
                         if (state.continueWatchingItems == initialItems) {
                             state
@@ -1057,6 +1051,9 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
     val mergeMutex = Mutex()
     val nextUpByContent = linkedMapOf<String, ContinueWatchingItem.NextUp>()
     val processedContentIds = Collections.synchronizedSet(mutableSetOf<String>())
+    val resolvedSinceLastPublish = java.util.concurrent.atomic.AtomicInteger(0)
+    // Batch partial updates: publish every N resolved items instead of after each one.
+    val partialPublishBatchSize = (latestCompletedBySeries.size / 3).coerceIn(2, 8)
 
     val jobs = latestCompletedBySeries.map { progress ->
         launch(Dispatchers.IO) {
@@ -1070,11 +1067,17 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
                     logNextUpDecision("drop contentId=${progress.contentId} name=${progress.name} reason=buildNextUpItem-null")
                     return@withPermit
                 }
+                val shouldPublish: Boolean
                 val partialItems = mergeMutex.withLock {
                     nextUpByContent[progress.contentId] = nextUp
-                    nextUpByContent.values.toList()
+                    val count = resolvedSinceLastPublish.incrementAndGet()
+                    shouldPublish = count >= partialPublishBatchSize
+                    if (shouldPublish) resolvedSinceLastPublish.set(0)
+                    if (shouldPublish) nextUpByContent.values.toList() else emptyList()
                 }
-                onPartialUpdate(partialItems)
+                if (shouldPublish) {
+                    onPartialUpdate(partialItems)
+                }
             }
         }
     }

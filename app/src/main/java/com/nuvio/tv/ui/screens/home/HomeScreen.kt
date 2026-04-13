@@ -5,6 +5,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,7 +60,7 @@ private data class HomePosterOptionsTarget(
     val addonBaseUrl: String
 )
 
-private const val HOME_STARTUP_CW_GATE_TIMEOUT_MS = 5_000L
+private const val HOME_STABLE_GATE_TIMEOUT_MS = 3_000L
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -91,46 +92,59 @@ fun HomeScreen(
     val hasCatalogContent = uiState.catalogRows.any { it.items.isNotEmpty() }
     val hasCollectionContent = uiState.homeRows.any { it is HomeRow.CollectionRow }
     val hasHeroContent = uiState.heroItems.isNotEmpty()
-    var hasEnteredCatalogContent by rememberSaveable { mutableStateOf(false) }
     var showHomeContentWithAnimation by rememberSaveable { mutableStateOf(false) }
-    var hasReleasedStartupCwGate by rememberSaveable { mutableStateOf(false) }
-    var startupCwGateTimedOut by rememberSaveable { mutableStateOf(false) }
     var hasShownInitialHomeContent by rememberSaveable { mutableStateOf(false) }
+    // Once we've shown stable home content, never go back to loading gate.
+    var homeStableGateReleased by rememberSaveable { mutableStateOf(false) }
+    // Track that catalog loading has started at least once (isLoading went true→false).
+    var catalogLoadingStarted by rememberSaveable { mutableStateOf(false) }
     var posterOptionsTarget by remember { mutableStateOf<HomePosterOptionsTarget?>(null) }
 
     // Stable lambdas — captured via rememberUpdatedState so they never cause
     // downstream recomposition when uiState changes.
     val latestMovieWatchedStatus by rememberUpdatedState(uiState.movieWatchedStatus)
     val latestPosterOptionsTarget by rememberUpdatedState(posterOptionsTarget)
-    val isCatalogItemWatched: (MetaPreview) -> Boolean = remember(uiState.movieWatchedStatus) {
+    val isCatalogItemWatched: (MetaPreview) -> Boolean = remember(Unit) {
         { item -> latestMovieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true }
     }
     val onCatalogItemLongPress: (MetaPreview, String) -> Unit = remember(Unit) {
         { item, addonBaseUrl -> posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl) }
     }
 
-    LaunchedEffect(hasCatalogContent, hasCollectionContent, hasHeroContent) {
-        if (hasCatalogContent || hasCollectionContent || hasHeroContent) {
-            hasEnteredCatalogContent = true
+    LaunchedEffect(uiState.isLoading, hasCatalogContent, hasCollectionContent, hasHeroContent) {
+        Log.d("HomeGate", "isLoading=${uiState.isLoading} hasCatalog=$hasCatalogContent hasCollection=$hasCollectionContent hasHero=$hasHeroContent gateReleased=$homeStableGateReleased catalogLoadStarted=$catalogLoadingStarted addons=${uiState.installedAddonsCount} catalogRows=${uiState.catalogRows.size} homeRows=${uiState.homeRows.size} cwItems=${uiState.continueWatchingItems.size}")
+        // Track that catalog loading pipeline has started.
+        if (uiState.isLoading && uiState.installedAddonsCount > 0) {
+            catalogLoadingStarted = true
+        }
+        // Wait until catalog loading has completed (started AND finished) with content.
+        if (!homeStableGateReleased &&
+            catalogLoadingStarted &&
+            !uiState.isLoading &&
+            (hasCatalogContent || hasCollectionContent || hasHeroContent)
+        ) {
+            Log.d("HomeGate", "Gate releasing: settle delay 200ms")
+            delay(200)
+            homeStableGateReleased = true
+            Log.d("HomeGate", "Gate RELEASED via content+loading done")
         }
     }
 
     LaunchedEffect(Unit) {
-        delay(HOME_STARTUP_CW_GATE_TIMEOUT_MS)
-        startupCwGateTimedOut = true
-    }
-
-    LaunchedEffect(uiState.continueWatchingItems.isNotEmpty(), startupCwGateTimedOut, uiState.isLoading) {
-        if (!hasReleasedStartupCwGate &&
-            (uiState.continueWatchingItems.isNotEmpty() || startupCwGateTimedOut || !uiState.isLoading)
-        ) {
-            hasReleasedStartupCwGate = true
+        // Give the addon pipeline time to start (local DataStore read + emission).
+        // If after that window the pipeline still hasn't started and no addons
+        // are known, the user genuinely has no addons — release the gate.
+        delay(300)
+        if (!homeStableGateReleased && !catalogLoadingStarted && uiState.installedAddonsCount == 0) {
+            homeStableGateReleased = true
+            Log.d("HomeGate", "Gate RELEASED: no addons after 300ms")
         }
-    }
-
-    LaunchedEffect(showHomeContentWithAnimation) {
-        if (showHomeContentWithAnimation) {
-            hasShownInitialHomeContent = true
+        // Safety timeout for everything else.
+        delay(HOME_STABLE_GATE_TIMEOUT_MS - 300)
+        Log.d("HomeGate", "Timeout reached (${HOME_STABLE_GATE_TIMEOUT_MS}ms)")
+        if (!homeStableGateReleased) {
+            homeStableGateReleased = true
+            Log.d("HomeGate", "Gate RELEASED via timeout")
         }
     }
 
@@ -158,6 +172,7 @@ fun HomeScreen(
 
         when {
             uiState.isLoading && !hasAnyContent -> {
+                Log.d("HomeGate", "BRANCH: loading+noContent")
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -213,23 +228,10 @@ fun HomeScreen(
             }
 
             else -> {
-                val shouldShowLoadingGate =
-                    !hasReleasedStartupCwGate ||
-                        (uiState.isLoading &&
-                            !hasEnteredCatalogContent &&
-                            !hasCatalogContent &&
-                            !hasCollectionContent &&
-                            !hasHeroContent)
-                LaunchedEffect(shouldShowLoadingGate) {
-                    if (shouldShowLoadingGate) {
-                        showHomeContentWithAnimation = false
-                    } else {
-                        // Flip on the next frame so AnimatedVisibility can run enter transition.
-                        kotlinx.coroutines.yield()
-                        showHomeContentWithAnimation = true
-                    }
-                }
-                if (shouldShowLoadingGate) {
+                Log.d("HomeGate", "BRANCH: else — gateReleased=$homeStableGateReleased showAnim=$showHomeContentWithAnimation hasShown=$hasShownInitialHomeContent")
+                // On first launch, wait for stable content before revealing home.
+                // Once released, never go back to loading (homeStableGateReleased is rememberSaveable).
+                if (!homeStableGateReleased) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -237,16 +239,38 @@ fun HomeScreen(
                         LoadingIndicator()
                     }
                 } else {
+                    // Flip showHomeContentWithAnimation on the next frame so
+                    // AnimatedVisibility can run its enter transition.
+                    LaunchedEffect(Unit) {
+                        if (!showHomeContentWithAnimation) {
+                            kotlinx.coroutines.yield()
+                            showHomeContentWithAnimation = true
+                        }
+                    }
+                    LaunchedEffect(showHomeContentWithAnimation) {
+                        if (showHomeContentWithAnimation) {
+                            hasShownInitialHomeContent = true
+                        }
+                    }
+                    // Keep loading visible during the single-frame gap before animation starts.
+                    if (!showHomeContentWithAnimation) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            LoadingIndicator()
+                        }
+                    }
                     AnimatedVisibility(
                         visible = showHomeContentWithAnimation,
                         enter = if (hasShownInitialHomeContent) {
+                            EnterTransition.None
+                        } else {
                             fadeIn(animationSpec = tween(320)) +
                                 slideInVertically(
                                     initialOffsetY = { it / 24 },
                                     animationSpec = tween(320)
                                 )
-                        } else {
-                            EnterTransition.None
                         }
                     ) {
                         when (uiState.homeLayout) {
@@ -517,7 +541,8 @@ private fun ModernHomeRoute(
             { item -> viewModel.onItemFocus(item) }
         },
         onPreloadAdjacentItem = preloadAdjacentItem,
-        onSaveFocusState = saveModernFocusState
+        onSaveFocusState = saveModernFocusState,
+        rowBuildCache = viewModel.modernCarouselRowBuildCache
     )
 }
 
