@@ -773,7 +773,11 @@ fun PlayerScreen(
                 .padding(end = 28.dp, top = 24.dp)
                 .zIndex(2.15f)
         ) {
-            PlayerClockOverlayHost(viewModel = viewModel)
+            PlayerClockOverlay(
+                currentPosition = uiState.currentPosition,
+                duration = uiState.duration,
+                playbackSpeed = uiState.playbackSpeed
+            )
         }
 
         // Controls overlay
@@ -1927,7 +1931,8 @@ private fun SeekOverlayHost(viewModel: PlayerViewModel) {
 @Composable
 private fun PlayerClockOverlay(
     currentPosition: Long,
-    duration: Long
+    duration: Long,
+    playbackSpeed: Float
 ) {
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
     val context = LocalContext.current
@@ -1942,7 +1947,9 @@ private fun PlayerClockOverlay(
         }
     }
 
-    val remainingMs = (duration - currentPosition).coerceAtLeast(0L)
+    val effectiveSpeed = playbackSpeed.takeIf { it > 0f } ?: 1f
+    val remainingMediaMs = (duration - currentPosition).coerceAtLeast(0L)
+    val remainingMs = kotlin.math.ceil(remainingMediaMs.toDouble() / effectiveSpeed.toDouble()).toLong()
     val endTimeText = if (duration > 0L) {
         timeFormatter.format(Date(nowMs + remainingMs))
     } else {
@@ -1971,12 +1978,13 @@ private fun PlayerClockOverlay(
 }
 
 @Composable
-private fun PlayerClockOverlayHost(viewModel: PlayerViewModel) {
+private fun PlayerClockOverlayHost(viewModel: PlayerViewModel, playbackSpeed: Float) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
 
     PlayerClockOverlay(
         currentPosition = playbackTimeline.currentPosition,
-        duration = playbackTimeline.duration
+        duration = playbackTimeline.duration,
+        playbackSpeed = playbackSpeed
     )
 }
 
