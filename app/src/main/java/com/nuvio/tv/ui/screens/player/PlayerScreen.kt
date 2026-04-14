@@ -773,9 +773,8 @@ fun PlayerScreen(
                 .padding(end = 28.dp, top = 24.dp)
                 .zIndex(2.15f)
         ) {
-            PlayerClockOverlay(
-                currentPosition = uiState.currentPosition,
-                duration = uiState.duration,
+            PlayerClockOverlayHost(
+                viewModel = viewModel,
                 playbackSpeed = uiState.playbackSpeed
             )
         }
