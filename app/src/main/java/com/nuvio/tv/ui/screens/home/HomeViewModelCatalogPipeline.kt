@@ -12,8 +12,10 @@ import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.skipStep
 import com.nuvio.tv.domain.model.supportsExtra
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import com.nuvio.tv.domain.model.MetaPreview
@@ -30,10 +32,12 @@ private data class CatalogUpdateResult(
     val fullRows: List<CatalogRow>
 )
 
+@OptIn(FlowPreview::class)
 internal fun HomeViewModel.observeCollectionsPipeline() {
     viewModelScope.launch {
         collectionsDataStore.collections
             .distinctUntilChanged()
+            .debounce(300)
             .collectLatest { collections ->
                 collectionsCache = collections
                 rebuildCatalogOrder(addonsCache)
@@ -94,6 +98,7 @@ internal fun HomeViewModel.observeTmdbSettingsPipeline() {
     }
 }
 
+@OptIn(FlowPreview::class)
 internal fun HomeViewModel.observeInstalledAddonsPipeline() {
     viewModelScope.launch {
         addonRepository.getInstalledAddons()
@@ -123,7 +128,14 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     val generation = catalogLoadGeneration
     cancelInFlightCatalogLoads()
 
-    _uiState.update { it.copy(isLoading = true, error = null, installedAddonsCount = addons.size) }
+    // On reload (not first load), keep existing UI data visible while new
+    // catalogs load in the background to avoid a flash of empty content.
+    val isReload = _uiState.value.catalogRows.isNotEmpty() || _uiState.value.homeRows.isNotEmpty()
+    if (!isReload) {
+        _uiState.update { it.copy(isLoading = true, error = null, installedAddonsCount = addons.size) }
+    } else {
+        _uiState.update { it.copy(error = null, installedAddonsCount = addons.size) }
+    }
     synchronized(catalogStateLock) {
         catalogOrder.clear()
     }

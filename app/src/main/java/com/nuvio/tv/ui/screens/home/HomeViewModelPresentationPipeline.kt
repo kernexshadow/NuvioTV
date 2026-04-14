@@ -222,6 +222,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
     }
 }
 
+@OptIn(FlowPreview::class)
 internal fun HomeViewModel.observeModernHomePresentationPipeline() {
     viewModelScope.launch {
         uiState
@@ -235,6 +236,7 @@ internal fun HomeViewModel.observeModernHomePresentationPipeline() {
                 )
             }
             .distinctUntilChanged()
+            .debounce(80)
             .collectLatest { input ->
                 val shouldWarmStart = uiState.value.modernHomePresentation.rows.isEmpty()
                 val visibleCatalogRowCount = input.catalogRows.count { it.items.isNotEmpty() }
