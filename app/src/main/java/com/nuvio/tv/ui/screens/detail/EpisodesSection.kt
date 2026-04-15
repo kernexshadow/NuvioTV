@@ -114,6 +114,7 @@ fun SeasonTabs(
     val lazyListState = rememberLazyListState()
 
     var suppressFocusSwitch by remember { mutableStateOf(false) }
+    var pendingSeason by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(sortedSeasons, selectedSeason) {
         val selectedIndex = sortedSeasons.indexOf(selectedSeason)

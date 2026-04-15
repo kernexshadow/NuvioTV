@@ -680,10 +680,6 @@ private fun AddonFilterChips(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
         modifier = Modifier
-            .focusRestorer {
-                val idx = focusedChipIndex.coerceIn(0, focusRequesters.lastIndex)
-                focusRequesters[idx]
-            }
             .onFocusChanged { focusState ->
                 val hasFocus = focusState.hasFocus
                 if (hasFocus && !chipRowHasFocus && isRtl) {
