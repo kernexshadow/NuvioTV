@@ -1504,6 +1504,12 @@
     <string name="collections_editor_placeholder_backdrop">Backdrop image URL (optional)</string>
     <string name="collections_editor_placeholder_folder">Folder name</string>
     <string name="collections_editor_placeholder_gif">Animated GIF URL (plays only while focused)</string>
+    <string name="collections_editor_genre_filter">Genre Filter</string>
+    <string name="collections_editor_choose_genre">Choose</string>
+    <string name="collections_editor_select_genre">Select genre</string>
+    <string name="collections_editor_all_genres">All genres</string>
+    <string name="collections_editor_genre_required">Genre required</string>
+    <string name="collections_editor_genre_optional">Genre filter available</string>
     <string name="collections_card_title">Collections</string>
     <string name="collections_card_subtitle">Group catalogs into folders on your home screen</string>
     <string name="collections_tab_all">All</string>
