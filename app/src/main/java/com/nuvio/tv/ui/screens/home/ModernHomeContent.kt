@@ -306,6 +306,8 @@ fun ModernHomeContent(
         if (selection.focusKey == lastRequestedTrailerFocusKey) {
             return@LaunchedEffect
         }
+        delay(150)
+        if (focusedCatalogSelection?.focusKey != selection.focusKey) return@LaunchedEffect
         onRequestTrailerPreview(
             selection.payload.itemId,
             selection.payload.trailerTitle,
