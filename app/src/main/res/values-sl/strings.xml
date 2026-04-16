@@ -242,14 +242,14 @@
     <string name="settings_profiles">Profili</string>
     <string name="settings_profiles_subtitle">Upravljajte uporabniške profile</string>
     <string name="settings_layout">Postavitev</string>
-    <string name="settings_layout_subtitle">Struktura domačega zaslona in slogi plakatov.</string>
+    <string name="settings_layout_subtitle">Struktura domačega zaslona in slogi plakatov</string>
     <string name="settings_plugins">Vtičniki</string>
     <string name="settings_plugins_subtitle">Repozitoriji in ponudniki</string>
     <string name="settings_integration">Integracija</string>
     <string name="settings_playback">Predvajanje</string>
-    <string name="settings_playback_subtitle">Predvajalnik, podnapisi in samodejno predvajanje.</string>
-    <string name="settings_trakt_subtitle">Odpri zaslon za povezavo s Trakt.</string>
-    <string name="settings_about_subtitle">Različica in pravilniki.</string>
+    <string name="settings_playback_subtitle">Predvajalnik, podnapisi in samodejno predvajanje</string>
+    <string name="settings_trakt_subtitle">Odpri zaslon za povezavo s Trakt</string>
+    <string name="settings_about_subtitle">Različica in pravilniki</string>
     <string name="settings_network">Hitrost omrežja</string>
     <string name="settings_network_subtitle">Diagnostika zakasnitve in prenosa</string>
     <string name="settings_advanced">Napredno</string>
@@ -268,7 +268,7 @@
     <string name="network_connection_ethernet">Ethernet</string>
     <string name="network_connection_offline">Brez povezave</string>
     <string name="settings_debug">Odpravljanje napak</string>
-    <string name="settings_debug_subtitle">Razvojna orodja in zastavice funkcij.</string>																  
+    <string name="settings_debug_subtitle">Razvojna orodja in zastavice funkcij</string>
     <string name="settings_plugins_section_subtitle">Upravljanje repozitorijev, ponudnikov in stanj vtičnikov</string>
     <string name="settings_account_section_subtitle">Stanje računa in sinhronizacije</string>
 	<string name="account_stat_addons">dodatki</string>

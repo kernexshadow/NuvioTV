@@ -197,14 +197,14 @@
     <string name="settings_profiles">Προφίλ</string>
     <string name="settings_profiles_subtitle">Διαχείριση προφίλ χρηστών</string>
     <string name="settings_layout">Διάταξη</string>
-    <string name="settings_layout_subtitle">Δομή αρχικής οθόνης και στυλ αφισών.</string>
+    <string name="settings_layout_subtitle">Δομή αρχικής οθόνης και στυλ αφισών</string>
     <string name="settings_plugins">Πρόσθετα</string>
     <string name="settings_plugins_subtitle">Αποθετήρια και πάροχοι</string>
     <string name="settings_integration">Ενσωμάτωση</string>
     <string name="settings_playback">Αναπαραγωγή</string>
-    <string name="settings_playback_subtitle">Πρόγραμμα αναπαραγωγής, υπότιτλοι και αυτόματη αναπαραγωγή.</string>
-    <string name="settings_trakt_subtitle">Άνοιγμα οθόνης σύνδεσης Trakt.</string>
-    <string name="settings_about_subtitle">Έκδοση και πολιτικές.</string>
+    <string name="settings_playback_subtitle">Πρόγραμμα αναπαραγωγής, υπότιτλοι και αυτόματη αναπαραγωγή</string>
+    <string name="settings_trakt_subtitle">Άνοιγμα οθόνης σύνδεσης Trakt</string>
+    <string name="settings_about_subtitle">Έκδοση και πολιτικές</string>
     <string name="settings_network">Ταχύτητα δικτύου</string>
     <string name="settings_network_subtitle">Διαγνωστικά καθυστέρησης και λήψης</string>
     <string name="settings_advanced">Για προχωρημένους</string>
@@ -223,7 +223,7 @@
     <string name="network_connection_ethernet">Ethernet</string>
     <string name="network_connection_offline">Εκτός σύνδεσης</string>
     <string name="settings_debug">Debug</string>
-    <string name="settings_debug_subtitle">Εργαλεία προγραμματιστή και σημαίες χαρακτηριστικών.</string>
+    <string name="settings_debug_subtitle">Εργαλεία προγραμματιστή και σημαίες χαρακτηριστικών</string>
     <string name="settings_plugins_section_subtitle">Διαχείριση αποθετηρίων, παρόχων και καταστάσεων πρόσθετων</string>
     <string name="settings_account_section_subtitle">Κατάσταση λογαριασμού και συγχρονισμού</string>
     <string name="account_stat_addons">πρόσθετα</string>

@@ -174,14 +174,14 @@
     <string name="settings_profiles">Perfis</string>
     <string name="settings_profiles_subtitle">Gerir perfis de utilizador</string>
     <string name="settings_layout">Layout</string>
-    <string name="settings_layout_subtitle">Estrutura do ecrã inicial e estilos de póster.</string>
+    <string name="settings_layout_subtitle">Estrutura do ecrã inicial e estilos de póster</string>
     <string name="settings_plugins">Plugins</string>
     <string name="settings_plugins_subtitle">Repositórios e fornecedores</string>
     <string name="settings_integration">Integração</string>
     <string name="settings_playback">Reprodução</string>
-    <string name="settings_playback_subtitle">Reprodutor, legendas e reprodução automática.</string>
-    <string name="settings_trakt_subtitle">Abrir ecrã de ligação ao Trakt.</string>
-    <string name="settings_about_subtitle">Versão e políticas.</string>
+    <string name="settings_playback_subtitle">Reprodutor, legendas e reprodução automática</string>
+    <string name="settings_trakt_subtitle">Abrir ecrã de ligação ao Trakt</string>
+    <string name="settings_about_subtitle">Versão e políticas</string>
     <string name="settings_network">Velocidade da rede</string>
     <string name="settings_network_subtitle">Diagnósticos de latência e download</string>
     <string name="settings_advanced">Avançado</string>
@@ -200,7 +200,7 @@
     <string name="network_connection_ethernet">Ethernet</string>
     <string name="network_connection_offline">Offline</string>
     <string name="settings_debug">Debug</string>
-    <string name="settings_debug_subtitle">Ferramentas de programador e feature flags.</string>
+    <string name="settings_debug_subtitle">Ferramentas de programador e feature flags</string>
     <string name="settings_plugins_section_subtitle">Gerir repositórios, fornecedores e estado dos plugins</string>
     <string name="settings_account_section_subtitle">Estado da conta e sincronização</string>
     <string name="account_stat_addons">addons</string>

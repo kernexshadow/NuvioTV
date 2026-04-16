@@ -255,14 +255,14 @@
     <string name="settings_profiles">Perfis</string>
     <string name="settings_profiles_subtitle">Gerenciar perfis de usuário</string>
     <string name="settings_layout">Layout</string>
-    <string name="settings_layout_subtitle">Estrutura da home e estilo dos pôsteres.</string>
+    <string name="settings_layout_subtitle">Estrutura da home e estilo dos pôsteres</string>
     <string name="settings_plugins">Plugins</string>
     <string name="settings_plugins_subtitle">Repositórios e provedores</string>
     <string name="settings_integration">Integrações</string>
     <string name="settings_playback">Reprodução</string>
-    <string name="settings_playback_subtitle">Player, legendas e Autorreprodução.</string>
-    <string name="settings_trakt_subtitle">Abrir tela de conexão com o Trakt.</string>
-    <string name="settings_about_subtitle">Versão e políticas.</string>
+    <string name="settings_playback_subtitle">Player, legendas e Autorreprodução</string>
+    <string name="settings_trakt_subtitle">Abrir tela de conexão com o Trakt</string>
+    <string name="settings_about_subtitle">Versão e políticas</string>
     <string name="settings_network">Velocidade da conexão</string>
     <string name="settings_network_subtitle">Latência e diagnóstico de download</string>
     <string name="settings_advanced">Avançado</string>
@@ -281,7 +281,7 @@
     <string name="network_connection_ethernet">Ethernet</string>
     <string name="network_connection_offline">Offline</string>
     <string name="settings_debug">Depuração</string>
-    <string name="settings_debug_subtitle">Ferramentas de desenvolvedor e recursos avançados.</string>
+    <string name="settings_debug_subtitle">Ferramentas de desenvolvedor e recursos avançados</string>
     <string name="settings_plugins_section_subtitle">Gerenciar repositórios, provedores e extensões</string>
     <string name="settings_account_section_subtitle">Status da conta e sincronização</string>
     <string name="account_stat_addons">addons</string>

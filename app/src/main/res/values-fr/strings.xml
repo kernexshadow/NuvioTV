@@ -255,14 +255,14 @@
     <string name="settings_profiles">Profils</string>
     <string name="settings_profiles_subtitle">Gérer les profils utilisateurs</string>
     <string name="settings_layout">Disposition</string>
-    <string name="settings_layout_subtitle">Structure de l\'accueil et styles d\'affiches.</string>
+    <string name="settings_layout_subtitle">Structure de l\'accueil et styles d\'affiches</string>
     <string name="settings_plugins">Plugins</string>
     <string name="settings_plugins_subtitle">Dépôts et fournisseurs</string>
     <string name="settings_integration">Intégration</string>
     <string name="settings_playback">Lecture</string>
-    <string name="settings_playback_subtitle">Lecteur, sous-titres et lecture automatique.</string>
-    <string name="settings_trakt_subtitle">Ouvrir l\'écran de connexion Trakt.</string>
-    <string name="settings_about_subtitle">Version et politiques.</string>
+    <string name="settings_playback_subtitle">Lecteur, sous-titres et lecture automatique</string>
+    <string name="settings_trakt_subtitle">Ouvrir l\'écran de connexion Trakt</string>
+    <string name="settings_about_subtitle">Version et politiques</string>
     <string name="settings_network">Débit réseau</string>
     <string name="settings_network_subtitle">Diagnostics de la latence et du débit descendant</string>
     <string name="settings_advanced">Avancés</string>
@@ -281,7 +281,7 @@
     <string name="network_connection_ethernet">Ethernet</string>
     <string name="network_connection_offline">Hors ligne</string>
     <string name="settings_debug">Débogage</string>
-    <string name="settings_debug_subtitle">Outils développeur et options expérimentales.</string>
+    <string name="settings_debug_subtitle">Outils développeur et options expérimentales</string>
     <string name="settings_plugins_section_subtitle">Gérer les dépôts, fournisseurs et états des plugins</string>
     <string name="settings_account_section_subtitle">Compte et état de la synchronisation</string>
     <string name="account_stat_addons">addons</string>
