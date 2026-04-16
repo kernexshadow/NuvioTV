@@ -215,6 +215,15 @@
     <string name="series_status_rumored">Glasine</string>
     <string name="series_status_in_production">U produkciji</string>
     <string name="series_status_post_production">U postprodukciji</string>
+    <string name="movie_status_ended">Završeno</string>
+    <string name="movie_status_continuing">U toku</string>
+    <string name="movie_status_current">Trenutno</string>
+    <string name="movie_status_cancelled">Otkazano</string>
+    <string name="movie_status_released">Objavljeno</string>
+    <string name="movie_status_planned">Planirano</string>
+    <string name="movie_status_rumored">Glasine</string>
+    <string name="movie_status_in_production">U produkciji</string>
+    <string name="movie_status_post_production">U postprodukciji</string>
     <string name="detail_lists_fallback">Liste</string>
     <string name="detail_lists_subtitle">Odaberite na koje liste želite dodati ovaj naslov.</string>
     <string name="action_save">Spremi</string>
