@@ -186,6 +186,11 @@
     <string name="detail_more_like_this_powered_by_trakt">Powered by Trakt</string>
     <string name="detail_comments_title">Comments</string>
     <string name="detail_comments_subtitle">Reviews from Trakt</string>
+    <string name="detail_comments_subtitle_episode">Reviews from Trakt for S%1$dE%2$d</string>
+    <string name="detail_comments_mode_show">Show</string>
+    <string name="detail_comments_mode_episode">Episode</string>
+    <string name="detail_comments_episode_picker_title">Choose Episode</string>
+    <string name="detail_comments_episode_picker_subtitle">Select an episode from this season</string>
     <string name="detail_section_network">Network</string>
     <string name="detail_section_production">Production</string>
     <string name="detail_comments_empty">No Trakt reviews available yet.</string>

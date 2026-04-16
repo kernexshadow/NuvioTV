@@ -10,6 +10,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -74,7 +75,10 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.TraktCommentReview
+import com.nuvio.tv.domain.model.Video
+import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -82,6 +86,10 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 @Composable
 fun CommentsSection(
     comments: List<TraktCommentReview>,
+    commentsMode: CommentsMode,
+    canToggleEpisodeComments: Boolean,
+    selectedEpisode: Video?,
+    seasonEpisodes: List<Video>,
     isLoading: Boolean,
     isLoadingMore: Boolean,
     canLoadMore: Boolean,
@@ -89,16 +97,31 @@ fun CommentsSection(
     upFocusRequester: FocusRequester? = null,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
+    onCommentsModeSelected: (CommentsMode) -> Unit,
+    onEpisodeSelected: (Video) -> Unit,
     onCommentClick: (TraktCommentReview) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val cardShape = RoundedCornerShape(16.dp)
     val firstItemFocusRequester = remember { FocusRequester() }
+    val titleModeFocusRequester = remember { FocusRequester() }
+    val episodeModeFocusRequester = remember { FocusRequester() }
+    val episodePickerFocusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
+    var showEpisodePicker by remember { mutableStateOf(false) }
     val upFocusModifier = if (upFocusRequester != null) {
         Modifier.focusProperties { up = upFocusRequester }
     } else {
         Modifier
+    }
+    val subtitleText = if (commentsMode == CommentsMode.EPISODE && selectedEpisode != null) {
+        stringResource(
+            R.string.detail_comments_subtitle_episode,
+            selectedEpisode.season ?: 0,
+            selectedEpisode.episode ?: 0
+        )
+    } else {
+        stringResource(R.string.detail_comments_subtitle)
     }
 
     LaunchedEffect(listState, comments.size, canLoadMore, isLoadingMore, isLoading, error) {
@@ -141,11 +164,46 @@ fun CommentsSection(
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = stringResource(R.string.detail_comments_subtitle),
+            text = subtitleText,
             style = MaterialTheme.typography.bodyMedium,
             color = NuvioColors.TextSecondary,
             modifier = Modifier.padding(horizontal = 48.dp)
         )
+        if (canToggleEpisodeComments) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.padding(horizontal = 48.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CommentModeButton(
+                    text = stringResource(R.string.detail_comments_mode_show),
+                    selected = commentsMode == CommentsMode.TITLE,
+                    focusRequester = titleModeFocusRequester,
+                    upFocusRequester = upFocusRequester,
+                    downFocusRequester = firstItemFocusRequester,
+                    onClick = { onCommentsModeSelected(CommentsMode.TITLE) }
+                )
+                CommentModeButton(
+                    text = stringResource(R.string.detail_comments_mode_episode),
+                    selected = commentsMode == CommentsMode.EPISODE,
+                    focusRequester = episodeModeFocusRequester,
+                    upFocusRequester = upFocusRequester,
+                    downFocusRequester = if (selectedEpisode != null) episodePickerFocusRequester else firstItemFocusRequester,
+                    onClick = { onCommentsModeSelected(CommentsMode.EPISODE) }
+                )
+                if (commentsMode == CommentsMode.EPISODE && selectedEpisode != null) {
+                    CommentModeButton(
+                        text = selectedEpisodeLabel(selectedEpisode),
+                        selected = false,
+                        focusRequester = episodePickerFocusRequester,
+                        upFocusRequester = upFocusRequester,
+                        downFocusRequester = firstItemFocusRequester,
+                        onClick = { showEpisodePicker = true }
+                    )
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(10.dp))
 
         when {
@@ -164,7 +222,19 @@ fun CommentsSection(
                                 if (index == 0) {
                                     Modifier
                                         .focusRequester(firstItemFocusRequester)
-                                        .then(upFocusModifier)
+                                        .then(
+                                            if (canToggleEpisodeComments) {
+                                                Modifier.focusProperties {
+                                                    up = if (commentsMode == CommentsMode.EPISODE && selectedEpisode != null) {
+                                                        episodePickerFocusRequester
+                                                    } else {
+                                                        episodeModeFocusRequester
+                                                    }
+                                                }
+                                            } else {
+                                                upFocusModifier
+                                            }
+                                        )
                                 } else {
                                     Modifier.then(upFocusModifier)
                                 }
@@ -188,7 +258,19 @@ fun CommentsSection(
                         onClick = onRetry,
                         modifier = Modifier
                             .focusRequester(firstItemFocusRequester)
-                            .then(upFocusModifier),
+                            .then(
+                                if (canToggleEpisodeComments) {
+                                    Modifier.focusProperties {
+                                        up = if (commentsMode == CommentsMode.EPISODE && selectedEpisode != null) {
+                                            episodePickerFocusRequester
+                                        } else {
+                                            episodeModeFocusRequester
+                                        }
+                                    }
+                                } else {
+                                    upFocusModifier
+                                }
+                            ),
                         colors = ButtonDefaults.colors(
                             containerColor = NuvioColors.BackgroundCard,
                             contentColor = NuvioColors.TextPrimary
@@ -226,7 +308,19 @@ fun CommentsSection(
                                 .then(
                                     if (isFirst) Modifier.focusRequester(firstItemFocusRequester) else Modifier
                                 )
-                                .then(upFocusModifier),
+                                .then(
+                                    if (isFirst && canToggleEpisodeComments) {
+                                        Modifier.focusProperties {
+                                            up = if (commentsMode == CommentsMode.EPISODE && selectedEpisode != null) {
+                                                episodePickerFocusRequester
+                                            } else {
+                                                episodeModeFocusRequester
+                                            }
+                                        }
+                                    } else {
+                                        upFocusModifier
+                                    }
+                                ),
                             onClick = { onCommentClick(review) }
                         )
                     }
@@ -238,6 +332,49 @@ fun CommentsSection(
                 }
             }
         }
+    }
+
+    if (showEpisodePicker && seasonEpisodes.isNotEmpty()) {
+        EpisodeCommentPickerDialog(
+            episodes = seasonEpisodes,
+            selectedEpisodeId = selectedEpisode?.id,
+            onDismiss = { showEpisodePicker = false },
+            onEpisodeSelected = {
+                showEpisodePicker = false
+                onEpisodeSelected(it)
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CommentModeButton(
+    text: String,
+    selected: Boolean,
+    focusRequester: FocusRequester,
+    upFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .focusRequester(focusRequester)
+            .focusProperties {
+                if (upFocusRequester != null) {
+                    up = upFocusRequester
+                }
+                if (downFocusRequester != null) {
+                    down = downFocusRequester
+                }
+            },
+        colors = ButtonDefaults.colors(
+            containerColor = if (selected) NuvioColors.Secondary else NuvioColors.BackgroundCard,
+            contentColor = if (selected) NuvioColors.OnSecondary else NuvioColors.TextPrimary
+        )
+    ) {
+        Text(text)
     }
 }
 
@@ -336,6 +473,62 @@ private fun CommentChip(text: String) {
             color = NuvioColors.TextPrimary,
             maxLines = 1
         )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun EpisodeCommentPickerDialog(
+    episodes: List<Video>,
+    selectedEpisodeId: String?,
+    onDismiss: () -> Unit,
+    onEpisodeSelected: (Video) -> Unit
+) {
+    val primaryFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        primaryFocusRequester.requestFocus()
+    }
+
+    NuvioDialog(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.detail_comments_episode_picker_title),
+        subtitle = stringResource(R.string.detail_comments_episode_picker_subtitle),
+        width = 560.dp
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(320.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(episodes, key = { it.id }) { episode ->
+                Button(
+                    onClick = { onEpisodeSelected(episode) },
+                    modifier = if (episode.id == episodes.firstOrNull()?.id) {
+                        Modifier
+                            .fillMaxWidth()
+                            .focusRequester(primaryFocusRequester)
+                    } else {
+                        Modifier.fillMaxWidth()
+                    },
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (episode.id == selectedEpisodeId) {
+                            NuvioColors.FocusBackground
+                        } else {
+                            NuvioColors.BackgroundCard
+                        },
+                        contentColor = NuvioColors.TextPrimary
+                    )
+                ) {
+                    Text(
+                        text = "${selectedEpisodeLabel(episode)}  ${episode.title.localizeEpisodeTitle(androidx.compose.ui.platform.LocalContext.current)}",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -644,6 +837,12 @@ private fun commentMaxLines(length: Int): Int = when {
     length <= 650 -> 17
     length <= 900 -> 22
     else -> 28
+}
+
+private fun selectedEpisodeLabel(video: Video): String {
+    val season = video.season ?: 0
+    val episode = video.episode ?: 0
+    return "S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}"
 }
 
 @Composable

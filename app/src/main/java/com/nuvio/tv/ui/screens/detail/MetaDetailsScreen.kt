@@ -436,6 +436,8 @@ fun MetaDetailsScreen(
                     isCommentsLoadingMore = uiState.isCommentsLoadingMore,
                     commentsError = uiState.commentsError,
                     shouldShowCommentsSection = uiState.shouldShowCommentsSection,
+                    commentsMode = uiState.commentsMode,
+                    commentsEpisodeTarget = uiState.commentsEpisodeTarget,
                     selectedComment = uiState.selectedComment,
                     onSeasonSelected = { viewModel.onEvent(MetaDetailsEvent.OnSeasonSelected(it)) },
                     onEpisodeClick = { video ->
@@ -583,6 +585,8 @@ fun MetaDetailsScreen(
                     onTrailerButtonClick = { viewModel.onEvent(MetaDetailsEvent.OnTrailerButtonClick) },
                     onRetryComments = { viewModel.onEvent(MetaDetailsEvent.OnRetryComments) },
                     onLoadMoreComments = { viewModel.onEvent(MetaDetailsEvent.OnLoadMoreComments) },
+                    onCommentsModeSelected = { viewModel.onEvent(MetaDetailsEvent.OnCommentsModeSelected(it)) },
+                    onCommentsEpisodeSelected = { viewModel.onEvent(MetaDetailsEvent.OnCommentsEpisodeSelected(it)) },
                     onCommentClick = {
                         commentOverlayDirection = 0
                         viewModel.onEvent(MetaDetailsEvent.OnCommentSelected(it))
@@ -704,6 +708,8 @@ private fun MetaDetailsContent(
     isCommentsLoadingMore: Boolean,
     commentsError: String?,
     shouldShowCommentsSection: Boolean,
+    commentsMode: CommentsMode,
+    commentsEpisodeTarget: Video?,
     selectedComment: TraktCommentReview?,
     onSeasonSelected: (Int) -> Unit,
     onEpisodeClick: (Video) -> Unit,
@@ -734,6 +740,8 @@ private fun MetaDetailsContent(
     onTrailerButtonClick: () -> Unit,
     onRetryComments: () -> Unit,
     onLoadMoreComments: () -> Unit,
+    onCommentsModeSelected: (CommentsMode) -> Unit,
+    onCommentsEpisodeSelected: (Video) -> Unit,
     onCommentClick: (TraktCommentReview) -> Unit,
     onShowPreviousComment: () -> Unit,
     onShowNextComment: () -> Unit,
@@ -1582,6 +1590,10 @@ private fun MetaDetailsContent(
                 item(key = "trakt_comments", contentType = "horizontal_row") {
                     CommentsSection(
                         comments = comments,
+                        commentsMode = commentsMode,
+                        canToggleEpisodeComments = isSeries && episodesForSeason.isNotEmpty(),
+                        selectedEpisode = commentsEpisodeTarget,
+                        seasonEpisodes = episodesForSeason,
                         isLoading = isCommentsLoading,
                         isLoadingMore = isCommentsLoadingMore,
                         canLoadMore = canLoadMoreComments,
@@ -1589,6 +1601,8 @@ private fun MetaDetailsContent(
                         upFocusRequester = commentsUpFocusRequester,
                         onRetry = onRetryComments,
                         onLoadMore = onLoadMoreComments,
+                        onCommentsModeSelected = onCommentsModeSelected,
+                        onEpisodeSelected = onCommentsEpisodeSelected,
                         onCommentClick = onCommentClick
                     )
                 }

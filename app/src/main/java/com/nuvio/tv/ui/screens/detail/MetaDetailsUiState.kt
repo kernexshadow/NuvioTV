@@ -15,6 +15,11 @@ enum class MoreLikeThisSource {
     TRAKT
 }
 
+enum class CommentsMode {
+    TITLE,
+    EPISODE
+}
+
 data class MetaDetailsUiState(
     val isLoading: Boolean = true,
     val meta: Meta? = null,
@@ -61,6 +66,8 @@ data class MetaDetailsUiState(
     val isCommentsLoadingMore: Boolean = false,
     val commentsError: String? = null,
     val shouldShowCommentsSection: Boolean = false,
+    val commentsMode: CommentsMode = CommentsMode.TITLE,
+    val commentsEpisodeTarget: Video? = null,
     val selectedComment: TraktCommentReview? = null,
     val userMessage: String? = null,
     val userMessageIsError: Boolean = false
@@ -69,6 +76,8 @@ data class MetaDetailsUiState(
 sealed class MetaDetailsEvent {
     data class OnSeasonSelected(val season: Int) : MetaDetailsEvent()
     data class OnEpisodeClick(val video: Video) : MetaDetailsEvent()
+    data class OnCommentsModeSelected(val mode: CommentsMode) : MetaDetailsEvent()
+    data class OnCommentsEpisodeSelected(val video: Video) : MetaDetailsEvent()
     data object OnPlayClick : MetaDetailsEvent()
     data object OnToggleLibrary : MetaDetailsEvent()
     data object OnRetry : MetaDetailsEvent()

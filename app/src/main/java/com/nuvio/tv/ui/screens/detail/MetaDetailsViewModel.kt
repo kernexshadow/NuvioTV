@@ -192,6 +192,8 @@ class MetaDetailsViewModel @Inject constructor(
                                 isCommentsLoadingMore = false,
                                 commentsError = null,
                                 shouldShowCommentsSection = false,
+                                commentsMode = CommentsMode.TITLE,
+                                commentsEpisodeTarget = null,
                                 selectedComment = null
                             )
                         }
@@ -267,6 +269,8 @@ class MetaDetailsViewModel @Inject constructor(
         when (event) {
             is MetaDetailsEvent.OnSeasonSelected -> selectSeason(event.season)
             is MetaDetailsEvent.OnEpisodeClick -> { /* Navigate to stream */ }
+            is MetaDetailsEvent.OnCommentsModeSelected -> selectCommentsMode(event.mode)
+            is MetaDetailsEvent.OnCommentsEpisodeSelected -> selectCommentsEpisode(event.video)
             MetaDetailsEvent.OnPlayClick -> { /* Start playback */ }
             MetaDetailsEvent.OnToggleLibrary -> toggleLibrary()
             MetaDetailsEvent.OnRetry -> loadMeta()
@@ -465,6 +469,8 @@ class MetaDetailsViewModel @Inject constructor(
                     isCommentsLoadingMore = false,
                     commentsError = null,
                     shouldShowCommentsSection = false,
+                    commentsMode = CommentsMode.TITLE,
+                    commentsEpisodeTarget = null,
                     selectedComment = null
                 )
             }
@@ -589,6 +595,11 @@ class MetaDetailsViewModel @Inject constructor(
                 selectedSeason = selectedSeason,
                 episodesForSeason = episodesForSeason,
                 error = null,
+                commentsEpisodeTarget = resolveCommentsEpisodeTarget(
+                    meta = meta,
+                    preferredSeason = selectedSeason,
+                    existingTarget = it.commentsEpisodeTarget
+                ),
                 shouldShowCommentsSection = traktCommentsEnabled && traktAuthenticated && supportsComments(meta)
             )
         }
@@ -627,6 +638,8 @@ class MetaDetailsViewModel @Inject constructor(
                     isCommentsLoadingMore = false,
                     commentsError = null,
                     shouldShowCommentsSection = false,
+                    commentsMode = CommentsMode.TITLE,
+                    commentsEpisodeTarget = null,
                     selectedComment = null
                 )
             }
@@ -658,6 +671,7 @@ class MetaDetailsViewModel @Inject constructor(
                     meta = meta,
                     fallbackItemId = itemId,
                     fallbackItemType = itemType,
+                    targetEpisode = currentCommentsEpisodeTarget(meta),
                     page = 1,
                     forceRefresh = forceRefresh
                 )
@@ -734,6 +748,7 @@ class MetaDetailsViewModel @Inject constructor(
                     meta = meta,
                     fallbackItemId = itemId,
                     fallbackItemType = itemType,
+                    targetEpisode = currentCommentsEpisodeTarget(meta),
                     page = nextPage
                 )
 
@@ -1186,12 +1201,22 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun selectSeason(season: Int) {
-        val episodes = _uiState.value.meta?.videos?.let { getEpisodesForSeason(it, season) } ?: emptyList()
+        val meta = _uiState.value.meta ?: return
+        val episodes = getEpisodesForSeason(meta.videos, season)
+        val nextCommentsEpisode = resolveCommentsEpisodeTarget(
+            meta = meta,
+            preferredSeason = season,
+            existingTarget = _uiState.value.commentsEpisodeTarget
+        )
         _uiState.update {
             it.copy(
                 selectedSeason = season,
-                episodesForSeason = episodes
+                episodesForSeason = episodes,
+                commentsEpisodeTarget = nextCommentsEpisode
             )
+        }
+        if (traktCommentsEnabled && traktAuthenticated && supportsComments(meta) && _uiState.value.commentsMode == CommentsMode.EPISODE) {
+            loadComments(meta, forceRefresh = true)
         }
     }
 
@@ -1199,6 +1224,74 @@ class MetaDetailsViewModel @Inject constructor(
         return videos
             .filter { it.season == season }
             .sortedBy { it.episode }
+    }
+
+    private fun selectCommentsMode(mode: CommentsMode) {
+        val meta = _uiState.value.meta ?: return
+        if (_uiState.value.commentsMode == mode) return
+        val nextTarget = resolveCommentsEpisodeTarget(
+            meta = meta,
+            preferredSeason = _uiState.value.selectedSeason,
+            existingTarget = _uiState.value.commentsEpisodeTarget
+        )
+        _uiState.update {
+            it.copy(
+                commentsMode = mode,
+                commentsEpisodeTarget = nextTarget,
+                selectedComment = null
+            )
+        }
+        if (traktCommentsEnabled && traktAuthenticated && supportsComments(meta)) {
+            loadComments(meta, forceRefresh = true)
+        }
+    }
+
+    private fun selectCommentsEpisode(video: Video) {
+        val meta = _uiState.value.meta ?: return
+        if (_uiState.value.commentsEpisodeTarget?.id == video.id && _uiState.value.commentsMode == CommentsMode.EPISODE) {
+            return
+        }
+        _uiState.update {
+            it.copy(
+                commentsMode = CommentsMode.EPISODE,
+                commentsEpisodeTarget = video,
+                selectedComment = null
+            )
+        }
+        if (traktCommentsEnabled && traktAuthenticated && supportsComments(meta)) {
+            loadComments(meta, forceRefresh = true)
+        }
+    }
+
+    private fun currentCommentsEpisodeTarget(meta: Meta): Video? {
+        val state = _uiState.value
+        if (state.commentsMode != CommentsMode.EPISODE) return null
+        return resolveCommentsEpisodeTarget(
+            meta = meta,
+            preferredSeason = state.selectedSeason,
+            existingTarget = state.commentsEpisodeTarget
+        )
+    }
+
+    private fun resolveCommentsEpisodeTarget(
+        meta: Meta,
+        preferredSeason: Int,
+        existingTarget: Video?
+    ): Video? {
+        val allEpisodes = meta.videos.filter { it.season != null && it.episode != null }
+        if (allEpisodes.isEmpty()) return null
+
+        existingTarget
+            ?.takeIf { target ->
+                allEpisodes.any { episode ->
+                    episode.season == target.season && episode.episode == target.episode
+                }
+            }
+            ?.let { return it }
+
+        return allEpisodes.firstOrNull { it.season == preferredSeason }
+            ?: allEpisodes.firstOrNull { (it.season ?: 0) > 0 }
+            ?: allEpisodes.first()
     }
 
     private fun reevaluateSeriesWatchedBadge() {
