@@ -612,16 +612,17 @@ private fun MetaInfoRow(
     val ageRatingBadge = remember(meta.ageRating) {
         meta.ageRating?.trim()?.takeIf { it.isNotBlank() }
     }
-    val strStatusEnded = stringResource(R.string.series_status_ended)
-    val strStatusContinuing = stringResource(R.string.series_status_continuing)
-    val strStatusCurrent = stringResource(R.string.series_status_current)
-    val strStatusCancelled = stringResource(R.string.series_status_cancelled)
-    val strStatusReleased = stringResource(R.string.series_status_released)
-    val strStatusPlanned = stringResource(R.string.series_status_planned)
-    val strStatusRumored = stringResource(R.string.series_status_rumored)
-    val strStatusInProduction = stringResource(R.string.series_status_in_production)
-    val strStatusPostProduction = stringResource(R.string.series_status_post_production)
-    val statusBadge = remember(meta.status) {
+    val isSeries = meta.type == ContentType.SERIES || meta.type == ContentType.TV
+    val strStatusEnded = stringResource(if (isSeries) R.string.series_status_ended else R.string.movie_status_ended)
+    val strStatusContinuing = stringResource(if (isSeries) R.string.series_status_continuing else R.string.movie_status_continuing)
+    val strStatusCurrent = stringResource(if (isSeries) R.string.series_status_current else R.string.movie_status_current)
+    val strStatusCancelled = stringResource(if (isSeries) R.string.series_status_cancelled else R.string.movie_status_cancelled)
+    val strStatusReleased = stringResource(if (isSeries) R.string.series_status_released else R.string.movie_status_released)
+    val strStatusPlanned = stringResource(if (isSeries) R.string.series_status_planned else R.string.movie_status_planned)
+    val strStatusRumored = stringResource(if (isSeries) R.string.series_status_rumored else R.string.movie_status_rumored)
+    val strStatusInProduction = stringResource(if (isSeries) R.string.series_status_in_production else R.string.movie_status_in_production)
+    val strStatusPostProduction = stringResource(if (isSeries) R.string.series_status_post_production else R.string.movie_status_post_production)
+    val statusBadge = remember(meta.status, isSeries) {
         when (meta.status?.trim()?.lowercase()) {
             "ended" -> strStatusEnded.uppercase()
             "continuing", "returning series" -> strStatusContinuing.uppercase()
