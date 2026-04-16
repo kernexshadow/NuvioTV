@@ -213,7 +213,9 @@ internal fun ModernCarouselItem.catalogCardMetrics(
     landscapeCardWidth: androidx.compose.ui.unit.Dp,
     landscapeCardHeight: androidx.compose.ui.unit.Dp
 ): ModernCatalogCardMetrics {
-    if (useLandscapePosters) {
+    // Collection folders define their own tile shape — never override with
+    // the global landscape-posters toggle.
+    if (useLandscapePosters && payload !is ModernPayload.CollectionFolder) {
         return ModernCatalogCardMetrics(
             width = landscapeCardWidth,
             height = landscapeCardHeight

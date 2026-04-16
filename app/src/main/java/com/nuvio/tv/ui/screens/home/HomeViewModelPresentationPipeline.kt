@@ -396,8 +396,7 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
 
     val tmdbEnabledForCurrentLayout = currentTmdbSettings.enabled &&
         (_uiState.value.homeLayout != HomeLayout.MODERN || currentTmdbSettings.modernHomeEnabled)
-    val mdbListEnabledForHome = currentMdbListSettings.enabled && currentMdbListSettings.apiKey.isNotBlank()
-    val willEnrich = tmdbEnabledForCurrentLayout || externalMetaPrefetchEnabled || mdbListEnabledForHome
+    val willEnrich = tmdbEnabledForCurrentLayout || externalMetaPrefetchEnabled
 
     if (willEnrich) setEnrichingItemId(item.id)
 
@@ -416,15 +415,6 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
 
         try {
             var tmdbEnriched = false
-            val mdbSettings = currentMdbListSettings
-            val mdbEnabled = mdbSettings.enabled && mdbSettings.apiKey.isNotBlank()
-
-            // Start MDBList fetch immediately, independent of TMDB
-            val mdbRatingDeferred = if (mdbEnabled) async {
-                runCatching {
-                    mdbListRepository.getImdbRatingForItem(item.id, item.apiType)
-                }.getOrNull()
-            } else null
 
             if (tmdbEnabledForCurrentLayout) {
                 val tmdbId = runCatching { tmdbService.ensureTmdbId(item.id, item.apiType) }.getOrNull()
@@ -440,22 +430,12 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
                 } else null
 
                 val enrichment = enrichmentDeferred?.await()
-                val mdbImdbRating = mdbRatingDeferred?.await()
 
                 if (enrichment != null) {
                     prefetchedTmdbIds.add(item.id)
                     prefetchedExternalMetaIds.add(item.id)
-                    val finalEnrichment = if (mdbImdbRating != null) enrichment.copy(rating = mdbImdbRating) else enrichment
-                    updateCatalogItemWithTmdb(item.id, finalEnrichment)
+                    updateCatalogItemWithTmdb(item.id, enrichment)
                     tmdbEnriched = true
-                } else if (mdbImdbRating != null) {
-                    updateCatalogItemImdbRating(item.id, mdbImdbRating.toFloat())
-                }
-            } else {
-                // TMDB disabled - apply MDBList rating alone if available
-                val mdbImdbRating = mdbRatingDeferred?.await()
-                if (mdbImdbRating != null) {
-                    updateCatalogItemImdbRating(item.id, mdbImdbRating.toFloat())
                 }
             }
             if (!tmdbEnriched && externalMetaPrefetchEnabled &&
@@ -543,8 +523,7 @@ private fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment: 
             merged = merged.copy(
                 name = enrichment.localizedTitle ?: merged.name,
                 description = enrichment.description ?: merged.description,
-                genres = if (enrichment.genres.isNotEmpty()) enrichment.genres else merged.genres,
-                imdbRating = enrichment.rating?.toFloat() ?: merged.imdbRating
+                genres = if (enrichment.genres.isNotEmpty()) enrichment.genres else merged.genres
             )
         }
         if (currentTmdbSettings.useArtwork) {
@@ -713,7 +692,7 @@ internal suspend fun HomeViewModel.enrichHeroItemsPipeline(
                             name = enrichment.localizedTitle ?: enriched.name,
                             description = enrichment.description ?: enriched.description,
                             genres = if (enrichment.genres.isNotEmpty()) enrichment.genres else enriched.genres,
-                            imdbRating = mdbImdbRating?.toFloat() ?: enrichment.rating?.toFloat() ?: enriched.imdbRating
+                            imdbRating = mdbImdbRating?.toFloat() ?: enriched.imdbRating
                         )
                     }
 

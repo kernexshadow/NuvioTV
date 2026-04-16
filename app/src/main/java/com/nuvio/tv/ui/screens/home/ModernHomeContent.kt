@@ -61,7 +61,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
@@ -90,6 +93,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import coil.imageLoader
+import coil.memory.MemoryCache
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -217,6 +221,7 @@ fun ModernHomeContent(
 
     // Tag JankStats with key UI states so jank reports are actionable.
     val currentView = LocalView.current
+    val focusManager = LocalFocusManager.current
     val metricsHolder = PerformanceMetricsState.getHolderForHierarchy(currentView)
     LaunchedEffect(isVerticalRowsScrolling) {
         metricsHolder.state?.putState("HomeScrolling", isVerticalRowsScrolling.toString())
@@ -302,6 +307,8 @@ fun ModernHomeContent(
         if (selection.focusKey == lastRequestedTrailerFocusKey) {
             return@LaunchedEffect
         }
+        delay(150)
+        if (focusedCatalogSelection?.focusKey != selection.focusKey) return@LaunchedEffect
         onRequestTrailerPreview(
             selection.payload.itemId,
             selection.payload.trailerTitle,
@@ -728,6 +735,44 @@ fun ModernHomeContent(
                 .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
         )
 
+        val verticalPrefetchContext = LocalContext.current
+        val verticalPrefetchImageLoader = verticalPrefetchContext.imageLoader
+        val verticalPrefetchDensity = LocalDensity.current
+        LaunchedEffect(verticalPrefetchImageLoader, verticalPrefetchDensity) {
+            val prefetchAheadRows = 2
+            val prefetchItemsPerRow = 8
+            snapshotFlow {
+                verticalRowListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            }.distinctUntilChanged().collect { lastVisibleRowIndex ->
+                val rows = carouselRows
+                for (rowOffset in 1..prefetchAheadRows) {
+                    val row = rows.getOrNull(lastVisibleRowIndex + rowOffset) ?: continue
+                    for (i in 0 until minOf(prefetchItemsPerRow, row.items.size)) {
+                        val item = row.items[i]
+                        val url = item.imageUrl ?: continue
+                        val metrics = item.catalogCardMetrics(
+                            useLandscapePosters = useLandscapePosters,
+                            portraitCardWidth = portraitCatalogCardWidth,
+                            portraitCardHeight = portraitCatalogCardHeight,
+                            landscapeCardWidth = landscapeCatalogCardWidth,
+                            landscapeCardHeight = landscapeCatalogCardHeight
+                        )
+                        val wPx = with(verticalPrefetchDensity) { metrics.width.roundToPx() }
+                        val hPx = with(verticalPrefetchDensity) { metrics.height.roundToPx() }
+                        val cacheKey = "${url}_${wPx}x${hPx}"
+                        if (verticalPrefetchImageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) continue
+                        verticalPrefetchImageLoader.enqueue(
+                            ImageRequest.Builder(verticalPrefetchContext)
+                                .data(url)
+                                .memoryCacheKey(cacheKey)
+                                .size(width = wPx, height = hPx)
+                                .build()
+                        )
+                    }
+                }
+            }
+        }
+
         CompositionLocalProvider(
             LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec,
             LocalVerticalRowsScrolling provides (uiState.memoryOnlyVerticalScroll && isVerticalRowsScrolling)
@@ -745,6 +790,8 @@ fun ModernHomeContent(
                     .focusRestorer { focusRestorerRequester }
                     .onPreviewKeyEvent { event ->
                         val native = event.nativeKeyEvent
+                       
+                    
                         if (native.action == AndroidKeyEvent.ACTION_DOWN &&
                             native.repeatCount > 0 &&
                             (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
@@ -760,6 +807,17 @@ fun ModernHomeContent(
                                 return@onPreviewKeyEvent true // consume, too soon
                             }
                             lastKeyRepeatDispatchRef.set(now)
+                            val direction = when (native.keyCode) {
+                                AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
+                                AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
+                                AndroidKeyEvent.KEYCODE_DPAD_LEFT -> FocusDirection.Left
+                                AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> FocusDirection.Right
+                                else -> null
+                            }
+                            if (direction != null) {
+                                focusManager.moveFocus(direction)
+                            }
+                            return@onPreviewKeyEvent true
                         }
                         false
                     },
