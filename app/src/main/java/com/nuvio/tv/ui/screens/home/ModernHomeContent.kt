@@ -106,6 +106,7 @@ import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
 import android.view.KeyEvent as AndroidKeyEvent
+import kotlin.math.abs
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 
