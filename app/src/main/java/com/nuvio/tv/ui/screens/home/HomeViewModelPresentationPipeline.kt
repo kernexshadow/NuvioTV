@@ -444,8 +444,10 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
                 if (enrichment != null) {
                     prefetchedTmdbIds.add(item.id)
                     prefetchedExternalMetaIds.add(item.id)
-                    val finalEnrichment = if (mdbImdbRating != null) enrichment.copy(rating = mdbImdbRating) else enrichment
-                    updateCatalogItemWithTmdb(item.id, finalEnrichment)
+                    updateCatalogItemWithTmdb(item.id, enrichment)
+                    if (mdbImdbRating != null) {
+                        updateCatalogItemImdbRating(item.id, mdbImdbRating.toFloat())
+                    }
                     tmdbEnriched = true
                 } else if (mdbImdbRating != null) {
                     updateCatalogItemImdbRating(item.id, mdbImdbRating.toFloat())
@@ -542,8 +544,7 @@ private fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment: 
             merged = merged.copy(
                 name = enrichment.localizedTitle ?: merged.name,
                 description = enrichment.description ?: merged.description,
-                genres = if (enrichment.genres.isNotEmpty()) enrichment.genres else merged.genres,
-                imdbRating = enrichment.rating?.toFloat() ?: merged.imdbRating
+                genres = if (enrichment.genres.isNotEmpty()) enrichment.genres else merged.genres
             )
         }
         if (currentTmdbSettings.useArtwork) {
@@ -712,7 +713,7 @@ internal suspend fun HomeViewModel.enrichHeroItemsPipeline(
                             name = enrichment.localizedTitle ?: enriched.name,
                             description = enrichment.description ?: enriched.description,
                             genres = if (enrichment.genres.isNotEmpty()) enrichment.genres else enriched.genres,
-                            imdbRating = mdbImdbRating?.toFloat() ?: enrichment.rating?.toFloat() ?: enriched.imdbRating
+                            imdbRating = mdbImdbRating?.toFloat() ?: enriched.imdbRating
                         )
                     }
 

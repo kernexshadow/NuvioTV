@@ -701,8 +701,7 @@ class FolderDetailViewModel @Inject constructor(
                         result = result.copy(
                             name = finalEnrichment.localizedTitle ?: result.name,
                             description = finalEnrichment.description ?: result.description,
-                            genres = if (finalEnrichment.genres.isNotEmpty()) finalEnrichment.genres else result.genres,
-                            imdbRating = finalEnrichment.rating?.toFloat() ?: result.imdbRating
+                            genres = if (finalEnrichment.genres.isNotEmpty()) finalEnrichment.genres else result.genres
                         )
                     }
                     if (tmdbSettings.useArtwork) {
