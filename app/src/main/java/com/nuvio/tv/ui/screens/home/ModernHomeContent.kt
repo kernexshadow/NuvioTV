@@ -61,7 +61,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
@@ -438,6 +441,7 @@ fun ModernHomeContent(
 
     // Tag JankStats with key UI states so jank reports are actionable.
     val currentView = LocalView.current
+    val focusManager = LocalFocusManager.current
     val metricsHolder = PerformanceMetricsState.getHolderForHierarchy(currentView)
     LaunchedEffect(isVerticalRowsScrolling) {
         metricsHolder.state?.putState("HomeScrolling", isVerticalRowsScrolling.toString())
@@ -966,6 +970,8 @@ fun ModernHomeContent(
                     .focusRestorer { focusRestorerRequester }
                     .onPreviewKeyEvent { event ->
                         val native = event.nativeKeyEvent
+                       
+                    
                         if (native.action == AndroidKeyEvent.ACTION_DOWN &&
                             native.repeatCount > 0 &&
                             (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
@@ -981,6 +987,17 @@ fun ModernHomeContent(
                                 return@onPreviewKeyEvent true // consume, too soon
                             }
                             lastKeyRepeatDispatchRef.set(now)
+                            val direction = when (native.keyCode) {
+                                AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
+                                AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
+                                AndroidKeyEvent.KEYCODE_DPAD_LEFT -> FocusDirection.Left
+                                AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> FocusDirection.Right
+                                else -> null
+                            }
+                            if (direction != null) {
+                                focusManager.moveFocus(direction)
+                            }
+                            return@onPreviewKeyEvent true
                         }
                         false
                     },
