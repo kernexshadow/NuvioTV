@@ -12,21 +12,29 @@ internal class AlwaysCrossfadeTransitionFactory @JvmOverloads constructor(
     private val preferExactIntrinsicSize: Boolean = false
 ) : Transition.Factory {
 
+    @Volatile
+    private var lastUrl: Any? = null
+
     init {
         require(durationMillis > 0) { "durationMillis must be > 0." }
     }
 
     override fun create(target: TransitionTarget, result: ImageResult): Transition {
-        return if (result is SuccessResult) {
-            CrossfadeTransition(
-                target = target,
-                result = result,
-                durationMillis = durationMillis,
-                preferExactIntrinsicSize = preferExactIntrinsicSize
-            )
-        } else {
-            Transition.Factory.NONE.create(target, result)
+        if (result !is SuccessResult) {
+            return Transition.Factory.NONE.create(target, result)
         }
+        val url = result.request.data
+        val previousUrl = lastUrl
+        lastUrl = url
+        if (previousUrl != null && previousUrl == url) {
+            return Transition.Factory.NONE.create(target, result)
+        }
+        return CrossfadeTransition(
+            target = target,
+            result = result,
+            durationMillis = durationMillis,
+            preferExactIntrinsicSize = preferExactIntrinsicSize
+        )
     }
 
     override fun equals(other: Any?): Boolean {
