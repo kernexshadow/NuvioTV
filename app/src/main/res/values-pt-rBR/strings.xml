@@ -206,6 +206,7 @@
     <string name="tmdb_entity_empty_title">Nenhum título encontrado</string>
     <string name="tmdb_entity_empty_subtitle">O TMDB não possui títulos disponíveis para esta seleção.</string>
     <string name="episodes_unavailable">Indisponível</string>
+    <!-- Status labels for series (some languages need gendered forms) -->
     <string name="series_status_ended">Encerrada</string>
     <string name="series_status_continuing">Em andamento</string>
     <string name="series_status_current">Em exibição</string>
@@ -215,10 +216,10 @@
     <string name="series_status_rumored">Rumores</string>
     <string name="series_status_in_production">Em produção</string>
     <string name="series_status_post_production">Pós-produção</string>
-    <string name="movie_status_ended">Encerrada</string>
+    <string name="movie_status_ended">Encerrado</string>
     <string name="movie_status_continuing">Continua</string>
-    <string name="movie_status_current">Em exibição</string>
-    <string name="movie_status_cancelled">Cancelada</string>
+    <string name="movie_status_current">Em andamento</string>
+    <string name="movie_status_cancelled">Cancelado</string>
     <string name="movie_status_released">Lançado</string>
     <string name="movie_status_planned">Planejado</string>
     <string name="movie_status_rumored">Rumores</string>
