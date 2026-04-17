@@ -454,7 +454,13 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
                 }
             }
         } finally {
-            if (_enrichingItemId.value == item.id) setEnrichingItemId(null)
+            if (_enrichingItemId.value == item.id) {
+                scheduleUpdateCatalogRows()
+                withContext(Dispatchers.Main) {
+                    delay(150)
+                }
+                setEnrichingItemId(null)
+            }
         }
     }
 }

@@ -927,8 +927,7 @@ fun ModernHomeContent(
                                 onExpandedCatalogFocusKeyChange = remember(Unit) { { expandedCatalogFocusKey = it } },
                                 onGetVerticalFocusRequester = { sourceIndex, isDown ->
                                     val currentRows = latestCarouselRows
-                                    val currentRowIndex = currentRows.indexOfFirst { it.key == row.key }
-                                    if (currentRowIndex == -1) return@ModernRowSection FocusRequester.Default
+                                    val currentRowIndex = rowIndexByKey[row.key] ?: return@ModernRowSection FocusRequester.Default
 
                                     val targetRowIndex = if (isDown) currentRowIndex + 1 else currentRowIndex - 1
                                     val targetRow = currentRows.getOrNull(targetRowIndex) ?: return@ModernRowSection FocusRequester.Default
