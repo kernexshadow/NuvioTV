@@ -61,6 +61,7 @@ fun CastSection(
     title: String = "Cast",
     leadingCast: List<MetaCastMember> = emptyList(),
     upFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
     sectionFocusRequester: FocusRequester? = null,
     restorePersonId: Int? = null,
     restoreFocusToken: Int = 0,
@@ -100,7 +101,14 @@ fun CastSection(
     val cardSize = 100.dp
     val hasTitle = title.isNotBlank()
     val upFocusModifier = if (upFocusRequester != null) {
-        Modifier.focusProperties { up = upFocusRequester }
+        Modifier.focusProperties {
+            up = upFocusRequester
+            if (downFocusRequester != null) {
+                down = downFocusRequester
+            }
+        }
+    } else if (downFocusRequester != null) {
+        Modifier.focusProperties { down = downFocusRequester }
     } else {
         Modifier
     }

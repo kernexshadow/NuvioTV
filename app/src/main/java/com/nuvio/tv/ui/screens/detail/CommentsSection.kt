@@ -90,6 +90,8 @@ fun CommentsSection(
     comments: List<TraktCommentReview>,
     commentsMode: CommentsMode,
     canToggleEpisodeComments: Boolean,
+    titleModeFocusRequester: FocusRequester? = null,
+    episodeModeFocusRequester: FocusRequester? = null,
     selectedEpisode: Video?,
     allEpisodes: List<Video>,
     selectedSeason: Int?,
@@ -110,17 +112,19 @@ fun CommentsSection(
 ) {
     val cardShape = RoundedCornerShape(16.dp)
     val firstItemFocusRequester = remember { FocusRequester() }
-    val titleModeFocusRequester = remember { FocusRequester() }
-    val episodeModeFocusRequester = remember { FocusRequester() }
+    val internalTitleModeFocusRequester = remember { FocusRequester() }
+    val internalEpisodeModeFocusRequester = remember { FocusRequester() }
+    val resolvedTitleModeFocusRequester = titleModeFocusRequester ?: internalTitleModeFocusRequester
+    val resolvedEpisodeModeFocusRequester = episodeModeFocusRequester ?: internalEpisodeModeFocusRequester
     val commentFocusRequesters = remember(comments) { mutableMapOf<Long, FocusRequester>() }
     val listState = rememberLazyListState()
     var showEpisodePicker by remember { mutableStateOf(false) }
     var pickerSeason by rememberSaveable { mutableStateOf<Int?>(null) }
     var lastFocusedCommentId by rememberSaveable { mutableStateOf<Long?>(null) }
     val controlsFocusRequester = if (commentsMode == CommentsMode.EPISODE) {
-        episodeModeFocusRequester
+        resolvedEpisodeModeFocusRequester
     } else {
-        titleModeFocusRequester
+        resolvedTitleModeFocusRequester
     }
     val visibleFirstCommentId = remember(comments, listState.firstVisibleItemIndex) {
         comments.getOrNull(max(listState.firstVisibleItemIndex, 0))?.id
@@ -256,10 +260,10 @@ fun CommentsSection(
                 CommentModeButton(
                     text = stringResource(R.string.detail_comments_mode_show),
                     selected = commentsMode == CommentsMode.TITLE,
-                    focusRequester = titleModeFocusRequester,
+                    focusRequester = resolvedTitleModeFocusRequester,
                     upFocusRequester = upFocusRequester,
                     downFocusRequester = commentsTargetFocusRequester,
-                    rightFocusRequester = episodeModeFocusRequester,
+                    rightFocusRequester = resolvedEpisodeModeFocusRequester,
                     onClick = { onCommentsModeSelected(CommentsMode.TITLE) }
                 )
                 CommentModeButton(
@@ -272,10 +276,10 @@ fun CommentsSection(
                         stringResource(R.string.detail_comments_mode_episode)
                     },
                     selected = commentsMode == CommentsMode.EPISODE,
-                    focusRequester = episodeModeFocusRequester,
+                    focusRequester = resolvedEpisodeModeFocusRequester,
                     upFocusRequester = upFocusRequester,
                     downFocusRequester = commentsTargetFocusRequester,
-                    leftFocusRequester = titleModeFocusRequester,
+                    leftFocusRequester = resolvedTitleModeFocusRequester,
                     rightFocusRequester = FocusRequester.Cancel,
                     onClick = {
                         if (commentsMode == CommentsMode.EPISODE && allEpisodes.isNotEmpty()) {

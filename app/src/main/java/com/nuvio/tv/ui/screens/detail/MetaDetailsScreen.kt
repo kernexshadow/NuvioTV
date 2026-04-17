@@ -803,6 +803,8 @@ private fun MetaDetailsContent(
     val castSectionFocusRequester = remember { FocusRequester() }
     val moreLikeSectionFocusRequester = remember { FocusRequester() }
     val collectionSectionFocusRequester = remember { FocusRequester() }
+    val commentsTitleModeFocusRequester = remember { FocusRequester() }
+    val commentsEpisodeModeFocusRequester = remember { FocusRequester() }
     var pendingRestoreType by rememberSaveable { mutableStateOf<RestoreTarget?>(null) }
     var pendingRestoreEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingRestoreCastPersonId by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -1147,6 +1149,9 @@ private fun MetaDetailsContent(
         isSeries -> seasonDownFocusRequester ?: heroPlayFocusRequester
         else -> heroPlayFocusRequester
     }
+    val canToggleEpisodeComments = isSeries && episodesForSeason.isNotEmpty()
+    val commentsSelectedModeFocusRequester =
+        if (commentsMode == CommentsMode.EPISODE) commentsEpisodeModeFocusRequester else commentsTitleModeFocusRequester
 
     LaunchedEffect(availablePeopleTabs) {
         if (availablePeopleTabs.isNotEmpty() && activePeopleTab !in availablePeopleTabs) {
@@ -1547,6 +1552,7 @@ private fun MetaDetailsContent(
                                     title = if (hasPeopleTabs) "" else strTabCast,
                                     leadingCast = directorWriterMembers,
                                     upFocusRequester = if (hasPeopleTabs) castTabFocusRequester else seasonDownFocusRequester ?: heroPlayFocusRequester,
+                                    downFocusRequester = if (shouldShowCommentsSection && canToggleEpisodeComments) commentsSelectedModeFocusRequester else null,
                                     sectionFocusRequester = castSectionFocusRequester,
                                     restorePersonId = if (pendingRestoreType == RestoreTarget.CAST_MEMBER) pendingRestoreCastPersonId else null,
                                     restoreFocusToken = if (pendingRestoreType == RestoreTarget.CAST_MEMBER) restoreFocusToken else 0,
@@ -1571,6 +1577,7 @@ private fun MetaDetailsContent(
                                     items = moreLikeThis,
                                     sourceLabel = moreLikeThisSourceLabel,
                                     upFocusRequester = if (hasPeopleTabs) moreLikeTabFocusRequester else seasonDownFocusRequester ?: heroPlayFocusRequester,
+                                    downFocusRequester = if (shouldShowCommentsSection && canToggleEpisodeComments) commentsSelectedModeFocusRequester else null,
                                     sectionFocusRequester = moreLikeSectionFocusRequester,
                                     restoreItemId = if (pendingRestoreType == RestoreTarget.MORE_LIKE_THIS) pendingRestoreMoreLikeItemId else null,
                                     restoreFocusToken = if (pendingRestoreType == RestoreTarget.MORE_LIKE_THIS) restoreFocusToken else 0,
@@ -1588,6 +1595,7 @@ private fun MetaDetailsContent(
                                 CollectionSection(
                                     items = collection,
                                     upFocusRequester = if (hasPeopleTabs) collectionTabFocusRequester else seasonDownFocusRequester ?: heroPlayFocusRequester,
+                                    downFocusRequester = if (shouldShowCommentsSection && canToggleEpisodeComments) commentsSelectedModeFocusRequester else null,
                                     sectionFocusRequester = collectionSectionFocusRequester,
                                     restoreItemId = if (pendingRestoreType == RestoreTarget.COLLECTION) pendingRestoreCollectionItemId else null,
                                     restoreFocusToken = if (pendingRestoreType == RestoreTarget.COLLECTION) restoreFocusToken else 0,
@@ -1613,6 +1621,7 @@ private fun MetaDetailsContent(
                                     } else {
                                         seasonDownFocusRequester ?: heroPlayFocusRequester
                                     },
+                                    downFocusRequester = if (shouldShowCommentsSection && canToggleEpisodeComments) commentsSelectedModeFocusRequester else null,
                                     firstItemFocusRequester = ratingsContentFocusRequester,
                                     modifier = Modifier.heightIn(min = if (!hasItemsBelow) castSectionHeight else 0.dp)
                                 )
@@ -1627,7 +1636,9 @@ private fun MetaDetailsContent(
                     CommentsSection(
                         comments = comments,
                         commentsMode = commentsMode,
-                        canToggleEpisodeComments = isSeries && episodesForSeason.isNotEmpty(),
+                        canToggleEpisodeComments = canToggleEpisodeComments,
+                        titleModeFocusRequester = commentsTitleModeFocusRequester,
+                        episodeModeFocusRequester = commentsEpisodeModeFocusRequester,
                         selectedEpisode = commentsEpisodeTarget,
                         allEpisodes = meta.videos.filter { it.season != null && it.episode != null },
                         selectedSeason = selectedSeason,
