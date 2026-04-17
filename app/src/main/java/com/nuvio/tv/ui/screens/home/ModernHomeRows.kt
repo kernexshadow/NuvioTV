@@ -631,9 +631,14 @@ internal fun ModernRowSection(
                     val onFocused = remember(row.key, index, isContinueWatchingRow) {
                         { onRowItemFocused(row.key, index, isContinueWatchingRow) }
                     }
-                    val verticalFocusModifier = Modifier.focusProperties {
-                        up = onGetVerticalFocusRequester(index, false)
-                        down = onGetVerticalFocusRequester(index, true)
+                    val hasExpandedCard = expandedCatalogFocusKey != null
+                    val verticalFocusModifier = if (hasExpandedCard) {
+                        Modifier.focusProperties {
+                            up = onGetVerticalFocusRequester(index, false)
+                            down = onGetVerticalFocusRequester(index, true)
+                        }
+                    } else {
+                        Modifier
                     }
 
                     when (val payload = item.payload) {
