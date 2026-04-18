@@ -117,8 +117,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     val effectiveId = (contentId ?: currentVideoId ?: "").lowercase()
                     effectiveId.startsWith("kitsu:") ||
                         effectiveId.startsWith("mal:") ||
-                        effectiveId.startsWith("anilist:") ||
-                        (currentStreamUrl.contains("/anime/"))
+                        effectiveId.startsWith("anilist:")
                 }
 
                 effectiveInternalPlayerEngine = if (isAnime) InternalPlayerEngine.MVP_PLAYER else InternalPlayerEngine.EXOPLAYER
