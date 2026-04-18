@@ -112,7 +112,9 @@ internal fun PlayerRuntimeController.initializePlayer(
             var effectiveInternalPlayerEngine = overrideInternalPlayerEngine ?: playerSettings.internalPlayerEngine
             if (effectiveInternalPlayerEngine == InternalPlayerEngine.AUTO) {
                 val isAnime = if (metaGenres.isNotEmpty()) {
-                    metaGenres.any { it.equals("anime", ignoreCase = true) }
+                    metaGenres.any { it.equals("anime", ignoreCase = true) } ||
+                            (metaGenres.any { it.equals("animation", ignoreCase = true) } &&
+                                    metaCountry?.contains("Japan", ignoreCase = true) == true)
                 } else {
                     val effectiveId = (contentId ?: currentVideoId ?: "").lowercase()
                     effectiveId.startsWith("kitsu:") ||
