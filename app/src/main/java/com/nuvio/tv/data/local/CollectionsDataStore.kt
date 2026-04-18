@@ -5,11 +5,17 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.CollectionCatalogSource
 import com.nuvio.tv.domain.model.CollectionFolder
+import com.nuvio.tv.domain.model.CollectionSource
 import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.PosterShape
+import com.nuvio.tv.domain.model.TmdbCollectionFilters
+import com.nuvio.tv.domain.model.TmdbCollectionMediaType
+import com.nuvio.tv.domain.model.TmdbCollectionSource
+import com.nuvio.tv.domain.model.TmdbCollectionSourceType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -134,8 +140,8 @@ class CollectionsDataStore @Inject constructor(
                     if (folderId.isNullOrBlank()) return ValidationResult(false, "Collection \"$title\", folder ${j + 1}: missing \"id\"")
                     val folderTitle = folder["title"] as? String
                         ?: return ValidationResult(false, "Collection \"$title\", folder \"$folderId\": missing \"title\"")
-                    val sources = folder["catalogSources"] as? List<*>
-                        ?: return ValidationResult(false, "Collection \"$title\", folder \"$folderTitle\": \"catalogSources\" must be an array")
+                    val sources = (folder["sources"] as? List<*>) ?: (folder["catalogSources"] as? List<*>)
+                        ?: return ValidationResult(false, "Collection \"$title\", folder \"$folderTitle\": \"sources\" must be an array")
                     val shape = folder["tileShape"] as? String
                     if (shape != null && shape !in validShapes) {
                         return ValidationResult(false, "Collection \"$title\", folder \"$folderTitle\": invalid tileShape \"$shape\"")
@@ -143,8 +149,14 @@ class CollectionsDataStore @Inject constructor(
                     for ((k, s) in sources.withIndex()) {
                         val source = s as? Map<*, *>
                             ?: return ValidationResult(false, "Collection \"$title\", folder \"$folderTitle\", source ${k + 1}: invalid format")
-                        if (source["addonId"] !is String || source["type"] !is String || source["catalogId"] !is String) {
+                        val provider = (source["provider"] as? String)?.lowercase()
+                        val isAddonSource = provider == null || provider == "addon"
+                        val isTmdbSource = provider == "tmdb"
+                        if (isAddonSource && (source["addonId"] !is String || source["type"] !is String || source["catalogId"] !is String)) {
                             return ValidationResult(false, "Collection \"$title\", folder \"$folderTitle\", source ${k + 1}: missing required fields")
+                        }
+                        if (isTmdbSource && source["tmdbSourceType"] !is String) {
+                            return ValidationResult(false, "Collection \"$title\", folder \"$folderTitle\", source ${k + 1}: missing TMDB source type")
                         }
                     }
                     folderCount++
@@ -189,9 +201,41 @@ class CollectionsDataStore @Inject constructor(
         val coverEmoji: String? = null,
         val tileShape: String = "SQUARE",
         val hideTitle: Boolean = false,
+        val sources: List<SerializableSource>? = null,
         val catalogSources: List<SerializableCatalogSource> = emptyList(),
         val heroBackdropUrl: String? = null,
         val titleLogoUrl: String? = null
+    )
+
+    @androidx.annotation.Keep
+    private data class SerializableSource(
+        val provider: String = "addon",
+        val addonId: String? = null,
+        val type: String? = null,
+        val catalogId: String? = null,
+        val genre: String? = null,
+        val tmdbSourceType: String? = null,
+        val title: String? = null,
+        val tmdbId: Int? = null,
+        val mediaType: String? = null,
+        val sortBy: String? = null,
+        val filters: SerializableTmdbFilters? = null
+    )
+
+    @androidx.annotation.Keep
+    private data class SerializableTmdbFilters(
+        val withGenres: String? = null,
+        val releaseDateGte: String? = null,
+        val releaseDateLte: String? = null,
+        val voteAverageGte: Double? = null,
+        val voteAverageLte: Double? = null,
+        val voteCountGte: Int? = null,
+        val withOriginalLanguage: String? = null,
+        val withOriginCountry: String? = null,
+        val withKeywords: String? = null,
+        val withCompanies: String? = null,
+        val withNetworks: String? = null,
+        val year: Int? = null
     )
 
     @androidx.annotation.Keep
@@ -222,6 +266,7 @@ class CollectionsDataStore @Inject constructor(
                 hideTitle = folder.hideTitle,
                 heroBackdropUrl = folder.heroBackdropUrl,
                 titleLogoUrl = folder.titleLogoUrl,
+                sources = folder.sources.map { it.toSerializableSource() },
                 catalogSources = folder.catalogSources.map { source ->
                     SerializableCatalogSource(
                         addonId = source.addonId,
@@ -232,6 +277,42 @@ class CollectionsDataStore @Inject constructor(
                 }
             )
         }
+    )
+
+    private fun CollectionSource.toSerializableSource(): SerializableSource {
+        return when (this) {
+            is AddonCatalogCollectionSource -> SerializableSource(
+                provider = "addon",
+                addonId = addonId,
+                type = type,
+                catalogId = catalogId,
+                genre = genre
+            )
+            is TmdbCollectionSource -> SerializableSource(
+                provider = "tmdb",
+                tmdbSourceType = sourceType.name,
+                title = title,
+                tmdbId = tmdbId,
+                mediaType = mediaType.name,
+                sortBy = sortBy,
+                filters = filters.toSerializable()
+            )
+        }
+    }
+
+    private fun TmdbCollectionFilters.toSerializable() = SerializableTmdbFilters(
+        withGenres = withGenres,
+        releaseDateGte = releaseDateGte,
+        releaseDateLte = releaseDateLte,
+        voteAverageGte = voteAverageGte,
+        voteAverageLte = voteAverageLte,
+        voteCountGte = voteCountGte,
+        withOriginalLanguage = withOriginalLanguage,
+        withOriginCountry = withOriginCountry,
+        withKeywords = withKeywords,
+        withCompanies = withCompanies,
+        withNetworks = withNetworks,
+        year = year
     )
 
     private fun SerializableCollection.toDomain() = Collection(
@@ -254,15 +335,62 @@ class CollectionsDataStore @Inject constructor(
                 hideTitle = folder.hideTitle,
                 heroBackdropUrl = folder.heroBackdropUrl,
                 titleLogoUrl = folder.titleLogoUrl,
-                catalogSources = folder.catalogSources.map { source ->
-                    CollectionCatalogSource(
-                        addonId = source.addonId,
-                        type = source.type,
-                        catalogId = source.catalogId,
-                        genre = source.genre
-                    )
-                }
+                sources = folder.sources?.mapNotNull { it.toDomainSource() }
+                    ?: folder.catalogSources.map { source ->
+                        AddonCatalogCollectionSource(
+                            addonId = source.addonId,
+                            type = source.type,
+                            catalogId = source.catalogId,
+                            genre = source.genre
+                        )
+                    }
             )
         }
+    )
+
+    private fun SerializableSource.toDomainSource(): CollectionSource? {
+        return when (provider.lowercase()) {
+            "tmdb" -> {
+                val type = tmdbSourceType?.let { raw ->
+                    runCatching { TmdbCollectionSourceType.valueOf(raw.uppercase()) }.getOrNull()
+                } ?: return null
+                TmdbCollectionSource(
+                    sourceType = type,
+                    title = title?.takeIf { it.isNotBlank() } ?: type.name.lowercase().replaceFirstChar { it.uppercase() },
+                    tmdbId = tmdbId,
+                    mediaType = mediaType?.let { raw ->
+                        runCatching { TmdbCollectionMediaType.valueOf(raw.uppercase()) }.getOrNull()
+                    } ?: TmdbCollectionMediaType.MOVIE,
+                    sortBy = sortBy?.takeIf { it.isNotBlank() } ?: "popularity.desc",
+                    filters = filters?.toDomain() ?: TmdbCollectionFilters()
+                )
+            }
+            else -> {
+                val sourceAddonId = addonId?.takeIf { it.isNotBlank() } ?: return null
+                val sourceType = type?.takeIf { it.isNotBlank() } ?: return null
+                val sourceCatalogId = catalogId?.takeIf { it.isNotBlank() } ?: return null
+                AddonCatalogCollectionSource(
+                    addonId = sourceAddonId,
+                    type = sourceType,
+                    catalogId = sourceCatalogId,
+                    genre = genre
+                )
+            }
+        }
+    }
+
+    private fun SerializableTmdbFilters.toDomain() = TmdbCollectionFilters(
+        withGenres = withGenres,
+        releaseDateGte = releaseDateGte,
+        releaseDateLte = releaseDateLte,
+        voteAverageGte = voteAverageGte,
+        voteAverageLte = voteAverageLte,
+        voteCountGte = voteCountGte,
+        withOriginalLanguage = withOriginalLanguage,
+        withOriginCountry = withOriginCountry,
+        withKeywords = withKeywords,
+        withCompanies = withCompanies,
+        withNetworks = withNetworks,
+        year = year
     )
 }

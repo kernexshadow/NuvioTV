@@ -3,12 +3,21 @@ package com.nuvio.tv.ui.screens.collection
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.core.tmdb.TmdbCollectionSourceResolver
+import com.nuvio.tv.data.remote.api.TmdbCollectionSearchResult
+import com.nuvio.tv.data.remote.api.TmdbCompanySearchResult
 import com.nuvio.tv.data.local.CollectionsDataStore
+import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
 import com.nuvio.tv.domain.model.Collection
-import com.nuvio.tv.domain.model.CollectionCatalogSource
 import com.nuvio.tv.domain.model.CollectionFolder
+import com.nuvio.tv.domain.model.CollectionSource
 import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.PosterShape
+import com.nuvio.tv.domain.model.TmdbCollectionFilters
+import com.nuvio.tv.domain.model.TmdbCollectionMediaType
+import com.nuvio.tv.domain.model.TmdbCollectionSort
+import com.nuvio.tv.domain.model.TmdbCollectionSource
+import com.nuvio.tv.domain.model.TmdbCollectionSourceType
 import com.nuvio.tv.domain.repository.AddonRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +43,16 @@ data class CollectionEditorUiState(
     val editingFolder: CollectionFolder? = null,
     val showFolderEditor: Boolean = false,
     val showCatalogPicker: Boolean = false,
+    val showTmdbSourcePicker: Boolean = false,
+    val tmdbBuilderMode: TmdbBuilderMode = TmdbBuilderMode.PRESETS,
+    val tmdbInput: String = "",
+    val tmdbTitleInput: String = "",
+    val tmdbMediaType: TmdbCollectionMediaType = TmdbCollectionMediaType.MOVIE,
+    val tmdbSortBy: String = TmdbCollectionSort.POPULAR_DESC.value,
+    val tmdbFilters: TmdbCollectionFilters = TmdbCollectionFilters(),
+    val tmdbCompanyResults: List<TmdbCompanySearchResult> = emptyList(),
+    val tmdbCollectionResults: List<TmdbCollectionSearchResult> = emptyList(),
+    val tmdbSearchError: String? = null,
     val genrePickerSourceIndex: Int? = null,
     val showEmojiPicker: Boolean = false
 )
@@ -48,11 +67,26 @@ data class AvailableCatalog(
     val genreRequired: Boolean = false
 )
 
+enum class TmdbBuilderMode {
+    PRESETS,
+    LIST,
+    PRODUCTION,
+    NETWORK,
+    COLLECTION,
+    DISCOVER
+}
+
+data class TmdbPresetSource(
+    val title: String,
+    val source: TmdbCollectionSource
+)
+
 @HiltViewModel
 class CollectionEditorViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val collectionsDataStore: CollectionsDataStore,
-    private val addonRepository: AddonRepository
+    private val addonRepository: AddonRepository,
+    private val tmdbCollectionSourceResolver: TmdbCollectionSourceResolver
 ) : ViewModel() {
 
     private val collectionIdArg: String = savedStateHandle["collectionId"] ?: ""
@@ -140,7 +174,8 @@ class CollectionEditorViewModel @Inject constructor(
         val newFolder = CollectionFolder(
             id = collectionsDataStore.generateId(),
             title = "",
-            tileShape = PosterShape.POSTER
+            tileShape = PosterShape.POSTER,
+            sources = emptyList()
         )
         _uiState.update {
             it.copy(editingFolder = newFolder, showFolderEditor = true)
@@ -277,17 +312,17 @@ class CollectionEditorViewModel @Inject constructor(
         _uiState.update { state ->
             val folder = state.editingFolder ?: return@update state
             val defaultGenre = resolveGenreSelection(catalog, requestedGenre = null)
-            val source = CollectionCatalogSource(
+            val source = AddonCatalogCollectionSource(
                 addonId = catalog.addonId,
                 type = catalog.type,
                 catalogId = catalog.catalogId,
                 genre = defaultGenre
             )
-            if (folder.catalogSources.any { it.addonId == source.addonId && it.type == source.type && it.catalogId == source.catalogId }) {
+            if (folder.sources.any { it is AddonCatalogCollectionSource && it.addonId == source.addonId && it.type == source.type && it.catalogId == source.catalogId }) {
                 return@update state
             }
             state.copy(
-                editingFolder = folder.copy(catalogSources = folder.catalogSources + source),
+                editingFolder = folder.copy(sources = folder.sources + source),
                 genrePickerSourceIndex = null
             )
         }
@@ -296,10 +331,10 @@ class CollectionEditorViewModel @Inject constructor(
     fun removeCatalogSource(index: Int) {
         _uiState.update { state ->
             val folder = state.editingFolder ?: return@update state
-            val sources = folder.catalogSources.toMutableList()
+            val sources = folder.sources.toMutableList()
             if (index in sources.indices) sources.removeAt(index)
             state.copy(
-                editingFolder = folder.copy(catalogSources = sources),
+                editingFolder = folder.copy(sources = sources),
                 genrePickerSourceIndex = state.genrePickerSourceIndex?.takeIf { it != index }
                     ?.let { if (it > index) it - 1 else it }
             )
@@ -310,35 +345,35 @@ class CollectionEditorViewModel @Inject constructor(
         if (index <= 0) return
         _uiState.update { state ->
             val folder = state.editingFolder ?: return@update state
-            val sources = folder.catalogSources.toMutableList()
+            val sources = folder.sources.toMutableList()
             val item = sources.removeAt(index)
             sources.add(index - 1, item)
-            state.copy(editingFolder = folder.copy(catalogSources = sources))
+            state.copy(editingFolder = folder.copy(sources = sources))
         }
     }
 
     fun moveCatalogSourceDown(index: Int) {
         _uiState.update { state ->
             val folder = state.editingFolder ?: return@update state
-            if (index >= folder.catalogSources.size - 1) return@update state
-            val sources = folder.catalogSources.toMutableList()
+            if (index >= folder.sources.size - 1) return@update state
+            val sources = folder.sources.toMutableList()
             val item = sources.removeAt(index)
             sources.add(index + 1, item)
-            state.copy(editingFolder = folder.copy(catalogSources = sources))
+            state.copy(editingFolder = folder.copy(sources = sources))
         }
     }
 
     fun toggleCatalogSource(catalog: AvailableCatalog) {
         _uiState.update { state ->
             val folder = state.editingFolder ?: return@update state
-            val existing = folder.catalogSources.indexOfFirst {
-                it.addonId == catalog.addonId && it.type == catalog.type && it.catalogId == catalog.catalogId
+            val existing = folder.sources.indexOfFirst {
+                it is AddonCatalogCollectionSource && it.addonId == catalog.addonId && it.type == catalog.type && it.catalogId == catalog.catalogId
             }
             val newSources = if (existing >= 0) {
-                folder.catalogSources.toMutableList().also { it.removeAt(existing) }
+                folder.sources.toMutableList().also { it.removeAt(existing) }
             } else {
                 val defaultGenre = resolveGenreSelection(catalog, requestedGenre = null)
-                folder.catalogSources + CollectionCatalogSource(
+                folder.sources + AddonCatalogCollectionSource(
                     addonId = catalog.addonId,
                     type = catalog.type,
                     catalogId = catalog.catalogId,
@@ -346,7 +381,7 @@ class CollectionEditorViewModel @Inject constructor(
                 )
             }
             state.copy(
-                editingFolder = folder.copy(catalogSources = newSources),
+                editingFolder = folder.copy(sources = newSources),
                 genrePickerSourceIndex = state.genrePickerSourceIndex?.takeIf { it != existing }
             )
         }
@@ -360,10 +395,156 @@ class CollectionEditorViewModel @Inject constructor(
         _uiState.update { it.copy(showCatalogPicker = false) }
     }
 
+    fun showTmdbSourcePicker() {
+        _uiState.update { it.copy(showTmdbSourcePicker = true, genrePickerSourceIndex = null) }
+    }
+
+    fun hideTmdbSourcePicker() {
+        _uiState.update { it.copy(showTmdbSourcePicker = false, tmdbSearchError = null) }
+    }
+
+    fun setTmdbBuilderMode(mode: TmdbBuilderMode) {
+        _uiState.update {
+            it.copy(
+                tmdbBuilderMode = mode,
+                tmdbInput = "",
+                tmdbTitleInput = "",
+                tmdbCompanyResults = emptyList(),
+                tmdbCollectionResults = emptyList(),
+                tmdbSearchError = null
+            )
+        }
+    }
+
+    fun setTmdbInput(value: String) {
+        _uiState.update { it.copy(tmdbInput = value) }
+    }
+
+    fun setTmdbTitleInput(value: String) {
+        _uiState.update { it.copy(tmdbTitleInput = value) }
+    }
+
+    fun setTmdbMediaType(mediaType: TmdbCollectionMediaType) {
+        _uiState.update { it.copy(tmdbMediaType = mediaType) }
+    }
+
+    fun setTmdbSortBy(sortBy: String) {
+        _uiState.update { it.copy(tmdbSortBy = sortBy) }
+    }
+
+    fun setTmdbFilters(filters: TmdbCollectionFilters) {
+        _uiState.update { it.copy(tmdbFilters = filters) }
+    }
+
+    fun searchTmdbCompanies() {
+        val query = _uiState.value.tmdbInput.trim()
+        if (query.isBlank()) return
+        viewModelScope.launch {
+            val results = runCatching { tmdbCollectionSourceResolver.searchCompanies(query) }
+            _uiState.update {
+                it.copy(
+                    tmdbCompanyResults = results.getOrDefault(emptyList()),
+                    tmdbSearchError = results.exceptionOrNull()?.message
+                )
+            }
+        }
+    }
+
+    fun searchTmdbCollections() {
+        val query = _uiState.value.tmdbInput.trim()
+        if (query.isBlank()) return
+        viewModelScope.launch {
+            val results = runCatching { tmdbCollectionSourceResolver.searchCollections(query) }
+            _uiState.update {
+                it.copy(
+                    tmdbCollectionResults = results.getOrDefault(emptyList()),
+                    tmdbSearchError = results.exceptionOrNull()?.message
+                )
+            }
+        }
+    }
+
+    fun addTmdbSource(source: TmdbCollectionSource) {
+        _uiState.update { state ->
+            val folder = state.editingFolder ?: return@update state
+            if (folder.sources.any { it == source }) return@update state
+            state.copy(
+                editingFolder = folder.copy(sources = folder.sources + source),
+                showTmdbSourcePicker = false,
+                tmdbInput = "",
+                tmdbTitleInput = "",
+                tmdbSearchError = null
+            )
+        }
+    }
+
+    fun addTmdbSourceFromInput() {
+        val state = _uiState.value
+        val mode = state.tmdbBuilderMode
+        val id = tmdbCollectionSourceResolver.parseTmdbId(state.tmdbInput)
+        val title = state.tmdbTitleInput.ifBlank {
+            when (mode) {
+                TmdbBuilderMode.LIST -> "TMDB List ${id ?: ""}".trim()
+                TmdbBuilderMode.NETWORK -> "TMDB Network ${id ?: ""}".trim()
+                TmdbBuilderMode.COLLECTION -> "TMDB Collection ${id ?: ""}".trim()
+                TmdbBuilderMode.PRODUCTION -> "TMDB Production ${id ?: ""}".trim()
+                else -> "TMDB Discover"
+            }
+        }
+        val sourceType = when (mode) {
+            TmdbBuilderMode.LIST -> TmdbCollectionSourceType.LIST
+            TmdbBuilderMode.NETWORK -> TmdbCollectionSourceType.NETWORK
+            TmdbBuilderMode.COLLECTION -> TmdbCollectionSourceType.COLLECTION
+            TmdbBuilderMode.PRODUCTION -> TmdbCollectionSourceType.COMPANY
+            else -> TmdbCollectionSourceType.DISCOVER
+        }
+        if (sourceType != TmdbCollectionSourceType.DISCOVER && id == null) {
+            _uiState.update { it.copy(tmdbSearchError = "Enter a valid TMDB ID or URL") }
+            return
+        }
+        addTmdbSource(
+            TmdbCollectionSource(
+                sourceType = sourceType,
+                title = title,
+                tmdbId = id,
+                mediaType = if (sourceType == TmdbCollectionSourceType.NETWORK) TmdbCollectionMediaType.TV else state.tmdbMediaType,
+                sortBy = state.tmdbSortBy,
+                filters = state.tmdbFilters
+            )
+        )
+    }
+
+    fun addDiscoverSource() {
+        val state = _uiState.value
+        addTmdbSource(
+            TmdbCollectionSource(
+                sourceType = TmdbCollectionSourceType.DISCOVER,
+                title = state.tmdbTitleInput.ifBlank { "TMDB Discover" },
+                mediaType = state.tmdbMediaType,
+                sortBy = state.tmdbSortBy,
+                filters = state.tmdbFilters
+            )
+        )
+    }
+
+    fun tmdbPresets(): List<TmdbPresetSource> = listOf(
+        TmdbPresetSource("Marvel Studios", TmdbCollectionSource(TmdbCollectionSourceType.COMPANY, "Marvel Studios", 420, TmdbCollectionMediaType.MOVIE)),
+        TmdbPresetSource("Walt Disney Pictures", TmdbCollectionSource(TmdbCollectionSourceType.COMPANY, "Walt Disney Pictures", 2, TmdbCollectionMediaType.MOVIE)),
+        TmdbPresetSource("Pixar", TmdbCollectionSource(TmdbCollectionSourceType.COMPANY, "Pixar", 3, TmdbCollectionMediaType.MOVIE)),
+        TmdbPresetSource("Lucasfilm", TmdbCollectionSource(TmdbCollectionSourceType.COMPANY, "Lucasfilm", 1, TmdbCollectionMediaType.MOVIE)),
+        TmdbPresetSource("Warner Bros.", TmdbCollectionSource(TmdbCollectionSourceType.COMPANY, "Warner Bros.", 174, TmdbCollectionMediaType.MOVIE)),
+        TmdbPresetSource("Netflix", TmdbCollectionSource(TmdbCollectionSourceType.NETWORK, "Netflix", 213, TmdbCollectionMediaType.TV)),
+        TmdbPresetSource("HBO", TmdbCollectionSource(TmdbCollectionSourceType.NETWORK, "HBO", 49, TmdbCollectionMediaType.TV)),
+        TmdbPresetSource("Disney+", TmdbCollectionSource(TmdbCollectionSourceType.NETWORK, "Disney+", 2739, TmdbCollectionMediaType.TV)),
+        TmdbPresetSource("Prime Video", TmdbCollectionSource(TmdbCollectionSourceType.NETWORK, "Prime Video", 1024, TmdbCollectionMediaType.TV)),
+        TmdbPresetSource("Hulu", TmdbCollectionSource(TmdbCollectionSourceType.NETWORK, "Hulu", 453, TmdbCollectionMediaType.TV)),
+        TmdbPresetSource("Apple TV+", TmdbCollectionSource(TmdbCollectionSourceType.NETWORK, "Apple TV+", 2552, TmdbCollectionMediaType.TV))
+    )
+
     fun showGenrePicker(index: Int) {
         _uiState.update { state ->
             val folder = state.editingFolder ?: return@update state
-            if (index !in folder.catalogSources.indices) return@update state
+            if (index !in folder.sources.indices || folder.sources[index] !is AddonCatalogCollectionSource) return@update state
             state.copy(showCatalogPicker = false, genrePickerSourceIndex = index)
         }
     }
@@ -375,20 +556,20 @@ class CollectionEditorViewModel @Inject constructor(
     fun updateCatalogSourceGenre(index: Int, genre: String?) {
         _uiState.update { state ->
             val folder = state.editingFolder ?: return@update state
-            val source = folder.catalogSources.getOrNull(index) ?: return@update state
+            val source = folder.sources.getOrNull(index) as? AddonCatalogCollectionSource ?: return@update state
             val catalog = state.availableCatalogs.find {
                 it.addonId == source.addonId && it.type == source.type && it.catalogId == source.catalogId
             } ?: return@update state
             val normalizedGenre = resolveGenreSelection(catalog, genre)
-            val updatedSources = folder.catalogSources.toMutableList()
+            val updatedSources = folder.sources.toMutableList()
             updatedSources[index] = source.copy(genre = normalizedGenre)
-            state.copy(editingFolder = folder.copy(catalogSources = updatedSources))
+            state.copy(editingFolder = folder.copy(sources = updatedSources))
         }
     }
 
     fun saveFolderEdit() {
         val rawFolder = _uiState.value.editingFolder ?: return
-        if (rawFolder.catalogSources.isEmpty()) return
+        if (rawFolder.sources.isEmpty()) return
         val cleanedFolder = rawFolder.copy(
             title = rawFolder.title.ifBlank { "Untitled" },
             coverImageUrl = rawFolder.coverImageUrl?.ifBlank { null },
@@ -408,6 +589,7 @@ class CollectionEditorViewModel @Inject constructor(
                 showFolderEditor = false,
                 editingFolder = null,
                 showCatalogPicker = false,
+                showTmdbSourcePicker = false,
                 genrePickerSourceIndex = null,
                 showEmojiPicker = false
             )
@@ -420,6 +602,7 @@ class CollectionEditorViewModel @Inject constructor(
                 showFolderEditor = false,
                 editingFolder = null,
                 showCatalogPicker = false,
+                showTmdbSourcePicker = false,
                 genrePickerSourceIndex = null,
                 showEmojiPicker = false
             )
