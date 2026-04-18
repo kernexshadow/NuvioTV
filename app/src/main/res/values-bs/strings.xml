@@ -541,7 +541,7 @@
     <string name="layout_show_discover">Prikaži Otkrij u Pretrazi</string>
     <string name="layout_show_discover_sub">Prikaži browse sekciju kada je pretraga prazna.</string>
     <string name="layout_poster_labels">Prikaži Nazive Postera</string>
-    <string name="layout_poster_labels_sub">Prikaži nazive ispod postera u redovima, mreži i prikazu “Vidi sve”.</string>
+    <string name="layout_poster_labels_sub">Prikaži naslove ispod postera u redovima, mreži i prikazu “Vidi sve”.</string>
     <string name="layout_addon_name">Prikaži Naziv Addona</string>
     <string name="layout_addon_name_sub">Prikaži naziv izvora ispod naziva kataloga.</string>
     <string name="layout_catalog_type">Prikaži Tip Kataloga</string>
