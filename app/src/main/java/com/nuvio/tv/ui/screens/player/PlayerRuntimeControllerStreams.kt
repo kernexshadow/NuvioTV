@@ -1017,7 +1017,6 @@ internal fun PlayerRuntimeController.playNextEpisode() {
                     innerJob.join()
                 }
             } else {
-                timeoutElapsed = true
                 innerJob.join()
             }
 
