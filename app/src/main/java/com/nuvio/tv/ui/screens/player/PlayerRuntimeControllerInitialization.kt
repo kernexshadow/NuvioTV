@@ -169,11 +169,12 @@ internal fun PlayerRuntimeController.initializePlayer(
                 else -> true
             }
             val requestedLibassRenderType = playerSettings.libassRenderType.toAssRenderType()
-            val libassRenderType = when {
-                !useLibass -> requestedLibassRenderType
-                requestedLibassRenderType == AssRenderType.OVERLAY_OPEN_GL -> AssRenderType.EFFECTS_OPEN_GL
-                requestedLibassRenderType == AssRenderType.OVERLAY_CANVAS -> AssRenderType.EFFECTS_CANVAS
-                else -> requestedLibassRenderType
+            val libassRenderType = requestedLibassRenderType
+            _uiState.update {
+                it.copy(
+                    useLibass = useLibass,
+                    libassRenderType = playerSettings.libassRenderType
+                )
             }
             val loadControl = run {
                 DefaultLoadControl.Builder()
