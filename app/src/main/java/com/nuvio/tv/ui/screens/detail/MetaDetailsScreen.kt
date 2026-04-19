@@ -96,6 +96,7 @@ import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.resolveContentLanguage
 import com.nuvio.tv.domain.model.MDBListRatings
 import com.nuvio.tv.domain.model.NextToWatch
 import com.nuvio.tv.domain.model.TraktCommentReview
@@ -455,7 +456,7 @@ fun MetaDetailsScreen(
                             null,
                             null,
                             video.runtime,
-                            meta.language
+                            meta.resolveContentLanguage()
                         )
                     },
                     onEpisodeManualPlayClick = { video ->
@@ -473,7 +474,7 @@ fun MetaDetailsScreen(
                             null,
                             null,
                             video.runtime,
-                            meta.language
+                            meta.resolveContentLanguage()
                         )
                     },
                     onPlayClick = { videoId ->
@@ -491,7 +492,7 @@ fun MetaDetailsScreen(
                             genresString,
                             yearString,
                             null,
-                            meta.language
+                            meta.resolveContentLanguage()
                         )
                     },
                     onPlayManuallyClick = { videoId ->
@@ -509,7 +510,7 @@ fun MetaDetailsScreen(
                             genresString,
                             yearString,
                             null,
-                            meta.language
+                            meta.resolveContentLanguage()
                         )
                     },
                     showManualPlayOption = effectiveAutoplayEnabled,

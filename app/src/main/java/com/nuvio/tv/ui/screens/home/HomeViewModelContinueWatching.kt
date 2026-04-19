@@ -10,6 +10,8 @@ import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.domain.model.normalizeLanguageCode
+import com.nuvio.tv.domain.model.countryToLanguageCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -71,6 +73,8 @@ internal data class CwMetaSummary(
     val genres: List<String>,
     val releaseInfo: String?,
     val imdbRating: Float?,
+    val language: String?,
+    val country: String?,
     val videos: List<CwVideoSummary>
 ) {
     fun watchableEpisodes(): List<CwVideoSummary> {
@@ -119,6 +123,8 @@ private fun Meta.toCwSummary(): CwMetaSummary = CwMetaSummary(
     genres = genres,
     releaseInfo = releaseInfo,
     imdbRating = imdbRating,
+    language = language,
+    country = country,
     videos = videos.map { v ->
         CwVideoSummary(
             id = v.id,
@@ -1366,7 +1372,10 @@ private suspend fun HomeViewModel.enrichInProgressItem(
         episodeImdbRating = if (settings.useBasicInfo) imdbRating else meta.imdbRating,
         genres = genres,
         releaseInfo = releaseInfo,
-        contentLanguage = tmdbData?.contentLanguage ?: item.contentLanguage
+        contentLanguage = tmdbData?.contentLanguage
+            ?: normalizeLanguageCode(meta.language)
+            ?: countryToLanguageCode(meta.country)
+            ?: item.contentLanguage
     )
 }
 
@@ -1447,7 +1456,10 @@ private suspend fun HomeViewModel.enrichNextUpItem(
         releaseTimestamp = releaseState.releaseTimestamp,
         isReleaseAlert = releaseState.isReleaseAlert,
         isNewSeasonRelease = releaseState.isNewSeasonRelease,
-        contentLanguage = tmdbData?.contentLanguage ?: item.info.contentLanguage
+        contentLanguage = tmdbData?.contentLanguage
+            ?: normalizeLanguageCode(meta.language)
+            ?: countryToLanguageCode(meta.country)
+            ?: item.info.contentLanguage
     )
     if (shouldTraceNextUpSeries(progressSeed)) {
         logNextUpDecision(
