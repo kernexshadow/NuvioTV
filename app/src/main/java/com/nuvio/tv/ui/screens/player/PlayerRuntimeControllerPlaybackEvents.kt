@@ -1055,13 +1055,17 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             }
             val newMode = nextAspectMode(state.aspectMode)
             val label = aspectModeLabel(newMode, context::getString)
-            Log.d("PlayerViewModel", "Aspect mode toggled: ${state.aspectMode} -> $newMode ($label)")
+            Log.d(PlayerRuntimeController.TAG, "Aspect mode toggled by user: ${state.aspectMode} -> $newMode ($label)")
             _uiState.update {
                 it.copy(
                     aspectMode = newMode,
                     showAspectRatioIndicator = true,
                     aspectRatioIndicatorText = label
                 )
+            }
+            scope.launch {
+                Log.d(PlayerRuntimeController.TAG, "Persisting aspect mode: $newMode")
+                deviceLocalPlayerPreferences.setAspectMode(newMode)
             }
             hideAspectRatioIndicatorJob?.cancel()
             hideAspectRatioIndicatorJob = scope.launch {
