@@ -263,6 +263,19 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     .sortedByDescending { it.lastWatched }
                     .take(CW_MAX_RECENT_PROGRESS_ITEMS)
                     .toList()
+                // All series that still have at least one watched-episode seed.
+                // Used to drop cached next-up items for series whose episodes
+                // have been fully unmarked as watched.
+                val activeSeedContentIds = nextUpSeeds
+                    .mapTo(mutableSetOf()) { it.contentId }
+
+                // Evict in-memory next-up caches for series that lost all seeds
+                // (e.g. user unmarked all episodes as watched).
+                synchronized(discoveredOlderNextUpItems) {
+                    discoveredOlderNextUpItems.removeAll { it.info.contentId !in activeSeedContentIds }
+                }
+                cwEnrichedNextUpOverlay.keys.removeAll { it !in activeSeedContentIds }
+
                 debug.logStart(
                     snapshot = snapshot,
                     recentItemsCount = recentItems.size,
@@ -390,6 +403,9 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     if (nextUpDismissKey(cached.contentId, cached.seedSeason, cached.seedEpisode) in dismissedNextUp) return@mapNotNull null
                     // Respect "show unaired" setting
                     if (!cached.hasAired && !showUnairedNextUp) return@mapNotNull null
+                    // Drop if the series no longer has any watched-episode seeds
+                    // (e.g. user unmarked all episodes as watched).
+                    if (cached.contentId !in activeSeedContentIds) return@mapNotNull null
                     ContinueWatchingItem.NextUp(
                         info = NextUpInfo(
                             contentId = cached.contentId,
@@ -691,7 +707,9 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     discoveredOlderNextUpItems.toList()
                 }
                 // Preserve cached next-up items from disk until async inject re-verifies them.
+                // Drop items whose series no longer has any watched-episode seeds.
                 val cachedOlderNextUp = cachedNextUp
+                    .filter { it.contentId in activeSeedContentIds }
                     .map { cached ->
                         ContinueWatchingItem.NextUp(
                             info = NextUpInfo(
@@ -725,9 +743,6 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     }
                 val recentIds = nextUpItems.map { it.info.contentId }.toSet()
                 val inProgressIds = inProgressOnly.map { it.progress.contentId }.toSet()
-                val allSeedContentIds = nextUpSeeds
-                    .map { it.contentId }
-                    .toSet()
                 // Exclude cached older items for series that the fresh pipeline evaluated
                 // but didn't produce a next-up for (e.g. fully watched series).
                 val rejectedByFreshPipeline = synchronized(cwLastProcessedNextUpContentIds) {
@@ -738,7 +753,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     .filter {
                         val isCachedFromDisk = cachedOlderNextUp.any { c -> c.info.contentId == it.info.contentId }
                         val pass =
-                            (it.info.contentId in allSeedContentIds || isCachedFromDisk) &&
+                            (it.info.contentId in activeSeedContentIds || isCachedFromDisk) &&
                             it.info.contentId !in recentIds &&
                             it.info.contentId !in inProgressIds &&
                             // Reject items the fresh pipeline evaluated but produced no
