@@ -21,7 +21,6 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
-import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -170,11 +169,12 @@ internal fun PlayerRuntimeController.initializePlayer(
                 else -> true
             }
             val requestedLibassRenderType = playerSettings.libassRenderType.toAssRenderType()
-            val libassRenderType = when {
-                !useLibass -> requestedLibassRenderType
-                requestedLibassRenderType == AssRenderType.OVERLAY_OPEN_GL -> AssRenderType.EFFECTS_OPEN_GL
-                requestedLibassRenderType == AssRenderType.OVERLAY_CANVAS -> AssRenderType.EFFECTS_CANVAS
-                else -> requestedLibassRenderType
+            val libassRenderType = requestedLibassRenderType
+            _uiState.update {
+                it.copy(
+                    useLibass = useLibass,
+                    libassRenderType = playerSettings.libassRenderType
+                )
             }
             val loadControl = run {
                 DefaultLoadControl.Builder()
@@ -752,19 +752,15 @@ private class SubtitleOffsetRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
-        val baseAudioOutputProvider = AudioTrackAudioOutputProvider.Builder(context)
-            .setAudioTrackBufferSizeProvider(FormatAwareAudioTrackBufferProvider())
-            .setMaxPlaybackSpeed(PLAYBACK_SPEEDS.maxOrNull() ?: 2f)
-            .build()
-        val audioOutputProvider = PlaybackSpeedAwareAudioOutputProvider(baseAudioOutputProvider)
-        audioOutputProvider.updatePlaybackSpeed(playbackSpeedProvider())
-        onPlaybackSpeedAwareAudioOutputProviderCreated(audioOutputProvider)
+        val playbackSpeedAwareProvider = PlaybackSpeedAwareAudioOutputProvider()
+        playbackSpeedAwareProvider.updatePlaybackSpeed(playbackSpeedProvider())
+        onPlaybackSpeedAwareAudioOutputProviderCreated(playbackSpeedAwareProvider)
 
         return DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
-            .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
+            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+            .setAudioTrackBufferSizeProvider(FormatAwareAudioTrackBufferProvider())
             .setAudioProcessors(arrayOf(gainAudioProcessor))
-            .setAudioOutputProvider(audioOutputProvider)
             .build()
     }
 

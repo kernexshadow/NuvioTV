@@ -107,6 +107,7 @@ import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import com.nuvio.tv.core.player.ExternalPlayerLauncher
 import com.nuvio.tv.data.local.InternalPlayerEngine
+import com.nuvio.tv.data.local.LibassRenderType
 import com.nuvio.tv.data.local.SubtitleStyleSettings
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.domain.model.Subtitle
@@ -119,6 +120,8 @@ import java.util.concurrent.TimeUnit
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.media3.exoplayer.ExoPlayer
+import io.github.peerless2012.ass.media.widget.AssSubtitleView
 import kotlinx.coroutines.delay
 
 @Composable
@@ -559,6 +562,8 @@ fun PlayerScreen(
                     isPlaying = uiState.isPlaying,
                     isBuffering = uiState.isBuffering,
                     aspectMode = uiState.aspectMode,
+                    useLibass = uiState.useLibass,
+                    libassRenderType = uiState.libassRenderType,
                     subtitleStyle = uiState.subtitleStyle,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -1178,10 +1183,12 @@ private fun MpvPlayerSurface(
 
 @Composable
 private fun ExoPlayerSurface(
-    player: androidx.media3.common.Player,
+    player: ExoPlayer,
     isPlaying: Boolean,
     isBuffering: Boolean,
     aspectMode: AspectMode,
+    useLibass: Boolean,
+    libassRenderType: LibassRenderType,
     subtitleStyle: SubtitleStyleSettings,
     modifier: Modifier = Modifier
 ) {
@@ -1200,7 +1207,14 @@ private fun ExoPlayerSurface(
 
     AndroidView(
         factory = { playerView },
-        modifier = modifier
+        modifier = modifier,
+        update = {
+            it.syncLibassOverlay(
+                player = player,
+                enabled = useLibass,
+                renderType = libassRenderType
+            )
+        }
     )
 
     DisposableEffect(playerView, player) {
@@ -1246,6 +1260,14 @@ private fun ExoPlayerSurface(
 
     LaunchedEffect(playerView, aspectMode) {
         playerView.applyExoAspectModeIfNeeded(aspectMode)
+    }
+
+    LaunchedEffect(playerView, player, useLibass, libassRenderType) {
+        playerView.syncLibassOverlay(
+            player = player,
+            enabled = useLibass,
+            renderType = libassRenderType
+        )
     }
 
     LaunchedEffect(playerView, subtitleStyle) {
@@ -1312,6 +1334,69 @@ private fun PlayerView.applySubtitleStyleIfNeeded(subtitleStyle: SubtitleStyleSe
         post {
             val extraPadding = (height * (subtitleStyle.verticalOffset / 400f)).toInt().coerceAtLeast(0)
             setPadding(paddingLeft, paddingTop, paddingRight, extraPadding)
+        }
+    }
+}
+
+private fun PlayerView.syncLibassOverlay(
+    player: ExoPlayer,
+    enabled: Boolean,
+    renderType: LibassRenderType
+) {
+    val containerId = if (renderType == LibassRenderType.OVERLAY_OPEN_GL) {
+        R.id.libass_overlay_container_gl
+    } else {
+        R.id.libass_overlay_container
+    }
+    val overlayContainer = findViewById<android.widget.FrameLayout>(containerId) ?: return
+    val needsOverlay = enabled && renderType.usesOverlaySubtitleView()
+    val boundPlayer = getTag(R.id.libass_overlay_bound_player) as? ExoPlayer
+    val hasOverlayChild = overlayContainer.hasAssOverlayChild()
+
+    if (!needsOverlay) {
+        if (hasOverlayChild) {
+            overlayContainer.removeAssOverlayChildren()
+        }
+        if (boundPlayer != null) {
+            setTag(R.id.libass_overlay_bound_player, null)
+        }
+        return
+    }
+
+    val assHandler = player.getAssHandlerCompat() ?: return
+    if (boundPlayer === player && hasOverlayChild) {
+        return
+    }
+
+    overlayContainer.removeAssOverlayChildren()
+    val assSubtitleView = AssSubtitleView(overlayContainer.context, assHandler)
+    overlayContainer.addView(
+        assSubtitleView,
+        android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        )
+    )
+    setTag(R.id.libass_overlay_bound_player, player)
+}
+
+private fun LibassRenderType.usesOverlaySubtitleView(): Boolean {
+    return this == LibassRenderType.OVERLAY_CANVAS || this == LibassRenderType.OVERLAY_OPEN_GL
+}
+
+private fun android.widget.FrameLayout.hasAssOverlayChild(): Boolean {
+    for (index in 0 until childCount) {
+        if (getChildAt(index) is AssSubtitleView) {
+            return true
+        }
+    }
+    return false
+}
+
+private fun android.widget.FrameLayout.removeAssOverlayChildren() {
+    for (index in childCount - 1 downTo 0) {
+        if (getChildAt(index) is AssSubtitleView) {
+            removeViewAt(index)
         }
     }
 }
