@@ -310,5 +310,6 @@ data class StreamInfoData(
     val subtitleName: String? = null,
     val subtitleCodec: String? = null,
     val subtitleLanguage: String? = null,
-    val subtitleSource: String? = null
+    val subtitleSource: String? = null,
+    val playerEngine: String? = null
 )

@@ -1128,6 +1128,11 @@ internal fun PlayerRuntimeController.buildStreamInfoData(): StreamInfoData {
             addonSub != null -> context.getString(R.string.stream_info_subtitle_source_addon)
             selectedSubtitle != null -> context.getString(R.string.stream_info_subtitle_source_embedded)
             else -> null
+        },
+        playerEngine = when (currentInternalPlayerEngine) {
+            com.nuvio.tv.data.local.InternalPlayerEngine.EXOPLAYER -> context.getString(R.string.playback_engine_exoplayer)
+            com.nuvio.tv.data.local.InternalPlayerEngine.MVP_PLAYER -> context.getString(R.string.playback_engine_mvplayer)
+            com.nuvio.tv.data.local.InternalPlayerEngine.AUTO -> null
         }
     )
 }

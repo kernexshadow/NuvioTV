@@ -253,6 +253,8 @@ class PlayerRuntimeController(
     internal var hasRenderedFirstFrame = false
     internal var shouldEnforceAutoplayOnFirstReady = true
     internal var metaVideos: List<Video> = emptyList()
+    internal var metaGenres: List<String> = emptyList()
+    internal var metaCountry: String? = null
     internal var nextEpisodeVideo: Video? = null
     internal var userPausedManually = false
 
@@ -283,6 +285,7 @@ class PlayerRuntimeController(
     internal var autoSwitchInternalPlayerOnErrorEnabled: Boolean = false
     internal var startupEngineFailoverTriggered: Boolean = false
     internal var runtimeInternalPlayerEngineOverride: InternalPlayerEngine? = null
+    internal var resolvedAutoPlayerEngine: InternalPlayerEngine? = null
     internal var currentInternalPlayerEngine: InternalPlayerEngine = InternalPlayerEngine.EXOPLAYER
     internal var streamAutoPlayModeSetting: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL
     internal var streamAutoPlayNextEpisodeEnabledSetting: Boolean = false

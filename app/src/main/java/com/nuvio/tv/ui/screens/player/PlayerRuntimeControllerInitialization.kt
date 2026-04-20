@@ -108,8 +108,26 @@ internal fun PlayerRuntimeController.initializePlayer(
             )
             mpvPreferredAudioLanguages = preferredAudioLanguages
             mpvHardwareDecodeModeSetting = playerSettings.mpvHardwareDecodeMode
-            val effectiveInternalPlayerEngine = overrideInternalPlayerEngine ?: playerSettings.internalPlayerEngine
+            var effectiveInternalPlayerEngine = overrideInternalPlayerEngine ?: playerSettings.internalPlayerEngine
+            if (effectiveInternalPlayerEngine == InternalPlayerEngine.AUTO) {
+                val hasAnimeGenre = metaGenres.any { it.equals("anime", ignoreCase = true) }
+                val isAnimationFromJapan = (metaGenres.any { it.equals("animation", ignoreCase = true) } &&
+                        metaCountry?.contains("Japan", ignoreCase = true) == true)
+                val hasAnimeId = currentVideoId?.startsWith("kitsu:") == true ||
+                        currentVideoId?.startsWith("mal:") == true ||
+                        currentVideoId?.startsWith("anilist:") == true
+
+                // AIOMetadata usually matches hasAnimeGenre or hasAnimeId, Cinemeta usually matches isAnimationFromJapan
+                val isAnime = hasAnimeGenre || hasAnimeId || isAnimationFromJapan
+
+                effectiveInternalPlayerEngine = if (isAnime) InternalPlayerEngine.MVP_PLAYER else InternalPlayerEngine.EXOPLAYER
+            }
             runtimeInternalPlayerEngineOverride = overrideInternalPlayerEngine
+            if (overrideInternalPlayerEngine == null && playerSettings.internalPlayerEngine == InternalPlayerEngine.AUTO) {
+                resolvedAutoPlayerEngine = effectiveInternalPlayerEngine
+            } else if (overrideInternalPlayerEngine != null) {
+                resolvedAutoPlayerEngine = null
+            }
             currentInternalPlayerEngine = effectiveInternalPlayerEngine
             val showLoadingStatus = playerSettings.showPlayerLoadingStatus
             val deviceAspectMode = deviceLocalPlayerPreferences.aspectMode.first()

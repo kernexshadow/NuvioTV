@@ -189,7 +189,7 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
         playerSettingsDataStore.playerSettings.collect { settings ->
             val currentState = _uiState.value
             val resolvedInternalPlayerEngine =
-                runtimeInternalPlayerEngineOverride ?: settings.internalPlayerEngine
+                runtimeInternalPlayerEngineOverride ?: resolvedAutoPlayerEngine ?: settings.internalPlayerEngine
             val resolvedAudioAmplificationDb = when {
                 !hasInitializedAudioAmplificationForSession -> {
                     hasInitializedAudioAmplificationForSession = true
