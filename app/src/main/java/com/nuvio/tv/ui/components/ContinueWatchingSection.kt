@@ -240,8 +240,15 @@ fun ContinueWatchingCard(
 
     val progress = remember(item) { (item as? ContinueWatchingItem.InProgress)?.progress }
     val nextUp = remember(item) { (item as? ContinueWatchingItem.NextUp)?.info }
-    val episodeStr = remember(progress, nextUp) {
-        progress?.episodeDisplayString ?: nextUp?.let { "S${it.season}E${it.episode}" }
+    val cardContext = LocalContext.current
+    val episodeStr = remember(progress, nextUp, cardContext) {
+        val season = progress?.season ?: nextUp?.season
+        val episode = progress?.episode ?: nextUp?.episode
+        if (season != null && episode != null) {
+            cardContext.getString(R.string.season_episode_format, season, episode)
+        } else {
+            null
+        }
     }
     val strAirsDate = stringResource(R.string.cw_airs_date, nextUp?.airDateLabel ?: "")
     val strUpcoming = stringResource(R.string.cw_upcoming)
