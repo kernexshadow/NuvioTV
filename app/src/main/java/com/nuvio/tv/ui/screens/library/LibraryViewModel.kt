@@ -629,11 +629,11 @@ class LibraryViewModel @Inject constructor(
                     .thenBy { it.id }
             )
             LibrarySortOption.TITLE_ASC -> yearFiltered.sortedWith(
-                compareBy<LibraryEntry> { it.name.ifBlank { it.id }.lowercase(Locale.ROOT) }
+                compareBy<LibraryEntry> { titleSortKey(it.name.ifBlank { it.id }) }
                     .thenBy { it.id }
             )
             LibrarySortOption.TITLE_DESC -> yearFiltered.sortedWith(
-                compareByDescending<LibraryEntry> { it.name.ifBlank { it.id }.lowercase(Locale.ROOT) }
+                compareByDescending<LibraryEntry> { titleSortKey(it.name.ifBlank { it.id }) }
                     .thenBy { it.id }
             )
         }
@@ -678,3 +678,11 @@ class LibraryViewModel @Inject constructor(
         }
     }
 }
+
+// Strip leading English articles ("The", "A", "An") when sorting by title, so
+// "The Walking Dead" sorts under W and not T. Matches how streaming services
+// and most media libraries order titles alphabetically.
+private val LEADING_ARTICLE_REGEX = Regex("^(the|an|a)\\s+", RegexOption.IGNORE_CASE)
+
+private fun titleSortKey(title: String): String =
+    title.trim().replace(LEADING_ARTICLE_REGEX, "").lowercase(Locale.ROOT)

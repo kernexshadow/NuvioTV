@@ -1101,8 +1101,24 @@ private data class Quintuple<A, B, C, D, E>(
     val fifth: E
 )
 
+// Fallback regions for language codes that don't carry a region tag (e.g. "fr"
+// instead of "fr-FR"). Without this, non-hyphenated locales fall straight through
+// to the US/GB defaults in preferredRegions and users see American ratings.
+private val LANGUAGE_DEFAULT_REGION: Map<String, String> = mapOf(
+    "ar" to "SA", "bg" to "BG", "bs" to "BA", "cs" to "CZ", "da" to "DK",
+    "de" to "DE", "el" to "GR", "es" to "ES", "et" to "EE", "fi" to "FI",
+    "fr" to "FR", "he" to "IL", "hi" to "IN", "hr" to "HR", "hu" to "HU",
+    "id" to "ID", "it" to "IT", "ja" to "JP", "ko" to "KR", "lt" to "LT",
+    "lv" to "LV", "nl" to "NL", "no" to "NO", "pl" to "PL", "pt" to "PT",
+    "ro" to "RO", "ru" to "RU", "sk" to "SK", "sl" to "SI", "sr" to "RS",
+    "sv" to "SE", "th" to "TH", "tr" to "TR", "uk" to "UA", "vi" to "VN",
+    "zh" to "CN"
+)
+
 private fun preferredRegions(normalizedLanguage: String): List<String> {
+    val languageCode = normalizedLanguage.substringBefore("-").lowercase(Locale.US)
     val fromLanguage = normalizedLanguage.substringAfter("-", "").uppercase(Locale.US).takeIf { it.length == 2 }
+        ?: LANGUAGE_DEFAULT_REGION[languageCode]
     return buildList {
         if (!fromLanguage.isNullOrBlank()) add(fromLanguage)
         add("US")
