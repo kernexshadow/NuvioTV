@@ -149,15 +149,13 @@
     <string name="series_status_rumored">Spekuluje se</string>
     <string name="series_status_in_production">V produkci</string>
     <string name="series_status_post_production">Postprodukce</string>
-    <string name="movie_status_ended">Ukončeno</string>
-    <string name="movie_status_continuing">Pokračuje</string>
-    <string name="movie_status_current">Aktuální</string>
     <string name="movie_status_cancelled">Zrušeno</string>
     <string name="movie_status_released">Vydáno</string>
     <string name="movie_status_planned">Plánováno</string>
     <string name="movie_status_rumored">Spekuluje se</string>
     <string name="movie_status_in_production">V produkci</string>
     <string name="movie_status_post_production">Postprodukce</string>
+    
     <string name="detail_lists_fallback">Seznamy</string>
     <string name="detail_lists_subtitle">Vyberte, do kterých seznamů má být tento titul zařazen.</string>
     <string name="action_save">Uložit</string>
@@ -189,18 +187,18 @@
     <string name="about_supporters_contributors_subtitle">Veřejné uznání a poděkování</string>
 
     <string name="settings_account">Účet</string>
-    <string name="settings_account_subtitle">Účet a stav synchronizace</string>
+    <string name="settings_account_subtitle">Účet a stav synchronizace.</string>
     <string name="settings_profiles">Profily</string>
-    <string name="settings_profiles_subtitle">Spravovat uživatelské profily</string>
+    <string name="settings_profiles_subtitle">Spravovat uživatelské profily.</string>
     <string name="settings_layout">Rozložení</string>
-    <string name="settings_layout_subtitle">Domovská obrazovka a styly posterů</string>
+    <string name="settings_layout_subtitle">Domovská obrazovka a styly plakátů.</string>
     <string name="settings_plugins">Pluginy</string>
-    <string name="settings_plugins_subtitle">Repozitáře a poskytovatelé</string>
+    <string name="settings_plugins_subtitle">Repozitáře a poskytovatelé.</string>
     <string name="settings_integration">Integrace</string>
     <string name="settings_playback">Přehrávání</string>
-    <string name="settings_playback_subtitle">Přehrávač, titulky a automatické přehrávání</string>
-    <string name="settings_trakt_subtitle">Otevřít obrazovku připojení Trakt</string>
-    <string name="settings_about_subtitle">Verze a zásady</string>
+    <string name="settings_playback_subtitle">Přehrávač, titulky a automatické přehrávání.</string>
+    <string name="settings_trakt_subtitle">Otevřít obrazovku připojení Trakt.</string>
+    <string name="settings_about_subtitle">Verze a zásady.</string>
     <string name="settings_network">Rychlost sítě</string>
     <string name="settings_network_subtitle">Diagnostika odezvy a stahování</string>
     <string name="settings_advanced">Pokročilé</string>
@@ -219,16 +217,16 @@
     <string name="network_connection_ethernet">Ethernet</string>
     <string name="network_connection_offline">Offline</string>
     <string name="settings_debug">Debug</string>
-    <string name="settings_debug_subtitle">Nástroje pro vývojáře a funkční přepínače</string>
-    <string name="settings_plugins_section_subtitle">Spravovat repozitáře, poskytovatele a stavy pluginů</string>
-    <string name="settings_account_section_subtitle">Účet a stav synchronizace</string>
+    <string name="settings_debug_subtitle">Nástroje pro vývojáře a funkční přepínače.</string>
+    <string name="settings_plugins_section_subtitle">Spravovat repozitáře, poskytovatele a stavy pluginů.</string>
+    <string name="settings_account_section_subtitle">Účet a stav synchronizace.</string>
     <string name="account_stat_addons">doplňky</string>
     <string name="account_stat_plugins">pluginy</string>
     <string name="account_stat_library">knihovna</string>
     <string name="account_stat_progress">postup</string>
     <string name="account_stat_watched">zhlédnuto</string>
     <string name="settings_integrations_section">Integrace</string>
-    <string name="settings_integrations_section_subtitle">Spravujte dostupné integrace</string>
+    <string name="settings_integrations_section_subtitle">Vyberte TMDB nebo MDBList</string>
     <string name="settings_tmdb_subtitle">Ovládání obohacení metadat</string>
     <string name="settings_mdblist_subtitle">Externí poskytovatelé hodnocení</string>
     <string name="settings_animeskip_subtitle">Anime intro/outro časy pro přeskočení</string>
@@ -412,21 +410,21 @@
     <string name="autoplay_invalid_regex">Neplatný regex vzor</string>
 
     <string name="layout_title">Nastavení rozložení</string>
-    <string name="layout_subtitle">Upravte domovské rozložení, viditelnost obsahu a chování posterů</string>
+    <string name="layout_subtitle">Upravte domovské rozložení, viditelnost obsahu a chování plakátů</string>
     <string name="layout_classic">Klasické zobrazení</string>
     <string name="layout_grid">Mřížkové zobrazení</string>
     <string name="layout_modern">Moderní zobrazení</string>
     <string name="layout_classic_desc">Procházejte kategorie horizontálně</string>
-    <string name="layout_grid_desc">Prohlížejte vše ve vertikální mřížce s hero sekcí</string>
-    <string name="layout_modern_desc">Fixní hero s jedním aktivním řádkem pro rychlejší prohlížení</string>
+    <string name="layout_grid_desc">Prohlížejte vše ve vertikální mřížce s hlavní sekcí</string>
+    <string name="layout_modern_desc">Fixní hlavní sekce s jedním aktivním řádkem pro rychlejší prohlížení</string>
     <string name="layout_section_home">Domovské rozložení</string>
-    <string name="layout_section_home_desc">Vyberte strukturu a zdroj hero obsahu.</string>
+    <string name="layout_section_home_desc">Vyberte strukturu a zdroj hlavního obsahu.</string>
     <string name="layout_landscape_posters">Na šířku</string>
-    <string name="layout_landscape_posters_sub">Přepínat mezi portrétními a landscape kartami v moderním zobrazení.</string>
+    <string name="layout_landscape_posters_sub">Přepínat mezi kartami na výšku a na šířku v moderním zobrazení.</string>
     <string name="layout_preview_row">Zobrazit náhledový řádek</string>
     <string name="layout_preview_row_sub">Zobrazit částečný náhled následujícího řádku v moderním rozložení.</string>
-    <string name="layout_hero_catalogs">Hero katalogy</string>
-    <string name="layout_hero_catalogs_sub">Vyberte jeden nebo více katalogů pro hero obsah.</string>
+    <string name="layout_hero_catalogs">Hlavní katalogy</string>
+    <string name="layout_hero_catalogs_sub">Vyberte jeden nebo více katalogů pro hlavní obsah.</string>
     <string name="layout_section_content">Obsah domovské obrazovky</string>
     <string name="layout_section_content_desc">Ovládejte, co se zobrazuje na domovské obrazovce a ve vyhledávání.</string>
     <string name="layout_collapse_sidebar">Skrýt boční panel</string>
@@ -435,14 +433,14 @@
     <string name="layout_modern_sidebar_sub">Povolit plovoucí boční navigaci.</string>
     <string name="layout_modern_sidebar_blur">Rozmazání moderního panelu</string>
     <string name="layout_modern_sidebar_blur_sub">Přepínat efekt rozmazání pro moderní boční panel.</string>
-    <string name="layout_fullscreen_hero_backdrop">Hero pozadí přes celou obrazovku</string>
-    <string name="layout_fullscreen_hero_backdrop_sub">Rozšířit hero pozadí na celou obrazovku.</string>
-    <string name="layout_show_hero">Zobrazit hero sekci</string>
-    <string name="layout_show_hero_sub">Zobrazit hero karusel v horní části domovské obrazovky.</string>
+    <string name="layout_fullscreen_hero_backdrop">Pozadí přes celou obrazovku</string>
+    <string name="layout_fullscreen_hero_backdrop_sub">Rozšířit pozadí hlavní sekce na celou obrazovku.</string>
+    <string name="layout_show_hero">Zobrazit hlavní sekci</string>
+    <string name="layout_show_hero_sub">Zobrazit hlavní karusel v horní části domovské obrazovky.</string>
     <string name="layout_show_discover">Zobrazit Objevovat ve vyhledávání</string>
     <string name="layout_show_discover_sub">Zobrazit sekci prohlížení, když je vyhledávání prázdné.</string>
-    <string name="layout_poster_labels">Zobrazit názvy posterů</string>
-    <string name="layout_poster_labels_sub">Zobrazit názvy pod postery v řádcích, mřížce a zobrazení všech.</string>
+    <string name="layout_poster_labels">Zobrazit názvy plakátů</string>
+    <string name="layout_poster_labels_sub">Zobrazit názvy pod plakáty v řádcích, mřížce a zobrazení všech.</string>
     <string name="layout_addon_name">Zobrazit název doplňku</string>
     <string name="layout_addon_name_sub">Zobrazit název zdroje pod katalogovými tituly.</string>
     <string name="layout_catalog_type">Zobrazit typ katalogu</string>
@@ -463,8 +461,8 @@
     <string name="layout_show_full_release_date_sub">U filmů zobrazit celé datum vydání místo pouhého roku.</string>
     <string name="layout_section_focused">Zaměřená karta</string>
     <string name="layout_section_focused_desc">Pokročilé chování pro zaměřené karty.</string>
-    <string name="layout_expand_poster">Rozšířit zaměřený poster na pozadí</string>
-    <string name="layout_expand_poster_sub">Rozšířit zaměřený poster po zpoždění.</string>
+    <string name="layout_expand_poster">Rozšířit zaměřený plakát na pozadí</string>
+    <string name="layout_expand_poster_sub">Rozšířit zaměřený plakát po zpoždění.</string>
     <string name="layout_expand_delay">Zpoždění rozšíření</string>
     <string name="layout_expand_delay_sub">Jak dlouho čekat před rozšířením zaměřených karet.</string>
     <string name="layout_autoplay_trailer">Automaticky přehrát trailer</string>
@@ -474,14 +472,14 @@
     <string name="layout_trailer_muted">Přehrát trailer bez zvuku</string>
     <string name="layout_trailer_muted_sub_preview">Ztlumit zvuk traileru během náhledu.</string>
     <string name="layout_trailer_muted_sub_expanded">Ztlumit zvuk traileru v rozšířených kartách.</string>
-    <string name="layout_section_card_style">Styl posterů</string>
+    <string name="layout_section_card_style">Styl plakátů</string>
     <string name="layout_section_card_style_desc">Upravit šířku a zaoblení rohů karet.</string>
     <string name="layout_open">Otevřeno</string>
     <string name="layout_closed">Zavřeno</string>
     <string name="layout_trailer_location">Umístění traileru v moderním zobrazení</string>
     <string name="layout_trailer_location_sub">Vyberte, kde se přehrává trailer v moderním rozložení.</string>
     <string name="layout_trailer_expanded_card">Rozšířená karta</string>
-    <string name="layout_trailer_hero_media">Hero média</string>
+    <string name="layout_trailer_hero_media">Hlavní média</string>
     <string name="layout_preset_compact">Kompaktní</string>
     <string name="layout_preset_dense">Husté</string>
     <string name="layout_preset_standard">Standardní</string>
@@ -542,7 +540,7 @@
     <string name="tmdb_enable_title">Povolit TMDB obohacení</string>
     <string name="tmdb_enable_subtitle">Použít TMDB jako zdroj metadat pro obohacení údajů doplňků</string>
     <string name="tmdb_modern_home_title">Povolit na moderní domovské obrazovce</string>
-    <string name="tmdb_modern_home_subtitle">Použít obohacení z TMDB i na hero a zaměřené karty</string>
+    <string name="tmdb_modern_home_subtitle">Použít obohacení z TMDB i na hlavní sekci a zaměřené karty</string>
     <string name="tmdb_enrich_continue_watching_title">Obohatit pokračování ve sledování</string>
     <string name="tmdb_enrich_continue_watching_subtitle">Použít obohacení z TMDB na položky v Pokračování ve sledování</string>
     <string name="tmdb_language_title">Jazyk</string>
@@ -652,7 +650,7 @@
     <string name="debug_generating_library">Generuje se…</string>
 
     <string name="profile_title">Profily</string>
-    <string name="profile_subtitle">Spravujte uživatelské profily pro tento účet</string>
+    <string name="profile_subtitle">Spravujte uživatelské profily pro tento účet.</string>
     <string name="profile_manage_button">Spravovat profily</string>
     <string name="profile_manage_title">Spravovat profily</string>
     <string name="profile_manage_subtitle">Vyberte profil k úpravě, přepnutí nebo vytvořte nový</string>
@@ -889,7 +887,6 @@
     <string name="skip_generic">Přeskočit</string>
     <string name="display_mode_refresh">Obnovit</string>
     <string name="display_mode_resolution">Rozlišení</string>
-
 
     <string name="search_keyboard_hint">Stiskněte Hotovo na klávesnici pro vyhledávání</string>
     <string name="search_placeholder">Hledat filmy a seriály</string>
@@ -1128,6 +1125,4 @@
     <string name="update_ignore">Ignorovat</string>
     <string name="watchlist_added">Přidáno do watchlistu</string>
     <string name="watchlist_removed">Odstraněno z watchlistu</string>
-    <string name="playback_player_auto">Automaticky (Nejlepší pro obsah)</string>
-    <string name="playback_player_auto_desc">ExoPlayer pro filmy a seriály · MPV pro anime</string>
 </resources>
