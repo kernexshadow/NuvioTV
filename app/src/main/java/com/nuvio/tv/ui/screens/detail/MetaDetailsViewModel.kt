@@ -23,6 +23,7 @@ import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.domain.model.Meta
+import com.nuvio.tv.domain.model.MetaTrailer
 import com.nuvio.tv.domain.model.NextToWatch
 import com.nuvio.tv.domain.model.TmdbSettings
 import com.nuvio.tv.domain.model.TraktCommentReview
@@ -282,6 +283,9 @@ class MetaDetailsViewModel @Inject constructor(
             MetaDetailsEvent.OnPlayButtonFocused -> handlePlayButtonFocused()
             MetaDetailsEvent.OnTrailerButtonClick -> handleTrailerButtonClick()
             MetaDetailsEvent.OnTrailerEnded -> handleTrailerEnded()
+            is MetaDetailsEvent.OnSharedTrailerSelected -> handleSharedTrailerSelected(event.trailer)
+            MetaDetailsEvent.OnDismissSharedTrailer -> dismissSharedTrailerOverlay()
+            MetaDetailsEvent.OnRetrySharedTrailer -> retrySharedTrailer()
             MetaDetailsEvent.OnToggleMovieWatched -> toggleMovieWatched()
             is MetaDetailsEvent.OnToggleEpisodeWatched -> toggleEpisodeWatched(event.video)
             is MetaDetailsEvent.OnMarkSeasonWatched -> markSeasonWatched(event.season)
@@ -490,7 +494,13 @@ class MetaDetailsViewModel @Inject constructor(
                     isCommentsLoadingMore = false,
                     commentsError = null,
                     shouldShowCommentsSection = false,
-                    selectedComment = null
+                    selectedComment = null,
+                    isSharedTrailerOverlayVisible = false,
+                    isSharedTrailerLoading = false,
+                    sharedTrailerUrl = null,
+                    sharedTrailerAudioUrl = null,
+                    sharedTrailerErrorMessage = null,
+                    selectedSharedTrailer = null
                 )
             }
 
@@ -1171,6 +1181,19 @@ class MetaDetailsViewModel @Inject constructor(
 
         if (enrichment != null && settings.useNetworks && enrichment.networks.isNotEmpty()) {
             updated = updated.copy(networks = enrichment.networks)
+        }
+
+        if (enrichment != null && settings.useTrailers && enrichment.trailers.isNotEmpty()) {
+            val mergedTrailers = mergeTrailers(
+                existing = updated.trailers,
+                incoming = enrichment.trailers
+            )
+            if (mergedTrailers.isNotEmpty()) {
+                updated = updated.copy(
+                    trailers = mergedTrailers,
+                    trailerYtIds = mergedTrailers.mapNotNull { it.ytId }.distinct()
+                )
+            }
         }
 
         if (!episodeMap.isNullOrEmpty()) {
@@ -2027,6 +2050,7 @@ class MetaDetailsViewModel @Inject constructor(
     private fun handleLifecyclePause() {
         idleTimerJob?.cancel()
         isPlayButtonFocused = false
+        dismissSharedTrailerOverlay()
         val state = _uiState.value
         if (state.isTrailerPlaying && !state.showTrailerControls) {
             trailerHasPlayed = true
@@ -2054,6 +2078,109 @@ class MetaDetailsViewModel @Inject constructor(
             showControls = false,
             hideLogo = false
         )
+    }
+
+    private fun handleSharedTrailerSelected(trailer: MetaTrailer) {
+        val ytId = trailer.ytId?.trim().orEmpty()
+        if (ytId.isBlank()) {
+            _uiState.update { state ->
+                state.copy(
+                    isSharedTrailerOverlayVisible = true,
+                    isSharedTrailerLoading = false,
+                    sharedTrailerUrl = null,
+                    sharedTrailerAudioUrl = null,
+                    sharedTrailerErrorMessage = context.getString(R.string.detail_trailer_error),
+                    selectedSharedTrailer = trailer
+                )
+            }
+            return
+        }
+
+        idleTimerJob?.cancel()
+        isPlayButtonFocused = false
+        if (_uiState.value.isTrailerPlaying) {
+            setTrailerPlaybackState(
+                isPlaying = false,
+                showControls = false,
+                hideLogo = false
+            )
+        }
+
+        _uiState.update { state ->
+            state.copy(
+                isSharedTrailerOverlayVisible = true,
+                isSharedTrailerLoading = true,
+                sharedTrailerUrl = null,
+                sharedTrailerAudioUrl = null,
+                sharedTrailerErrorMessage = null,
+                selectedSharedTrailer = trailer
+            )
+        }
+
+        viewModelScope.launch {
+            val meta = _uiState.value.meta
+            val year = meta?.releaseInfo?.let { info ->
+                if (info.isBlank()) null else Regex("""\b(19|20)\d{2}\b""").find(info)?.value
+            }
+            val source = trailerService.getTrailerPlaybackSourceFromYouTubeUrl(
+                youtubeUrl = "https://www.youtube.com/watch?v=$ytId",
+                title = meta?.name,
+                year = year
+            )
+
+            _uiState.update { state ->
+                if (state.selectedSharedTrailer?.ytId != trailer.ytId) {
+                    state
+                } else {
+                    state.copy(
+                        isSharedTrailerOverlayVisible = true,
+                        isSharedTrailerLoading = false,
+                        sharedTrailerUrl = source?.videoUrl,
+                        sharedTrailerAudioUrl = source?.audioUrl,
+                        sharedTrailerErrorMessage = if (source == null) {
+                            context.getString(R.string.detail_trailer_error)
+                        } else {
+                            null
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private fun retrySharedTrailer() {
+        _uiState.value.selectedSharedTrailer?.let(::handleSharedTrailerSelected)
+    }
+
+    private fun dismissSharedTrailerOverlay() {
+        _uiState.update { state ->
+            state.copy(
+                isSharedTrailerOverlayVisible = false,
+                isSharedTrailerLoading = false,
+                sharedTrailerUrl = null,
+                sharedTrailerAudioUrl = null,
+                sharedTrailerErrorMessage = null
+            )
+        }
+    }
+
+    private fun mergeTrailers(existing: List<MetaTrailer>, incoming: List<MetaTrailer>): List<MetaTrailer> {
+        if (existing.isEmpty()) return incoming.distinctBy { it.ytId ?: it.name ?: it.type ?: "" }
+        if (incoming.isEmpty()) return existing
+
+        val merged = LinkedHashMap<String, MetaTrailer>()
+
+        fun keyOf(trailer: MetaTrailer): String {
+            val yt = trailer.ytId?.trim().orEmpty()
+            if (yt.isNotBlank()) return "yt:$yt"
+            val fallback = listOf(trailer.name, trailer.type, trailer.lang)
+                .joinToString("|") { it?.trim()?.lowercase().orEmpty() }
+            return "meta:$fallback"
+        }
+
+        existing.forEach { trailer -> merged.putIfAbsent(keyOf(trailer), trailer) }
+        incoming.forEach { trailer -> merged.putIfAbsent(keyOf(trailer), trailer) }
+        return merged.values.toList()
     }
 
     override fun onCleared() {

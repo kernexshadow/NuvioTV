@@ -182,6 +182,7 @@
     <string name="cast_role_writer">Writer</string>
     <string name="detail_tab_ratings">Ratings</string>
     <string name="detail_tab_more_like_this">More like this</string>
+    <string name="detail_tab_trailer">Trailer</string>
     <string name="detail_more_like_this_powered_by_tmdb">Powered by TMDB</string>
     <string name="detail_more_like_this_powered_by_trakt">Powered by Trakt</string>
     <string name="detail_comments_title">Comments</string>
@@ -190,6 +191,8 @@
     <string name="detail_section_production">Production</string>
     <string name="detail_comments_empty">No Trakt reviews available yet.</string>
     <string name="detail_comments_error">Couldn\'t load Trakt reviews right now.</string>
+    <string name="detail_trailer_loading">Loading trailer...</string>
+    <string name="detail_trailer_error">Couldn\'t load trailer right now.</string>
     <string name="detail_comments_spoiler_hidden">Spoiler review. Press OK to reveal.</string>
     <string name="detail_comments_reveal_spoiler">Reveal spoiler</string>
     <string name="detail_comments_reveal_spoiler_hint">Press OK to reveal spoiler.</string>
@@ -671,6 +674,8 @@
     <string name="tmdb_networks_subtitle">Networks with logos from TMDB</string>
     <string name="tmdb_episodes_title">Episodes</string>
     <string name="tmdb_episodes_subtitle">Episode titles, overviews, thumbnails, and runtime from TMDB</string>
+    <string name="tmdb_trailers_title">Trailers</string>
+    <string name="tmdb_trailers_subtitle">Trailer candidates from TMDB videos for the detail trailer section</string>
     <string name="tmdb_more_like_this_title">More Like This</string>
     <string name="tmdb_more_like_this_subtitle">TMDB recommendation backdrops on detail page</string>
     <string name="tmdb_collections_title">Collections</string>
