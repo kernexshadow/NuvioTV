@@ -82,7 +82,7 @@ class ContinueWatchingEnrichmentCache @Inject constructor(
 
     private fun nextUpFile(): File {
         val profileId = profileManager.activeProfileId.value
-        val dir = File(context.cacheDir, "cw_enrichment")
+        val dir = File(context.filesDir, "cw_enrichment")
         dir.mkdirs()
         return File(dir, "nextup_${profileId}.json")
     }
@@ -116,7 +116,7 @@ class ContinueWatchingEnrichmentCache @Inject constructor(
 
     private fun inProgressFile(): File {
         val profileId = profileManager.activeProfileId.value
-        val dir = File(context.cacheDir, "cw_enrichment")
+        val dir = File(context.filesDir, "cw_enrichment")
         dir.mkdirs()
         return File(dir, "inprogress_${profileId}.json")
     }
@@ -145,4 +145,5 @@ class ContinueWatchingEnrichmentCache @Inject constructor(
             }
         }
     }
+
 }
