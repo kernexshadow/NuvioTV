@@ -361,7 +361,29 @@ class MetaDetailsViewModel @Inject constructor(
         if (itemType.lowercase() == "movie") return
         viewModelScope.launch {
             _effectiveContentId.flatMapLatest { cid ->
-                watchProgressRepository.getAllEpisodeProgress(cid)
+                if (itemType.equals("other", ignoreCase = true)) {
+                    // For "other" type, videos lack season/episode.
+                    // Build progress map by matching video IDs to their
+                    // position in the meta video list.
+                    watchProgressRepository.allProgress.map { allProgress ->
+                        val meta = _uiState.value.meta
+                        val videos = meta?.videos ?: emptyList()
+                        val progressByVideoId = allProgress
+                            .filter { it.contentId == cid }
+                            .associateBy { it.videoId }
+                        val result = mutableMapOf<Pair<Int, Int>, WatchProgress>()
+                        videos.forEachIndexed { index, video ->
+                            val progress = progressByVideoId[video.id]
+                            if (progress != null) {
+                                // Use synthetic season=1, episode=index+1 as key
+                                result[1 to (index + 1)] = progress
+                            }
+                        }
+                        result as Map<Pair<Int, Int>, WatchProgress>
+                    }
+                } else {
+                    watchProgressRepository.getAllEpisodeProgress(cid)
+                }
             }
                 .distinctUntilChanged()
                 .collectLatest { progressMap ->
@@ -574,6 +596,11 @@ class MetaDetailsViewModel @Inject constructor(
             .mapNotNull { it.season }
             .distinct()
             .sorted()
+            .ifEmpty {
+                // For "other" type content videos lack season/episode numbers.  
+                // Treat them as a single virtual season so the episodes UI can display them.
+                if (meta.videos.isNotEmpty()) listOf(1) else emptyList()
+            }
 
         val defaultEpisodeSeason = findPreferredDefaultEpisode(meta)?.season
         // Prefer addon-specified default episode season, otherwise first regular season (> 0), fallback to season 0 (specials)
@@ -1203,9 +1230,17 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun getEpisodesForSeason(videos: List<Video>, season: Int): List<Video> {
-        return videos
-            .filter { it.season == season }
-            .sortedBy { it.episode }
+        val filtered = videos.filter { it.season == season }
+        if (filtered.isNotEmpty()) return filtered.sortedBy { it.episode }
+        // Fallback: if no videos match the season (e.g. "other" type with
+        // null seasons), return all videos with synthetic season/episode
+        // numbers so the episode UI can track watched state.
+        if (videos.isNotEmpty() && videos.all { it.season == null }) {
+            return videos.mapIndexed { index, video ->
+                video.copy(season = 1, episode = index + 1)
+            }
+        }
+        return emptyList()
     }
 
     private fun reevaluateSeriesWatchedBadge() {
@@ -1606,7 +1641,7 @@ class MetaDetailsViewModel @Inject constructor(
                 || _uiState.value.watchedEpisodes.contains(season to episode)
             runCatching {
                 if (isWatched) {
-                    watchProgressRepository.removeFromHistory(_effectiveContentId.value, videoId = resolveFallbackVideoId(), season = season, episode = episode)
+                    watchProgressRepository.removeFromHistory(_effectiveContentId.value, videoId = video.id, season = season, episode = episode)
                     showMessage(context.getString(R.string.detail_episode_marked_unwatched))
                 } else {
                     watchProgressRepository.markAsCompleted(buildCompletedEpisodeProgress(meta, video))
@@ -1628,7 +1663,13 @@ class MetaDetailsViewModel @Inject constructor(
     fun isSeasonFullyWatched(season: Int): Boolean {
         val state = _uiState.value
         val meta = state.meta ?: return false
-        val episodes = meta.videos.filter { it.season == season && it.episode != null }
+        // For "other" type, use episodesForSeason which has synthetic season/episode.
+        // For regular series, use meta.videos to support checking any season.
+        val episodes = if (meta.apiType.equals("other", ignoreCase = true)) {
+            state.episodesForSeason.filter { it.season == season && it.episode != null }
+        } else {
+            meta.videos.filter { it.season == season && it.episode != null }
+        }
         if (episodes.isEmpty()) return false
         return episodes.all { video ->
             val s = video.season ?: return@all false
@@ -1642,7 +1683,11 @@ class MetaDetailsViewModel @Inject constructor(
         val meta = _uiState.value.meta ?: return
         suppressSeasonAutoSwitch = true
         viewModelScope.launch {
-            val episodes = meta.videos.filter { it.season == season && it.episode != null }
+            val episodes = if (meta.apiType.equals("other", ignoreCase = true)) {
+                _uiState.value.episodesForSeason.filter { it.season == season && it.episode != null }
+            } else {
+                meta.videos.filter { it.season == season && it.episode != null }
+            }
             val unwatched = episodes.filter { video ->
                 val s = video.season!!
                 val e = video.episode!!
@@ -1678,7 +1723,11 @@ class MetaDetailsViewModel @Inject constructor(
         val meta = _uiState.value.meta ?: return
         suppressSeasonAutoSwitch = true
         viewModelScope.launch {
-            val episodes = meta.videos.filter { it.season == season && it.episode != null }
+            val episodes = if (meta.apiType.equals("other", ignoreCase = true)) {
+                _uiState.value.episodesForSeason.filter { it.season == season && it.episode != null }
+            } else {
+                meta.videos.filter { it.season == season && it.episode != null }
+            }
             val watched = episodes.filter { video ->
                 val s = video.season!!
                 val e = video.episode!!
@@ -1719,8 +1768,14 @@ class MetaDetailsViewModel @Inject constructor(
         val targetEpisode = video.episode ?: return
 
         viewModelScope.launch {
-            val previous = meta.videos.filter { v ->
-                v.season == targetSeason && v.episode != null && v.episode < targetEpisode
+            val previous = if (meta.apiType.equals("other", ignoreCase = true)) {
+                _uiState.value.episodesForSeason.filter { v ->
+                    v.season == targetSeason && v.episode != null && v.episode < targetEpisode
+                }
+            } else {
+                meta.videos.filter { v ->
+                    v.season == targetSeason && v.episode != null && v.episode < targetEpisode
+                }
             }
             val unwatched = previous.filter { v ->
                 val s = v.season!!

@@ -1446,7 +1446,9 @@ private fun MetaDetailsContent(
             }
 
             // Season tabs and episodes for series
-            if (isSeries && seasons.isNotEmpty()) {
+            val showSeasonTabs = isSeries && seasons.isNotEmpty() && !(seasons.size == 1 && meta.apiType.equals("other", ignoreCase = true))
+            val showEpisodesRow = isSeries && seasons.isNotEmpty()
+            if (showSeasonTabs) {
                 item(key = "season_tabs", contentType = "season_tabs") {
                     Box(modifier = Modifier.bringIntoViewResponder(noVerticalScrollResponder)) {
                         SeasonTabs(
@@ -1460,6 +1462,8 @@ private fun MetaDetailsContent(
                         )
                     }
                 }
+            }
+            if (showEpisodesRow) {
                 item(key = "episodes_$selectedSeason", contentType = "episodes") {
                     Box(modifier = Modifier.bringIntoViewResponder(noVerticalScrollResponder)) {
                         EpisodesRow(
@@ -1478,7 +1482,7 @@ private fun MetaDetailsContent(
                             isSeasonFullyWatched = isSeasonFullyWatched(selectedSeason),
                             selectedSeason = selectedSeason,
                             onMarkPreviousEpisodesWatched = onMarkPreviousEpisodesWatched,
-                            upFocusRequester = selectedSeasonFocusRequester,
+                            upFocusRequester = if (showSeasonTabs) selectedSeasonFocusRequester else heroPlayFocusRequester,
                             downFocusRequester = episodesDownFocusRequester,
                             episodeFocusRequesters = seasonEpisodeFocusRequesters,
                             restoreEpisodeId = if (pendingRestoreType == RestoreTarget.EPISODE) pendingRestoreEpisodeId else null,

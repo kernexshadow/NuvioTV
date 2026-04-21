@@ -168,7 +168,11 @@ fun NextEpisodeCardOverlay(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "S${nextEpisode.season}E${nextEpisode.episode} • ${nextEpisode.title}",
+                        text = if (nextEpisode.isOtherType) {
+                            nextEpisode.title
+                        } else {
+                            "S${nextEpisode.season}E${nextEpisode.episode} • ${nextEpisode.title}"
+                        },
                         color = Color.White,
                         fontSize = 14.sp,
                         maxLines = 1,
