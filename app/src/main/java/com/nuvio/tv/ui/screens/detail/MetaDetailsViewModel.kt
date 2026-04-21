@@ -1097,7 +1097,7 @@ class MetaDetailsViewModel @Inject constructor(
         }
 
         // Store TMDB rating separately so it can be shown with its own icon on the details screen.
-        if (enrichment?.rating != null) {
+        if (enrichment?.rating != null && settings.useBasicInfo) {
             _uiState.update { it.copy(tmdbRating = enrichment.rating.toFloat()) }
         }
 
