@@ -840,9 +840,10 @@ private fun MetaDetailsContent(
     var pendingRestoreCollectionItemId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingRestoreCompanyId by rememberSaveable { mutableStateOf<Int?>(null) }
     var restoreFocusToken by rememberSaveable { mutableIntStateOf(0) }
+    var companyRestoreToken by rememberSaveable { mutableIntStateOf(0) }
     var initialHeroFocusRequested by rememberSaveable(meta.id) { mutableStateOf(false) }
     var showHeroPlayOptionsDialog by rememberSaveable(meta.id) { mutableStateOf(false) }
-    var initialDetailReturnFocusHandled by remember(
+    var initialDetailReturnFocusHandled by rememberSaveable(
         meta.id,
         detailReturnEpisodeFocusRequest?.season,
         detailReturnEpisodeFocusRequest?.episode
@@ -859,6 +860,7 @@ private fun MetaDetailsContent(
         pendingRestoreMoreLikeItemId = null
         pendingRestoreCollectionItemId = null
         pendingRestoreCompanyId = null
+        companyRestoreToken = 0
     }
 
     fun markHeroRestore() {
@@ -926,7 +928,11 @@ private fun MetaDetailsContent(
     ) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME && pendingRestoreType != null) {
+                android.util.Log.d("DetailFocus", "ON_RESUME: restoreFocusToken++ pendingRestoreType=$pendingRestoreType")
                 restoreFocusToken += 1
+                if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) {
+                    companyRestoreToken += 1
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -943,6 +949,7 @@ private fun MetaDetailsContent(
         episodeProgressMap,
         watchedEpisodes
     ) {
+        android.util.Log.d("DetailFocus", "ReturnEpisodeFocus LE fired: handled=$initialDetailReturnFocusHandled request=${detailReturnEpisodeFocusRequest?.season}/${detailReturnEpisodeFocusRequest?.episode} pendingRestore=$pendingRestoreType")
         if (initialDetailReturnFocusHandled) return@LaunchedEffect
         if (!isSeries) {
             initialDetailReturnFocusHandled = true
@@ -972,6 +979,7 @@ private fun MetaDetailsContent(
         initialHeroFocusRequested = true
         markEpisodeRestore(targetEpisode.id)
         if (seasons.isNotEmpty()) {
+            android.util.Log.d("DetailFocus", "ReturnEpisodeFocus: scrollToItem(2)")
             // Ensure the episodes row is composed before requesting focus on a card.
             listState.scrollToItem(2)
             delay(32)
@@ -1218,6 +1226,7 @@ private fun MetaDetailsContent(
             pendingRestoreEpisodeId == null &&
             !isTrailerPlaying
         ) {
+            android.util.Log.d("DetailFocus", "Hero auto-focus LE: requesting hero focus")
             repeat(3) {
                 if (initialHeroFocusRequested) return@repeat
                 heroPlayFocusRequester.requestFocusAfterFrames()
@@ -1416,6 +1425,7 @@ private fun MetaDetailsContent(
                         isTrailerPlaying = isTrailerPlaying,
                         playButtonFocusRequester = heroPlayFocusRequester,
                         onHeroActionFocused = {
+                            android.util.Log.d("DetailFocus", "onHeroActionFocused: scrolling to top, listState.firstVisible=${listState.firstVisibleItemIndex}")
                             if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
                                 coroutineScope.launch {
                                     listState.animateScrollToItem(0)
@@ -1479,7 +1489,9 @@ private fun MetaDetailsContent(
                             onEpisodeFocused = { episodeId ->
                                 lastFocusedEpisodeIdBySeason[selectedSeason] = episodeId
                             },
-                            scrollToEpisodeId = if (nextToWatchScrolledSeasons[selectedSeason] != true && pendingRestoreType != RestoreTarget.EPISODE) {
+                            scrollToEpisodeId = if (lastFocusedEpisodeIdBySeason[selectedSeason] != null) {
+                                null
+                            } else if (nextToWatchScrolledSeasons[selectedSeason] != true && pendingRestoreType != RestoreTarget.EPISODE) {
                                 val ntwId = nextToWatch?.nextVideoId
                                     ?: nextToWatch?.let { ntw -> episodesForSeason.firstOrNull { it.season == ntw.nextSeason && it.episode == ntw.nextEpisode }?.id }
                                 if (ntwId != null) {
@@ -1639,7 +1651,7 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_network),
                             companies = meta.networks,
-                            restoreCompanyId = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
+                            restoreCompanyId = if (companyRestoreToken > 0 && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyClick = { company ->
@@ -1657,7 +1669,7 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_production),
                             companies = meta.productionCompanies,
-                            restoreCompanyId = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
+                            restoreCompanyId = if (companyRestoreToken > 0 && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyClick = { company ->
@@ -1675,7 +1687,7 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_production),
                             companies = meta.productionCompanies,
-                            restoreCompanyId = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
+                            restoreCompanyId = if (companyRestoreToken > 0 && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyClick = { company ->
@@ -1693,7 +1705,7 @@ private fun MetaDetailsContent(
                         CompanyLogosSection(
                             title = stringResource(R.string.detail_section_network),
                             companies = meta.networks,
-                            restoreCompanyId = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
+                            restoreCompanyId = if (companyRestoreToken > 0 && pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) pendingRestoreCompanyId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.COMPANY_OR_NETWORK) restoreFocusToken else 0,
                             onRestoreFocusHandled = { clearPendingRestore() },
                             onCompanyClick = { company ->
