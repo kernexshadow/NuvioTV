@@ -227,10 +227,10 @@ class MainActivity : ComponentActivity() {
             var hasSelectedProfileThisSession by rememberSaveable { mutableStateOf(false) }
             var onboardingCompletedThisSession by remember { mutableStateOf(false) }
             var onboardingProfileSyncInProgress by remember { mutableStateOf(false) }
-            val hasSeenAuthQrOnFirstLaunch by appOnboardingDataStore
-                .hasSeenAuthQrOnFirstLaunch
-                .map<Boolean, Boolean?> { it }
-                .collectAsState(initial = null)
+            val hasSeenAuthQrFlow = remember(appOnboardingDataStore) {
+                appOnboardingDataStore.hasSeenAuthQrOnFirstLaunch.map<Boolean, Boolean?> { it }
+            }
+            val hasSeenAuthQrOnFirstLaunch by hasSeenAuthQrFlow.collectAsState(initial = null)
             val authState by authManager.authState.collectAsState()
 
             LaunchedEffect(hasSeenAuthQrOnFirstLaunch, authState) {
