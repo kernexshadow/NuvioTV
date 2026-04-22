@@ -11,6 +11,7 @@ import com.nuvio.tv.data.remote.api.TmdbImagesResponse
 import com.nuvio.tv.data.remote.api.TmdbMovieReleaseDatesResponse
 import com.nuvio.tv.data.remote.api.TmdbNetwork
 import com.nuvio.tv.data.remote.api.TmdbNetworkDetailsResponse
+import com.nuvio.tv.data.remote.api.TmdbVideosResponse
 import com.nuvio.tv.domain.model.ContentType
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -47,6 +48,7 @@ class TmdbMetadataServiceTest {
         coEvery { api.getMovieCredits(any(), any(), any()) } returns Response.success(TmdbCreditsResponse())
         coEvery { api.getMovieImages(any(), any(), any()) } returns Response.success(TmdbImagesResponse())
         coEvery { api.getMovieReleaseDates(any(), any()) } returns Response.success(TmdbMovieReleaseDatesResponse())
+        coEvery { api.getMovieVideos(any(), any(), any()) } returns Response.success(TmdbVideosResponse(id = 10))
 
         val service = TmdbMetadataService(api)
 
