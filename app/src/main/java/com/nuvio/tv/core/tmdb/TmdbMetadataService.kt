@@ -17,18 +17,19 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.MetaTrailer
 import com.nuvio.tv.domain.model.PersonDetail
 import com.nuvio.tv.domain.model.PosterShape
+import java.time.LocalDate
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
-import java.util.concurrent.ConcurrentHashMap
-import java.util.Locale
-import javax.inject.Inject
-import javax.inject.Singleton
 
 private const val TAG = "TmdbMetadataService"
 private val TMDB_API_KEY = BuildConfig.TMDB_API_KEY
@@ -36,9 +37,13 @@ private const val TMDB_TRAILER_FALLBACK_LANGUAGE = "en-US"
 private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 
 @Singleton
-class TmdbMetadataService @Inject constructor(
-    private val tmdbApi: TmdbApi
+class TmdbMetadataService(
+    private val tmdbApi: TmdbApi,
+    private val ioDispatcher: CoroutineDispatcher
 ) {
+    @Inject
+    constructor(tmdbApi: TmdbApi) : this(tmdbApi, Dispatchers.IO)
+
     // In-memory caches
     private val enrichmentCache = ConcurrentHashMap<String, TmdbEnrichment>()
     private val episodeCache = ConcurrentHashMap<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>()
@@ -55,7 +60,7 @@ class TmdbMetadataService @Inject constructor(
         contentType: ContentType,
         language: String = "en"
     ): TmdbEnrichment? =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             val normalizedLanguage = normalizeTmdbLanguage(language)
             val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage"
             enrichmentCache[cacheKey]?.let { return@withContext it }
@@ -172,7 +177,7 @@ class TmdbMetadataService @Inject constructor(
                     }
                 val poster = buildImageUrl(details?.posterPath, size = "w500")
                 val backdrop = buildImageUrl(details?.backdropPath, size = "w1280")
-                
+
                 val collectionId = details?.belongsToCollection?.id
                 val collectionName = details?.belongsToCollection?.name
 
@@ -431,7 +436,7 @@ class TmdbMetadataService @Inject constructor(
         tmdbId: String,
         seasonNumbers: List<Int>,
         language: String = "en"
-    ): Map<Pair<Int, Int>, TmdbEpisodeEnrichment> = withContext(Dispatchers.IO) {
+    ): Map<Pair<Int, Int>, TmdbEpisodeEnrichment> = withContext(ioDispatcher) {
         val normalizedLanguage = normalizeTmdbLanguage(language)
         val cacheKey = "$tmdbId:${seasonNumbers.sorted().joinToString(",")}:$normalizedLanguage"
         episodeCache[cacheKey]?.let { return@withContext it }
@@ -477,7 +482,7 @@ class TmdbMetadataService @Inject constructor(
         contentType: ContentType,
         language: String = "en",
         maxItems: Int = 12
-    ): List<MetaPreview> = withContext(Dispatchers.IO) {
+    ): List<MetaPreview> = withContext(ioDispatcher) {
         val normalizedLanguage = normalizeTmdbLanguage(language)
         val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage:more_like"
         moreLikeThisCache[cacheKey]?.let { return@withContext it }
@@ -599,7 +604,7 @@ class TmdbMetadataService @Inject constructor(
     suspend fun fetchMovieCollection(
         collectionId: Int,
         language: String = "en"
-    ): List<MetaPreview> = withContext(Dispatchers.IO) {
+    ): List<MetaPreview> = withContext(ioDispatcher) {
         val normalizedLanguage = normalizeTmdbLanguage(language)
         val cacheKey = "$collectionId:$normalizedLanguage:collection"
         collectionCache[cacheKey]?.let { return@withContext it }
@@ -607,10 +612,10 @@ class TmdbMetadataService @Inject constructor(
         try {
             val collectionResponse = tmdbApi.getCollectionDetails(collectionId, TMDB_API_KEY, normalizedLanguage).body()
             val rawParts = collectionResponse?.parts.orEmpty()
-            
+
             // Show in release order
             val sortedParts = rawParts.sortedBy { it.releaseDate ?: "9999" }
-            
+
             val includeImageLanguage = buildString {
                 append(normalizedLanguage.substringBefore("-"))
                 append(",")
@@ -666,7 +671,7 @@ class TmdbMetadataService @Inject constructor(
         sourceType: String,
         fallbackName: String? = null,
         language: String = "en"
-    ): TmdbEntityBrowseData? = withContext(Dispatchers.IO) {
+    ): TmdbEntityBrowseData? = withContext(ioDispatcher) {
         val normalizedLanguage = normalizeTmdbLanguage(language)
         val normalizedSourceType = normalizeEntitySourceType(sourceType)
         val cacheKey = "${entityKind.routeValue}:$entityId:$normalizedSourceType:$normalizedLanguage"
@@ -1009,7 +1014,7 @@ class TmdbMetadataService @Inject constructor(
         preferCrewCredits: Boolean? = null,
         language: String = "en"
     ): PersonDetail? =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             val normalizedLanguage = normalizeTmdbLanguage(language)
             val cacheKey = "$personId:${preferCrewCredits?.toString() ?: "auto"}:$normalizedLanguage"
             personCache[cacheKey]?.let { return@withContext it }
