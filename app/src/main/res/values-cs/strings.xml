@@ -193,7 +193,6 @@
     <string name="detail_comments_error">Recenze z Traktu se momentálně nepodařilo načíst.</string>
     <string name="detail_trailer_loading">Načítání traileru...</string>
     <string name="detail_trailer_error">Trailer se momentálně nepodařilo načíst.</string>
-    <string name="detail_comments_spoiler_hint">Recenze obsahuje spoiler. Stiskněte OK pro zobrazení.</string>
     <string name="detail_comments_spoiler_hidden">Recenze se spoilerem. Stiskněte OK pro zobrazení.</string>
     <string name="detail_comments_reveal_spoiler">Zobrazit spoiler</string>
     <string name="detail_comments_reveal_spoiler_hint">Stiskněte OK pro zobrazení spoileru.</string>
