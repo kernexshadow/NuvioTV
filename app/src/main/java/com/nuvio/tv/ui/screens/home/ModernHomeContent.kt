@@ -850,7 +850,7 @@ fun ModernHomeContent(
                         // start padding — user sees the list stop and focus appear.
                         fun endFastScroll() {
                             val mode = fastScrollModeRef.getAndSet(FastScrollMode.None)
-                            fastScrollDirectionRef.set(0)
+                            val direction = fastScrollDirectionRef.getAndSet(0)
                             fastScrollJobRef.getAndSet(null)?.cancel()
                             fastScrollEndTimerRef.getAndSet(null)?.cancel()
                             if (isFastScrolling) isFastScrolling = false
@@ -908,8 +908,23 @@ fun ModernHomeContent(
                                         visibleRows.lastOrNull { it.index == lastIdx }?.let {
                                             it.offset + it.size <= viewportEnd
                                         } == true
+                                    // Upward drag (DPAD_UP): prefer the topmost visible row
+                                    // even if its top edge is slightly above the viewport,
+                                    // because that's the row the user was uncovering when
+                                    // they let go. Picking the first FULLY visible row would
+                                    // skip past it onto the row below, which the user reads
+                                    // as "focus landed on the previous row instead of the
+                                    // next one I was reaching for." Only accept it if it's
+                                    // at least half visible so a 5 % sliver doesn't trigger
+                                    // a large backwards bringIntoView snap.
+                                    val upwardTopRow = if (direction < 0) {
+                                        visibleRows.firstOrNull()?.takeIf {
+                                            it.offset > -it.size / 2
+                                        }
+                                    } else null
                                     val targetRowIndex = when {
                                         lastRowAtBottom -> lastIdx
+                                        upwardTopRow != null -> upwardTopRow.index
                                         else ->
                                             visibleRows.firstOrNull { it.offset >= 0 }?.index
                                                 ?: visibleRows.firstOrNull()?.index
