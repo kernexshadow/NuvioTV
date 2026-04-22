@@ -657,9 +657,15 @@ fun MetaDetailsScreen(
         }
 
         if (uiState.showListPicker) {
+            val nuvioListTab = LibraryListTab(
+                key = "local",
+                title = stringResource(R.string.trakt_library_source_nuvio),
+                type = LibraryListTab.Type.WATCHLIST
+            )
+            val combinedTabs = listOf(nuvioListTab) + uiState.libraryListTabs
             LibraryListPickerDialog(
                 title = uiState.meta?.name ?: stringResource(R.string.detail_lists_fallback),
-                tabs = uiState.libraryListTabs,
+                tabs = combinedTabs,
                 membership = uiState.pickerMembership,
                 isPending = uiState.pickerPending,
                 error = uiState.pickerError,
@@ -1450,11 +1456,7 @@ private fun MetaDetailsContent(
                         },
                         isInLibrary = isInLibrary,
                         onToggleLibrary = onToggleLibrary,
-                        onLibraryLongPress = {
-                            if (librarySourceMode == LibrarySourceMode.TRAKT) {
-                                onLibraryLongPress()
-                            }
-                        },
+                        onLibraryLongPress = onLibraryLongPress,
                         isMovieWatched = isMovieWatched,
                         isMovieWatchedPending = isMovieWatchedPending,
                         onToggleMovieWatched = onToggleMovieWatched,
