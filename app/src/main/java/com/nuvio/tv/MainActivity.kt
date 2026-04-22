@@ -393,8 +393,14 @@ class MainActivity : ComponentActivity() {
 
                     val startDestination = if (layoutChosen) Screen.Home.route else Screen.LayoutSelection.route
                     val navController = rememberNavController()
+                    var optimisticRoute by remember { mutableStateOf<String?>(null) }
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
-                    val currentRoute = navBackStackEntry?.destination?.route
+                    val actualRoute = navBackStackEntry?.destination?.route
+                    val currentRoute = optimisticRoute ?: actualRoute
+
+                    LaunchedEffect(actualRoute) {
+                        optimisticRoute = null
+                    }
 
                     val view = LocalView.current
                     LaunchedEffect(currentRoute) {
@@ -476,6 +482,7 @@ class MainActivity : ComponentActivity() {
                             activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
                             showProfileSelector = profiles.size > 1,
                             onSwitchProfile = { hasSelectedProfileThisSession = false },
+                            onNavigate = { optimisticRoute = it },
                             onExitApp = {
                                 finishAffinity()
                                 finishAndRemoveTask()
@@ -496,6 +503,7 @@ class MainActivity : ComponentActivity() {
                             activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
                             showProfileSelector = profiles.size > 1,
                             onSwitchProfile = { hasSelectedProfileThisSession = false },
+                            onNavigate = { optimisticRoute = it },
                             onExitApp = {
                                 finishAffinity()
                                 finishAndRemoveTask()
@@ -567,6 +575,7 @@ private fun LegacySidebarScaffold(
     activeProfileAvatarImageUrl: String?,
     showProfileSelector: Boolean,
     onSwitchProfile: () -> Unit,
+    onNavigate: (String) -> Unit,
     onExitApp: () -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -723,6 +732,7 @@ private fun LegacySidebarScaffold(
                                 selected = selectedDrawerRoute == item.route,
                                 expanded = isExpanded,
                                 onClick = {
+                                    onNavigate(item.route)
                                     navigateToDrawerRoute(
                                         navController = navController,
                                         currentRoute = currentRoute,
@@ -894,6 +904,7 @@ private fun ModernSidebarScaffold(
     activeProfileAvatarImageUrl: String?,
     showProfileSelector: Boolean,
     onSwitchProfile: () -> Unit,
+    onNavigate: (String) -> Unit,
     onExitApp: () -> Unit
 ) {
     val showSidebar = currentRoute in rootRoutes
@@ -1215,6 +1226,7 @@ private fun ModernSidebarScaffold(
                         drawerItemFocusRequesters = drawerItemFocusRequesters,
                         onDrawerItemFocused = { focusedDrawerIndex = it },
                         onDrawerItemClick = { targetRoute ->
+                            onNavigate(targetRoute)
                             navigateToDrawerRoute(
                                 navController = navController,
                                 currentRoute = currentRoute,

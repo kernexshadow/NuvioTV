@@ -707,6 +707,14 @@
     <string name="trakt_watch_progress_dialog_subtitle">Choose whether resume and continue watching should use Trakt or Nuvio Sync while Trakt scrobbling stays active.</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
+    <string name="trakt_library_source_title">Library Source</string>
+    <string name="trakt_library_source_subtitle">Choose which library to use for saving and viewing your collection</string>
+    <string name="trakt_library_source_dialog_title">Library Source</string>
+    <string name="trakt_library_source_dialog_subtitle">Choose where to save and manage your library items</string>
+    <string name="trakt_library_source_trakt">Trakt</string>
+    <string name="trakt_library_source_nuvio">Nuvio Library</string>
+    <string name="trakt_library_source_trakt_selected">Trakt library selected</string>
+    <string name="trakt_library_source_nuvio_selected">Nuvio library selected</string>
     <string name="trakt_setting_on">On</string>
     <string name="trakt_setting_off">Off</string>
     <string name="trakt_watch_progress_trakt_selected">Watch progress source set to Trakt</string>
@@ -1146,6 +1154,8 @@
     <string name="library_empty_trakt_title">No %1$s in this list</string>
     <string name="library_empty_local_subtitle">Start saving your favorites to see them here</string>
     <string name="library_empty_trakt_subtitle">Use + in details to add items to watchlist or lists</string>
+    <string name="library_empty_trakt_not_auth_title">Trakt not connected</string>
+    <string name="library_empty_trakt_not_auth_subtitle">Connect your Trakt account in Settings to view your Trakt library</string>
 
     <!-- AccountSettingsContent -->
     <string name="account_loading">Loading\u2026</string>
