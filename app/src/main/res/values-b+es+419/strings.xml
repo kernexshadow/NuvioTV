@@ -209,7 +209,7 @@
     <string name="tmdb_entity_empty_title">No se encontraron títulos</string>
     <string name="tmdb_entity_empty_subtitle">TMDB no tiene títulos disponibles para explorar en esta selección actualmente.</string>
     <string name="episodes_unavailable">No disponible</string>
-        <!-- Status labels for series (some languages need gendered forms) -->
+    <!-- Status labels for series (some languages need gendered forms) -->
     <string name="series_status_ended">Finalizada</string>
     <string name="series_status_continuing">En emisión</string>
     <string name="series_status_current">Actual</string>
@@ -744,6 +744,14 @@
     <string name="trakt_hide_unaired">Ocultar episodios sin emitir</string>
     <string name="trakt_all_history">Todo el historial</string>
     <string name="trakt_days_format">%1$d días</string>
+    <string name="trakt_cw_window_title">Ventana de Continuar viendo</string>
+    <string name="trakt_cw_window_subtitle">Elige cuánta actividad de Trakt debe aparecer en “Continuar viendo”.</string>
+    <string name="trakt_unaired_dialog_title">Episodios próximos no emitidos</string>
+    <string name="trakt_unaired_dialog_subtitle">Elige si “Continuar viendo” debe incluir episodios próximos antes de su estreno.</string>
+    <string name="trakt_show_unaired">Mostrar episodios no emitidos</string>
+    <string name="trakt_hide_unaired">Ocultar episodios no emitidos</string>
+    <string name="trakt_all_history">Todo el historial</string>
+    <string name="trakt_days_format">%1$d días</string>
 
     <!-- DebugSettingsScreen -->
     <string name="debug_title">Depuración</string>
@@ -1146,6 +1154,8 @@
     <string name="library_empty_trakt_title">No hay %1$s en esta lista</string>
     <string name="library_empty_local_subtitle">Empieza a guardar tus favoritos para verlos aquí</string>
     <string name="library_empty_trakt_subtitle">Usa + en los detalles para agregar elementos a tu lista de seguimiento o a listas</string>
+    <string name="library_empty_trakt_not_auth_title">Trakt no conectado</string>
+    <string name="library_empty_trakt_not_auth_subtitle">Conecta tu cuenta de Trakt en Configuración para ver tu biblioteca de Trakt</string>
 
     <!-- AccountSettingsContent -->
     <string name="account_loading">Cargando\u2026</string>
