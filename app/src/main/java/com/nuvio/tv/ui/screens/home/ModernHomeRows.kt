@@ -97,6 +97,17 @@ private const val POSTER_PREFETCH_DISTANCE = 8
 
 internal val LocalVerticalRowsScrolling = androidx.compose.runtime.compositionLocalOf { false }
 
+/**
+ * True while the user is actively "fast-scrolling" — i.e. holding DPAD_LEFT/RIGHT or
+ * DPAD_UP/DOWN and the LazyColumn-level key handler has taken over to drag the list
+ * programmatically instead of letting [androidx.compose.ui.focus.FocusManager.moveFocus]
+ * pull focus card-by-card. Cards use this to suppress their focus chrome (border / glow /
+ * GIF) during the drag; the chrome snaps back onto whichever card focus lands on when
+ * the user releases the key. Defaults to `false`, so any card used outside a modern
+ * home row keeps its normal focus visuals.
+ */
+internal val LocalFastScrollActive = androidx.compose.runtime.compositionLocalOf { false }
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun ModernContinueWatchingRowItem(
@@ -869,14 +880,30 @@ private fun ModernCarouselCard(
             shape = cardShape
         )
     }
+    // While the user is dragging the list via held DPAD (see LazyColumn-level fast
+    // scroll takeover in ModernHomeContent), hide focus chrome entirely — the list is
+    // sliding like a touch swipe and showing a border / glow jittering across every
+    // card the drag passes over would break that illusion. The chrome reappears the
+    // moment the user releases the key, when requestFocus lands focus on whichever
+    // card is visible at the leading edge.
+    val isFastScrolling = LocalFastScrollActive.current
+    val transparentFocusBorder = remember(cardShape) {
+        Border(
+            border = BorderStroke(0.dp, Color.Transparent),
+            shape = cardShape
+        )
+    }
+    val effectiveFocusedBorder = if (isFastScrolling) transparentFocusBorder else focusedBorder
+    val noFocusGlow = remember { CardDefaults.glow(focusedGlow = androidx.tv.material3.Glow.None) }
     val cardGlow = when (payload) {
         is ModernPayload.CollectionFolder -> rememberArtworkBackedCardGlow(
             imageUrl = imageUrl,
             fallbackSeed = "${item.title}:${payload.collectionTitle}",
             enabled = payload.focusGlowEnabled
         )
-        else -> remember { CardDefaults.glow(focusedGlow = androidx.tv.material3.Glow.None) }
+        else -> noFocusGlow
     }
+    val effectiveCardGlow = if (isFastScrolling) noFocusGlow else cardGlow
     val titleStyle = remember(titleMedium) {
         titleMedium.copy(fontWeight = FontWeight.Medium)
     }
@@ -936,9 +963,9 @@ private fun ModernCarouselCard(
                 containerColor = backgroundCardColor,
                 focusedContainerColor = backgroundCardColor
             ),
-            border = CardDefaults.border(focusedBorder = focusedBorder),
+            border = CardDefaults.border(focusedBorder = effectiveFocusedBorder),
             scale = CardDefaults.scale(focusedScale = 1f),
-            glow = cardGlow
+            glow = effectiveCardGlow
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 val mediaLayerModifier = remember(hasLandscapeLogo) {
