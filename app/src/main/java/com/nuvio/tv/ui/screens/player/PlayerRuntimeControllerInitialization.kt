@@ -807,20 +807,22 @@ private class CueNormalizingTextOutput(
 ) : TextOutput {
 
     override fun onCues(cueGroup: CueGroup) {
-        if (!shouldNormalizeCuePositionProvider()) {
-            delegate.onCues(cueGroup)
-            return
+        val processed = cueGroup.cues.map { cue ->
+            var c = fixRtlCueText(cue)
+            if (shouldNormalizeCuePositionProvider()) c = normalizeCuePosition(c)
+            c
         }
-        delegate.onCues(CueGroup(cueGroup.cues.map(::normalizeCuePosition), cueGroup.presentationTimeUs))
+        delegate.onCues(CueGroup(processed, cueGroup.presentationTimeUs))
     }
 
     @Deprecated("Uses the deprecated Media3 callback for text outputs.")
     override fun onCues(cues: List<Cue>) {
-        if (!shouldNormalizeCuePositionProvider()) {
-            delegate.onCues(cues)
-            return
+        val processed = cues.map { cue ->
+            var c = fixRtlCueText(cue)
+            if (shouldNormalizeCuePositionProvider()) c = normalizeCuePosition(c)
+            c
         }
-        delegate.onCues(cues.map(::normalizeCuePosition))
+        delegate.onCues(processed)
     }
 
     private fun normalizeCuePosition(cue: Cue): Cue {
@@ -831,6 +833,43 @@ private class CueNormalizingTextOutput(
             .setLine(Cue.DIMEN_UNSET, Cue.TYPE_UNSET)
             .setLineAnchor(Cue.TYPE_UNSET)
             .build()
+    }
+
+    private fun fixRtlCueText(cue: Cue): Cue {
+        val text = cue.text ?: return cue
+        if (!containsRtlChars(text)) return cue
+        val original = text.toString()
+        val fixed = original.split('\n').joinToString("\n") { line ->
+            moveLeadingRtlPunctuationToEnd(line)
+        }
+        if (fixed == original) return cue
+        return cue.buildUpon().setText(android.text.SpannableString(fixed)).build()
+    }
+
+    // In RTL subtitle files punctuation is stored at the logical start of the string,
+    // which should visually appear at the right (end) in RTL. Since SubtitlePainter
+    // renders LTR, we physically move the punctuation to the end of each line.
+    private fun moveLeadingRtlPunctuationToEnd(line: String): String {
+        if (line.isEmpty()) return line
+        var end = 0
+        while (end < line.length && line[end] in RTL_PUNCTUATION) end++
+        if (end == 0) return line
+        val punct = line.substring(0, end)
+        val rest = line.substring(end)
+        return "$rest$punct"
+    }
+
+    private fun containsRtlChars(text: CharSequence): Boolean {
+        for (ch in text) {
+            val d = Character.getDirectionality(ch)
+            if (d == Character.DIRECTIONALITY_RIGHT_TO_LEFT ||
+                d == Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC) return true
+        }
+        return false
+    }
+
+    companion object {
+        private val RTL_PUNCTUATION = setOf('.', ',', '?', '!', '-', ':', ';', '…', ')', '(')
     }
 }
 
