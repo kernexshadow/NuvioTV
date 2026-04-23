@@ -200,15 +200,11 @@ fun ContinueWatchingSection(
                             if (focusState.isFocused && lastFocusedIndex != index) {
                                 lastFocusedIndex = index
                                 onItemFocused(index)
-                                android.util.Log.d("CW-Focus", "CW card focused: index=$index")
                             }
                         }
                         .then(
                             if (downFocusRequester != null) {
-                                Modifier.focusProperties {
-                                    android.util.Log.d("CW-Focus", "CW focusProperties.down triggered from index=$lastFocusedIndex")
-                                    down = downFocusRequester
-                                }
+                                Modifier.focusProperties { down = downFocusRequester }
                             } else Modifier
                         )
                         .then(focusModifier)

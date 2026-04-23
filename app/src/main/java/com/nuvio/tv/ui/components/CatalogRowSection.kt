@@ -237,7 +237,6 @@ fun CatalogRowSection(
             contentPadding = PaddingValues(start = 48.dp, end = 200.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            android.util.Log.d("CatalogRow-Focus", "LazyRow recompose catalogKey=${catalogRow.catalogId} lastFocusedItemIndex=$lastFocusedItemIndex hasExpandedCard=$hasExpandedCard firstVisible=${listState.firstVisibleItemIndex}")
             itemsIndexed(
                 items = catalogRow.items,
                 key = { index, item ->
@@ -266,7 +265,6 @@ fun CatalogRowSection(
                     onFocus = { focusedItem ->
                         currentOnItemFocus(focusedItem)
                         if (lastFocusedItemIndex != index) {
-                            android.util.Log.d("CatalogRow-Focus", "Card focused: index=$index catalogKey=${catalogRow.catalogId} prevLastFocused=$lastFocusedItemIndex")
                             lastFocusedItemIndex = index
                             currentOnItemFocused(index)
                         }
