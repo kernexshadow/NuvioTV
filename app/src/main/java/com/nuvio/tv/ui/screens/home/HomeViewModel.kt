@@ -159,6 +159,8 @@ class HomeViewModel @Inject constructor(
     internal val cwMetaNegativeCacheTimestamps = Collections.synchronizedMap(mutableMapOf<String, Long>())
     /** Ultra-light cache for badge evaluation: contentId → set of aired (season, episode) pairs. */
     internal val cwBadgeEpisodeCache = Collections.synchronizedMap(mutableMapOf<String, Set<Pair<Int, Int>>?>())
+    /** Per-series earliest upcoming season release date (epochMs) for smart TTL scheduling. */
+    internal val cwBadgeNextSeasonMs = Collections.synchronizedMap(mutableMapOf<String, Long>())
     internal val cwTmdbIdCache = Collections.synchronizedMap(mutableMapOf<String, String?>())
     internal val cwNextUpResolutionCache = Collections.synchronizedMap(mutableMapOf<String, NextUpResolution?>())
     internal val cwNextUpNegativeCacheTimestamps = Collections.synchronizedMap(mutableMapOf<String, Long>())
@@ -222,6 +224,7 @@ class HomeViewModel @Inject constructor(
                     cwMetaCache.clear()
                     cwMetaNegativeCacheTimestamps.clear()
                     cwBadgeEpisodeCache.clear()
+                    cwBadgeNextSeasonMs.clear()
                     cwTmdbIdCache.clear()
                     cwNextUpResolutionCache.clear()
                     cwNextUpNegativeCacheTimestamps.clear()

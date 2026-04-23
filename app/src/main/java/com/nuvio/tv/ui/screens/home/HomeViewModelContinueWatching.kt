@@ -100,6 +100,34 @@ internal data class CwMetaSummary(
         return if (unavailableSeasons.isEmpty()) candidates
         else candidates.filter { it.season !in unavailableSeasons }
     }
+
+    /**
+     * Returns the start-of-day (00:00 UTC) epochMs of the earliest upcoming season's
+     * first episode release date, or null if no upcoming seasons are known.
+     * Uses start-of-day so revalidation triggers right after midnight, not at
+     * the exact broadcast time.
+     */
+    fun earliestUpcomingSeasonMs(): Long? {
+        val today = java.time.LocalDate.now()
+        val candidates = videos.filter { (it.season ?: 0) > 0 }
+        return candidates.groupBy { it.season }
+            .mapNotNull { (_, eps) ->
+                val first = eps.minByOrNull { it.episode ?: Int.MAX_VALUE } ?: return@mapNotNull null
+                if (first.available == false) return@mapNotNull null
+                val released = first.released?.substringBefore('T')?.trim()
+                if (released.isNullOrBlank()) return@mapNotNull null
+                try {
+                    val date = java.time.LocalDate.parse(
+                        released,
+                        java.time.format.DateTimeFormatter.ISO_LOCAL_DATE
+                    )
+                    if (date.isAfter(today)) {
+                        date.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+                    } else null
+                } catch (_: java.time.format.DateTimeParseException) { null }
+            }
+            .minOrNull()
+    }
 }
 
 internal data class CwVideoSummary(
@@ -533,48 +561,73 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 // Uses getWatchedShowEpisodes() as the single source of truth.
                 launch(Dispatchers.IO) {
                     val allWatchedEpisodes = watchProgressRepository.getWatchedShowEpisodes()
+                    val showIdSiblings = watchProgressRepository.getShowIdSiblings()
 
-                    // Resolve meta for all watched series that don't have it cached.
-                    // Use IMDB IDs as primary (addon usually resolves by IMDB).
-                    // Also resolve TMDB IDs that don't have meta — handles cases where
-                    // multiple TMDB shows share the same IMDB (e.g. Monsters vs Monster).
-                    val idsToResolve = allWatchedEpisodes.keys.filter { contentId ->
+                    // Deduplicate IDs using Trakt's sibling mapping (IMDB ↔ TMDB from
+                    // the same show). Resolve meta once per show, then cross-cache the
+                    // result under all sibling IDs. When multiple TMDB shows share the
+                    // same IMDB (e.g. Trakt season splits), they have separate Trakt
+                    // entries with distinct sibling sets, so they won't collide.
+                    val resolvableIds = allWatchedEpisodes.keys.filter { contentId ->
+                        if (contentId.startsWith("trakt:")) return@filter false
                         val cacheKey = "series:$contentId"
                         synchronized(cwBadgeEpisodeCache) {
                             !cwBadgeEpisodeCache.containsKey(cacheKey) &&
                                 !cwBadgeEpisodeCache.containsKey("tv:$contentId")
                         }
                     }
-                    val staleIds = fullyWatchedSeriesIds.filterStaleIds(idsToResolve.toSet())
-                    // Prioritize IMDB IDs first (more likely to resolve), then TMDB.
-                    val sortedStaleIds = staleIds.sortedBy { if (it.startsWith("tt")) 0 else 1 }
-                    if (sortedStaleIds.isNotEmpty()) {
+                    // Build groups from sibling map: cluster IDs that belong to the same show.
+                    val visited = mutableSetOf<String>()
+                    // IDs with ambiguous siblings (shared IMDB across multiple shows)
+                    // must not be pulled into other groups via cross-caching.
+                    val ambiguousIds = showIdSiblings.entries
+                        .filter { "__ambiguous__" in it.value }
+                        .map { it.key }
+                        .toSet()
+                    val idGroups = mutableListOf<List<String>>()
+                    for (id in resolvableIds) {
+                        if (id in visited) continue
+                        val siblings = showIdSiblings[id]
+                        val group = if (siblings != null && "__ambiguous__" !in siblings) {
+                            val cluster = (siblings + id)
+                                .filter { it in resolvableIds && !it.startsWith("trakt:") && it !in ambiguousIds }
+                            if (cluster.isEmpty()) listOf(id)
+                            else cluster.sortedBy { if (it.startsWith("tt")) 0 else 1 }
+                        } else {
+                            listOf(id)
+                        }
+                        visited.addAll(group)
+                        idGroups.add(group)
+                    }
+                    val staleGroups = idGroups.filter { group ->
+                        fullyWatchedSeriesIds.filterStaleIds(setOf(group.first())).isNotEmpty()
+                    }
+                    // Split into first-time (never validated) vs revalidation (expired deadline).
+                    val (firstTimeGroups, revalidationGroups) = staleGroups.partition { group ->
+                        !fullyWatchedSeriesIds.hasBeenValidated(group.first())
+                    }
+
+                    // First-time: resolve as fast as possible so badges appear quickly.
+                    if (firstTimeGroups.isNotEmpty()) {
                         val metaSemaphore = Semaphore(2)
-                        val resolvedCount = java.util.concurrent.atomic.AtomicInteger(0)
-                        val batchSize = 10
-                        sortedStaleIds.map { contentId ->
+                        firstTimeGroups.map { group ->
                             async {
                                 metaSemaphore.withPermit {
-                                    // Skip if already resolved by a prior task in this batch.
-                                    val alreadyCached = synchronized(cwBadgeEpisodeCache) {
-                                        cwBadgeEpisodeCache.containsKey("series:$contentId") ||
-                                            cwBadgeEpisodeCache.containsKey("tv:$contentId")
-                                    }
-                                    if (!alreadyCached) {
-                                        val episodes = resolveBadgeEpisodes(contentId, "series")
-                                        if (episodes == null) {
-                                            Log.d("CW-BADGE", "badge resolve FAILED for $contentId")
-                                        }
-                                    }
-                                    if (resolvedCount.incrementAndGet() % batchSize == 0) {
-                                        publishBadgeUpdate(allWatchedEpisodes)
-                                    }
+                                    resolveBadgeGroup(group)
                                 }
                             }
                         }.awaitAll()
                     }
 
-                    // Final badge evaluation after all meta is resolved.
+                    // Revalidation: process gently to avoid CPU/memory spikes.
+                    if (revalidationGroups.isNotEmpty()) {
+                        for (group in revalidationGroups) {
+                            resolveBadgeGroup(group)
+                            kotlinx.coroutines.yield()
+                        }
+                    }
+
+                    // Single badge evaluation after all meta is resolved.
                     publishBadgeUpdate(allWatchedEpisodes)
                 }
 
@@ -1700,7 +1753,6 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
     val idCandidates = buildList {
         add(progress.contentId)
         if (progress.contentId.startsWith("tmdb:")) add(progress.contentId.substringAfter(':'))
-        if (progress.contentId.startsWith("trakt:")) add(progress.contentId.substringAfter(':'))
     }.distinct()
 
     val typeCandidates = listOf(progress.contentType, "series", "tv").distinct()
@@ -1785,6 +1837,33 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
 }
 
 /**
+ * Resolves badge episodes for a group of sibling IDs (same show).
+ * Resolves only the primary ID, then cross-caches under all siblings.
+ */
+private suspend fun HomeViewModel.resolveBadgeGroup(group: List<String>) {
+    val primaryId = group.first()
+    val alreadyCached = synchronized(cwBadgeEpisodeCache) {
+        cwBadgeEpisodeCache.containsKey("series:$primaryId") ||
+            cwBadgeEpisodeCache.containsKey("tv:$primaryId")
+    }
+    if (!alreadyCached) {
+        val episodes = resolveBadgeEpisodes(primaryId, "series")
+        if (episodes == null) {
+            Log.d("CW-BADGE", "badge resolve FAILED for $primaryId")
+        }
+        if (group.size > 1) {
+            synchronized(cwBadgeEpisodeCache) {
+                for (siblingId in group.drop(1)) {
+                    if (!cwBadgeEpisodeCache.containsKey("series:$siblingId")) {
+                        cwBadgeEpisodeCache["series:$siblingId"] = episodes
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Lightweight badge-only resolve: fetches meta and extracts only aired (season, episode) pairs.
  * Does NOT populate cwMetaCache — keeps memory minimal for badge evaluation of many series.
  */
@@ -1804,14 +1883,21 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
         val episodes = existingSummary.watchableEpisodes()
             .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
             .toSet()
+        existingSummary.earliestUpcomingSeasonMs()?.let { ms ->
+            cwBadgeNextSeasonMs[contentId] = ms
+        }
         synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = episodes }
         return episodes
     }
 
+    // Only IMDB (tt*) and TMDB IDs are resolvable by addons — skip trakt: entirely.
+    if (contentId.startsWith("trakt:")) {
+        synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = null }
+        return null
+    }
     val idCandidates = buildList {
         add(contentId)
         if (contentId.startsWith("tmdb:")) add(contentId.substringAfter(':'))
-        if (contentId.startsWith("trakt:")) add(contentId.substringAfter(':'))
     }.distinct()
     val typeCandidates = listOf(contentType, "series", "tv").distinct()
     val useAllAddons = externalMetaPrefetchEnabled
@@ -1828,9 +1914,14 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
                 }
             } ?: continue
             val meta = (result as? NetworkResult.Success<*>)?.data as? Meta ?: continue
-            val episodes = meta.watchableEpisodes()
+            val summary = meta.toCwSummary()
+            val episodes = summary.watchableEpisodes()
                 .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
                 .toSet()
+            // Record upcoming season date for smart TTL scheduling.
+            summary.earliestUpcomingSeasonMs()?.let { ms ->
+                cwBadgeNextSeasonMs[contentId] = ms
+            }
             synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = episodes }
             return episodes
         }
@@ -2042,7 +2133,6 @@ private fun HomeViewModel.publishBadgeUpdate(
             val watched = allWatchedEpisodes[contentId] ?: return@filter false
             val allWatched = airedEpisodes.all { it in watched }
             if (!allWatched && watched.isNotEmpty()) {
-                Log.d("CW-BADGE", "NOT fully watched: $contentId episodes=${airedEpisodes.size} watched=${watched.size}")
                 validatedNotFullyWatched.add(contentId)
             }
             allWatched
@@ -2074,9 +2164,19 @@ private fun HomeViewModel.publishBadgeUpdate(
     // But DO remove badges for series we've confirmed are NOT fully watched.
     val current = fullyWatchedSeriesIds.fullyWatchedSeriesIds.value
     val merged = (current - expandedNotFullyWatched) + expandedFullyWatched
-    if (current != merged) {
-        fullyWatchedSeriesIds.updateWithValidation(merged, expandedFullyWatched)
+    // Build per-series revalidation deadlines from upcoming season dates.
+    // Fully-watched: revalidate at next season premiere or after default TTL.
+    // Not-fully-watched: no deadline — status can only change when user watches more.
+    val allValidatedIds = expandedFullyWatched + expandedNotFullyWatched
+    val revalidateAt = buildMap {
+        for (contentId in expandedFullyWatched) {
+            cwBadgeNextSeasonMs[contentId]?.let { put(contentId, it) }
+        }
+        for (contentId in expandedNotFullyWatched) {
+            put(contentId, Long.MAX_VALUE)
+        }
     }
+    fullyWatchedSeriesIds.updateWithValidation(merged, allValidatedIds, revalidateAt)
 }
 
 private fun parseEpisodeReleaseDate(raw: String?): LocalDate? {
