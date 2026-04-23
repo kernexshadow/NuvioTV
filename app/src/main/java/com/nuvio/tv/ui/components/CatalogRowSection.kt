@@ -115,6 +115,17 @@ fun CatalogRowSection(
     var lastRequestedFocusItemKey by remember { mutableStateOf<String?>(null) }
     var lastFocusedItemIndex by remember { mutableIntStateOf(-1) }
     var hasExpandedCard by remember { mutableStateOf(false) }
+
+    // When fresh data prepends new items to a row the user hasn't
+    // scrolled, snap back to position 0 so the newest content is visible.
+    val firstItemKey = catalogRow.items.firstOrNull()?.let { rowItemFocusKey(0, it) }
+    LaunchedEffect(firstItemKey) {
+        if (firstItemKey == null) return@LaunchedEffect
+        if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
+            listState.scrollToItem(0)
+        }
+    }
+
     LaunchedEffect(catalogRow.items) {
         val validKeys = catalogRow.items.mapIndexedTo(mutableSetOf()) { index, item ->
             rowItemFocusKey(index, item)
