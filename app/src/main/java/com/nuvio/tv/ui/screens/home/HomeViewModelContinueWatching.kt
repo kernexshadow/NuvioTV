@@ -562,6 +562,18 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 // Uses getWatchedShowEpisodes() as the single source of truth.
                 launch(Dispatchers.IO) {
                     val allWatchedEpisodes = watchProgressRepository.getWatchedShowEpisodes()
+
+                    // Skip badge evaluation if watched episodes haven't changed since
+                    // last cycle (e.g. position save triggered pipeline restart).
+                    val currentKeys = allWatchedEpisodes.keys
+                    if (currentKeys == cwLastBadgeEpisodeKeys) {
+                        // Keys unchanged — just re-run publishBadgeUpdate with cached data
+                        // in case in-memory badge episode cache was populated by a prior cycle.
+                        publishBadgeUpdate(allWatchedEpisodes)
+                        return@launch
+                    }
+                    cwLastBadgeEpisodeKeys = currentKeys.toSet()
+
                     val showIdSiblings = watchProgressRepository.getShowIdSiblings()
 
                     // Deduplicate IDs using Trakt's sibling mapping (IMDB ↔ TMDB from

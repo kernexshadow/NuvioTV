@@ -161,6 +161,9 @@ class HomeViewModel @Inject constructor(
     internal val cwBadgeEpisodeCache = Collections.synchronizedMap(mutableMapOf<String, Set<Pair<Int, Int>>?>())
     /** Per-series earliest upcoming season release date (epochMs) for smart TTL scheduling. */
     internal val cwBadgeNextSeasonMs = Collections.synchronizedMap(mutableMapOf<String, Long>())
+    /** Snapshot of watchedShowEpisodes keys from the last badge evaluation cycle. */
+    @Volatile
+    internal var cwLastBadgeEpisodeKeys: Set<String> = emptySet()
     internal val cwTmdbIdCache = Collections.synchronizedMap(mutableMapOf<String, String?>())
     internal val cwNextUpResolutionCache = Collections.synchronizedMap(mutableMapOf<String, NextUpResolution?>())
     internal val cwNextUpNegativeCacheTimestamps = Collections.synchronizedMap(mutableMapOf<String, Long>())
@@ -234,6 +237,7 @@ class HomeViewModel @Inject constructor(
                     cwLastProcessedNextUpContentIds.clear()
                     cwEnrichedNextUpOverlay.clear()
                     cwEnrichedInProgressOverlay.clear()
+                    cwLastBadgeEpisodeKeys = emptySet()
                     _uiState.update {
                         it.copy(
                             continueWatchingItems = emptyList(),
@@ -276,6 +280,7 @@ class HomeViewModel @Inject constructor(
         cwLastProcessedNextUpContentIds.clear()
         cwEnrichedNextUpOverlay.clear()
         cwEnrichedInProgressOverlay.clear()
+        cwLastBadgeEpisodeKeys = emptySet()
         _uiState.update { it.copy(continueWatchingItems = emptyList()) }
         // Bump trigger so the pipeline's collectLatest restarts with fresh state.
         cwPipelineRefreshTrigger.value++
