@@ -21,8 +21,10 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -38,6 +40,7 @@ import com.nuvio.tv.data.local.InternalPlayerEngine
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.domain.model.Subtitle
 import io.github.peerless2012.ass.media.type.AssRenderType
+import android.os.Handler
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -258,7 +261,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 },
                 gainAudioProcessor = gainAudioProcessor,
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
-                onPlaybackSpeedAwareAudioOutputProviderCreated = { playbackSpeedAwareAudioOutputProvider = it }
+                onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it }
             ).setExtensionRendererMode(playerSettings.decoderPriority)
                 .setMapDV7ToHevc(playerSettings.mapDV7ToHevc || forceDv7ToHevc)
 
@@ -306,10 +309,6 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                     .build()
                 setAudioAttributes(audioAttributes, true)
-                playbackSpeedAwareAudioOutputProvider?.updatePlaybackSpeed(
-                    _uiState.value.playbackSpeed,
-                    selectedAudioRequiresPcmForSpeed(this)
-                )
                 setPlaybackSpeed(_uiState.value.playbackSpeed)
 
                 
@@ -762,7 +761,7 @@ private class SubtitleOffsetRenderersFactory(
     private val shouldNormalizeCuePositionProvider: () -> Boolean,
     private val gainAudioProcessor: GainAudioProcessor,
     private val playbackSpeedProvider: () -> Float,
-    private val onPlaybackSpeedAwareAudioOutputProviderCreated: (PlaybackSpeedAwareAudioOutputProvider) -> Unit
+    private val onPlaybackSpeedAwareAudioSinkCreated: (PlaybackSpeedAwareAudioSink) -> Unit
 ) : DefaultRenderersFactory(context) {
 
     override fun buildAudioSink(
@@ -770,16 +769,53 @@ private class SubtitleOffsetRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
-        val playbackSpeedAwareProvider = PlaybackSpeedAwareAudioOutputProvider()
-        playbackSpeedAwareProvider.updatePlaybackSpeed(playbackSpeedProvider())
-        onPlaybackSpeedAwareAudioOutputProviderCreated(playbackSpeedAwareProvider)
-
-        return DefaultAudioSink.Builder(context)
+        val baseAudioSink = DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
             .setAudioTrackBufferSizeProvider(FormatAwareAudioTrackBufferProvider())
             .setAudioProcessors(arrayOf(gainAudioProcessor))
             .build()
+        val playbackSpeedAwareAudioSink = PlaybackSpeedAwareAudioSink(baseAudioSink)
+        playbackSpeedAwareAudioSink.setInitialPlaybackSpeed(playbackSpeedProvider())
+        onPlaybackSpeedAwareAudioSinkCreated(playbackSpeedAwareAudioSink)
+        return playbackSpeedAwareAudioSink
+    }
+
+    override fun buildAudioRenderers(
+        context: Context,
+        extensionRendererMode: Int,
+        mediaCodecSelector: MediaCodecSelector,
+        enableDecoderFallback: Boolean,
+        audioSink: AudioSink,
+        eventHandler: Handler,
+        eventListener: AudioRendererEventListener,
+        out: ArrayList<Renderer>
+    ) {
+        val playbackAwareSink = audioSink as? PlaybackSpeedAwareAudioSink
+        if (playbackAwareSink == null) {
+            super.buildAudioRenderers(
+                context,
+                extensionRendererMode,
+                mediaCodecSelector,
+                enableDecoderFallback,
+                audioSink,
+                eventHandler,
+                eventListener,
+                out
+            )
+            return
+        }
+        out.add(
+            PlaybackSpeedAwareAudioRenderer(
+                context = context,
+                codecAdapterFactory = getCodecAdapterFactory(),
+                mediaCodecSelector = mediaCodecSelector,
+                enableDecoderFallback = enableDecoderFallback,
+                eventHandler = eventHandler,
+                eventListener = eventListener,
+                playbackSpeedAwareAudioSink = playbackAwareSink
+            )
+        )
     }
 
     override fun buildTextRenderers(
