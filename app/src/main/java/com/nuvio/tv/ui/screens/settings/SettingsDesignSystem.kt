@@ -218,6 +218,7 @@ internal fun SettingsRailButton(
     Card(
         onClick = onClick,
         modifier = appliedModifier
+            .padding(top = 2.dp, bottom = 2.dp)
             .fillMaxWidth()
             .heightIn(min = SettingsRailItemHeight)
             .onFocusChanged { state ->
@@ -458,6 +459,7 @@ internal fun SettingsActionRow(
     Card(
         onClick = { if (enabled) onClick() },
         modifier = modifier
+            .padding(top = 2.dp, bottom = 2.dp)
             .fillMaxWidth()
             .heightIn(min = 62.dp)
             .onFocusChanged { state ->

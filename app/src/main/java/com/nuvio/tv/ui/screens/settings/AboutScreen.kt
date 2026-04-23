@@ -9,7 +9,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -81,35 +80,34 @@ fun AboutSettingsContent(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+
                 Image(
                     painter = painterResource(id = R.drawable.app_logo_wordmark),
                     contentDescription = stringResource(R.string.cd_nuvio_logo),
                     modifier = Modifier
-                        .width(180.dp)
-                        .height(50.dp),
+                        .width(140.dp)
+                        .height(40.dp),
                     contentScale = ContentScale.Fit
                 )
 
                 Text(
                     text = stringResource(R.string.about_made_with_love),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = NuvioColors.TextSecondary,
                     textAlign = TextAlign.Center
                 )
 
                 Text(
                     text = stringResource(R.string.about_version, BuildConfig.VERSION_NAME),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = NuvioColors.TextSecondary,
                     textAlign = TextAlign.Center
                 )
-
-                Spacer(modifier = Modifier.height(4.dp))
 
                 SettingsActionRow(
                     title = stringResource(R.string.about_check_updates),

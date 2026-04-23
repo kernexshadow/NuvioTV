@@ -556,7 +556,9 @@ internal fun DiscoverGrid(
                     val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
                     if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
                 },
-                modifier = Modifier.width(adaptiveStyle.width),
+                modifier = Modifier
+                    .padding(top = 3.dp)
+                    .width(adaptiveStyle.width),
                 focusRequester = focusReq,
                 onFocused = {
                     onItemFocused(index)
