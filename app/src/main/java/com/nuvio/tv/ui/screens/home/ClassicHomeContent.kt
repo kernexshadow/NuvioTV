@@ -74,7 +74,8 @@ fun ClassicHomeContent(
     onRequestTrailerPreview: (MetaPreview) -> Unit,
     onItemFocus: (MetaPreview) -> Unit = {},
     catalogSeeAllLabel: String? = null,
-    onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>) -> Unit
+    onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>) -> Unit,
+    scrollToTopTrigger: Int = 0
 ) {
 
     // Nested prefetch: when LazyColumn prefetches a row ahead of scrolling,
@@ -89,6 +90,13 @@ fun ClassicHomeContent(
     )
     val isVerticalScrollingState = remember(columnListState) {
         androidx.compose.runtime.derivedStateOf { columnListState.isScrollInProgress }
+    }
+
+    // Scroll to top when triggered from sidebar Home button.
+    LaunchedEffect(scrollToTopTrigger) {
+        if (scrollToTopTrigger > 0) {
+            columnListState.scrollToItem(0, 0)
+        }
     }
 
     LaunchedEffect(focusState.verticalScrollIndex, focusState.verticalScrollOffset) {
