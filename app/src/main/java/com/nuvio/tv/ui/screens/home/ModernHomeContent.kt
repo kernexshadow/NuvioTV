@@ -297,7 +297,6 @@ fun ModernHomeContent(
     var restoredFromSavedState by remember { mutableStateOf(false) }
     var optionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     val lastFocusedContinueWatchingIndexRef = remember { java.util.concurrent.atomic.AtomicInteger(-1) }
-    val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val lastHeroNavigationAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val heroFocusSettleDelayMsRef = remember { java.util.concurrent.atomic.AtomicLong(MODERN_HERO_FOCUS_DEBOUNCE_MS) }
     // Fast-scroll bookkeeping. See the FAST_SCROLL_* constants at the top of the file
@@ -310,6 +309,7 @@ fun ModernHomeContent(
     val fastScrollEndTimerRef = remember { java.util.concurrent.atomic.AtomicReference<Job?>(null) }
     val fastScrollModeRef = remember { java.util.concurrent.atomic.AtomicReference(FastScrollMode.None) }
     val fastScrollDirectionRef = remember { java.util.concurrent.atomic.AtomicInteger(0) }
+    val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     var isFastScrolling by remember { mutableStateOf(false) }
     var focusedCatalogSelection by remember { mutableStateOf<FocusedCatalogSelection?>(null) }
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
