@@ -580,14 +580,13 @@ private fun PlayerRuntimeController.currentTrackPreferenceForPersistence(): Play
 internal fun PlayerRuntimeController.persistTrackPreference() {
     val id = contentId ?: return
     // Use the currently-effective preference (remembered OR previously persisted)
-    // so that a delay-only change doesn't wipe a previously-saved track selection.
+    // so that a delay-only change does not wipe a previously-saved track selection.
     // For the resume-from-CW case, rememberedTrackPreference is null for the fresh
-    // session — falling through to persistedTrackPreference preserves the user's
-    // earlier audio/subtitle choices. See issue #1063 (and thanks Copilot).
+    // session, and falling through to persistedTrackPreference preserves the user's
+    // earlier audio/subtitle choices. See issue #1063.
     val pref = currentTrackPreferenceForPersistence()
     val audio = pref.audio
     val subtitle = pref.subtitle
-    val currentDelayMs = _uiState.value.subtitleDelayMs
     val persisted = com.nuvio.tv.data.local.PersistedTrackPreference(
         subtitleType = when (subtitle) {
             is PlayerRuntimeController.RememberedSubtitleSelection.Internal -> "INTERNAL"
@@ -607,10 +606,20 @@ internal fun PlayerRuntimeController.persistTrackPreference() {
         addonSubtitleAddonName = (subtitle as? PlayerRuntimeController.RememberedSubtitleSelection.Addon)?.addonName,
         audioLanguage = audio?.language,
         audioName = audio?.name,
-        audioTrackId = audio?.trackId,
-        subtitleDelayMs = currentDelayMs.takeIf { it != 0 }
+        audioTrackId = audio?.trackId
     )
     scope.launch { trackPreferenceDataStore.save(id, persisted) }
+    // Subtitle delay is keyed per-videoId (not per-contentId) because a delay
+    // calibrated against one episode release rarely applies to the next
+    // episode. Scoping it to the exact video prevents cross-episode leakage.
+    // See issue #1063 discussion.
+    val vid = currentVideoId?.takeIf { it.isNotBlank() }
+    if (vid != null) {
+        val currentDelayMs = _uiState.value.subtitleDelayMs
+        scope.launch {
+            trackPreferenceDataStore.saveSubtitleDelayMs(vid, currentDelayMs.takeIf { it != 0 })
+        }
+    }
 }
 
 internal fun PlayerRuntimeController.captureCurrentAudioSelectionForSubtitleRefresh(

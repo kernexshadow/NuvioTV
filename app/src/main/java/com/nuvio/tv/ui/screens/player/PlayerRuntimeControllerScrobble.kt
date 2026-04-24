@@ -22,27 +22,34 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
         refreshScrobbleItem()
         if (persistedTrackPreference == null) {
             contentId?.let { id ->
-                val loadedRaw = trackPreferenceDataStore.load(id)
-                val loaded = loadedRaw?.toTrackPreference()
+                val loaded = trackPreferenceDataStore.load(id)?.toTrackPreference()
                 logSwitchTrace(
                     stage = "track-pref-load",
                     message = "contentId=$id loadedAudio=${loaded?.audio?.language}/${loaded?.audio?.name} " +
-                        "loadedSubtitle=${loaded?.subtitle?.javaClass?.simpleName ?: "none"} " +
-                        "loadedSubtitleDelayMs=${loadedRaw?.subtitleDelayMs}"
+                        "loadedSubtitle=${loaded?.subtitle?.javaClass?.simpleName ?: "none"}"
                 )
                 Log.d(
                     PlayerRuntimeController.TAG,
                     "TRACK_PREF load: contentId=$id S${currentSeason}E${currentEpisode} " +
-                        "result=${if (loadedRaw == null) "null (no saved preference)" else "audio=${loaded?.audio?.language}/${loaded?.audio?.name} subtitle=${loaded?.subtitle?.javaClass?.simpleName} subtitleDelayMs=${loadedRaw.subtitleDelayMs}"}"
+                        "result=${if (loaded == null) "null (no saved preference)" else "audio=${loaded.audio?.language}/${loaded.audio?.name} subtitle=${loaded.subtitle?.javaClass?.simpleName}"}"
                 )
                 persistedTrackPreference = loaded
-                // Apply persisted subtitle delay BEFORE initializePlayer — the
-                // renderers factory snapshots subtitleDelayUs from this value.
-                loadedRaw?.subtitleDelayMs?.takeIf { it != 0 }?.let { delayMs ->
-                    subtitleDelayUs.set(delayMs.toLong() * 1000L)
-                    _uiState.update { it.copy(subtitleDelayMs = delayMs) }
-                }
             } ?: Log.d(PlayerRuntimeController.TAG, "TRACK_PREF load: skipped (contentId is null)")
+            // Subtitle delay is keyed per-videoId, so it is loaded separately
+            // from the track selection above. This happens before
+            // initializePlayer() because the renderers factory snapshots
+            // subtitleDelayUs from _uiState.value.subtitleDelayMs on build.
+            currentVideoId?.takeIf { it.isNotBlank() }?.let { vid ->
+                val savedDelayMs = trackPreferenceDataStore.loadSubtitleDelayMs(vid)
+                if (savedDelayMs != null && savedDelayMs != 0) {
+                    subtitleDelayUs.set(savedDelayMs.toLong() * 1000L)
+                    _uiState.update { it.copy(subtitleDelayMs = savedDelayMs) }
+                    Log.d(
+                        PlayerRuntimeController.TAG,
+                        "TRACK_PREF load: restored subtitleDelayMs=$savedDelayMs for videoId=$vid"
+                    )
+                }
+            }
         } else {
             Log.d(
                 PlayerRuntimeController.TAG,
