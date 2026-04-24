@@ -11,14 +11,19 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
@@ -27,6 +32,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -46,6 +52,19 @@ import com.nuvio.tv.ui.components.PosterCardStyle
 
 /** Minimum interval between processed key repeat events to prevent HWUI overload. */
 private const val KEY_REPEAT_THROTTLE_MS = 80L
+
+/**
+ * Vertical fast-scroll configuration for Classic home. Mirrors the Modern behaviour:
+ * on DPAD_UP/DOWN key repeat we take over the LazyColumn with a frame-driven coroutine
+ * and drag the list at a constant velocity, then land focus on whichever item is at the
+ * viewport edge when the user releases the key. Horizontal navigation keeps the existing
+ * throttle-based moveFocus model so cards step one-by-one like before.
+ */
+private const val FAST_SCROLL_VERTICAL_VELOCITY_DP_PER_SEC = 3200f
+private const val FAST_SCROLL_END_TIMEOUT_MS = 160L
+private const val FAST_SCROLL_MAX_FRAME_DT_SEC = 0.048f
+
+private enum class ClassicFastScrollMode { None, Vertical }
 
 private class FocusSnapshot(
     var rowIndex: Int,
@@ -197,6 +216,20 @@ fun ClassicHomeContent(
     val lastKeyRepeatTimeRef = remember { longArrayOf(0L) }
     val contentFocusRequester = LocalContentFocusRequester.current
     val focusManager = LocalFocusManager.current
+    val localDensity = LocalDensity.current
+
+    // Vertical fast-scroll bookkeeping. Horizontal keeps the throttle-based moveFocus
+    // model below; vertical repeats engage a frame-driven coroutine that drags the
+    // LazyColumn at constant velocity, leaving focus frozen on the originating card
+    // until the user releases the key. On release (or on the safety timeout, or when
+    // the list hits its edge) we land focus on the item currently at the viewport
+    // leading edge via its FocusRequester.
+    val fastScrollScope = rememberCoroutineScope()
+    val fastScrollJobRef = remember { java.util.concurrent.atomic.AtomicReference<Job?>(null) }
+    val fastScrollEndTimerRef = remember { java.util.concurrent.atomic.AtomicReference<Job?>(null) }
+    val fastScrollModeRef = remember { java.util.concurrent.atomic.AtomicReference(ClassicFastScrollMode.None) }
+    val fastScrollDirectionRef = remember { java.util.concurrent.atomic.AtomicInteger(0) }
+    var isFastScrolling by remember { mutableStateOf(false) }
 
     // Stabilize map references to avoid recomposing every row when a single trailer URL changes.
     val stableTrailerPreviewUrls = remember { androidx.compose.runtime.mutableStateOf(trailerPreviewUrls) }
@@ -216,8 +249,9 @@ fun ClassicHomeContent(
         return
     }
 
-    androidx.compose.runtime.CompositionLocalProvider(
-        LocalVerticalScrollSuppressImages provides (uiState.memoryOnlyVerticalScroll && isVerticalScrollingState.value)
+    CompositionLocalProvider(
+        LocalVerticalScrollSuppressImages provides (uiState.memoryOnlyVerticalScroll && isVerticalScrollingState.value),
+        LocalFastScrollActive provides isFastScrolling
     ) {
     LazyColumn(
         state = columnListState,
@@ -227,24 +261,86 @@ fun ClassicHomeContent(
             .focusRestorer()
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
-                if (native.action == AndroidKeyEvent.ACTION_DOWN &&
-                    native.repeatCount > 0 &&
-                    (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT)
-                ) {
-                    val isVertical = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP
-                    val gateMs = if (isVertical) 112L else KEY_REPEAT_THROTTLE_MS
+                val kc = native.keyCode
+                val isHoriz = kc == AndroidKeyEvent.KEYCODE_DPAD_LEFT ||
+                    kc == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
+                val isVert = kc == AndroidKeyEvent.KEYCODE_DPAD_UP ||
+                    kc == AndroidKeyEvent.KEYCODE_DPAD_DOWN
+                if (!isHoriz && !isVert) return@onPreviewKeyEvent false
+
+                // Local helper: tear down any running fast-scroll coroutine and land
+                // focus on the LazyColumn item at the viewport leading edge. For row
+                // items we use their pre-registered entry FocusRequester; for the hero
+                // banner we use the hero's requester. Continue Watching has no direct
+                // requester, so if we land on it we fall through to the nearest
+                // requester-bearing neighbour so focus doesn't disappear.
+                fun endFastScroll() {
+                    val mode = fastScrollModeRef.getAndSet(ClassicFastScrollMode.None)
+                    val direction = fastScrollDirectionRef.getAndSet(0)
+                    fastScrollJobRef.getAndSet(null)?.cancel()
+                    fastScrollEndTimerRef.getAndSet(null)?.cancel()
+                    if (isFastScrolling) isFastScrolling = false
+                    when (mode) {
+                        ClassicFastScrollMode.Vertical -> {
+                            val layoutInfo = columnListState.layoutInfo
+                            val visibleItems = layoutInfo.visibleItemsInfo
+                            val lastIdx = layoutInfo.totalItemsCount - 1
+                            val viewportEnd = layoutInfo.viewportEndOffset
+                            val lastItemAtBottom = lastIdx >= 0 &&
+                                visibleItems.lastOrNull { it.index == lastIdx }?.let {
+                                    it.offset + it.size <= viewportEnd
+                                } == true
+                            val upwardTopItem = if (direction < 0) {
+                                visibleItems.firstOrNull()?.takeIf {
+                                    it.offset > -it.size / 2
+                                }
+                            } else null
+                            val target = when {
+                                lastItemAtBottom -> visibleItems.lastOrNull { it.index == lastIdx }
+                                upwardTopItem != null -> upwardTopItem
+                                else ->
+                                    visibleItems.firstOrNull { it.offset >= 0 }
+                                        ?: visibleItems.firstOrNull()
+                            } ?: return
+                            fun requesterForKey(k: String?): FocusRequester? = when {
+                                k == null -> null
+                                k == "hero_carousel" -> heroFocusRequester
+                                rowEntryFocusRequesters.containsKey(k) -> rowEntryFocusRequesters[k]
+                                else -> null
+                            }
+                            val requester = requesterForKey(target.key as? String)
+                                ?: visibleItems.firstNotNullOfOrNull { requesterForKey(it.key as? String) }
+                            requester?.let { runCatching { it.requestFocus() } }
+                        }
+                        ClassicFastScrollMode.None -> Unit
+                    }
+                }
+
+                // Release: stop the drag and let default handling proceed (which now
+                // has no navigation work since we already landed focus above).
+                if (native.action == AndroidKeyEvent.ACTION_UP) {
+                    if (fastScrollModeRef.get() != ClassicFastScrollMode.None) endFastScroll()
+                    return@onPreviewKeyEvent false
+                }
+
+                if (native.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+
+                // First press (not a repeat) — fall through so Compose's default
+                // focus navigation fires and focus moves exactly one card / row. The
+                // fast-scroll takeover only engages past the system repeat threshold.
+                if (native.repeatCount == 0) return@onPreviewKeyEvent false
+
+                // Horizontal repeat: keep the existing throttle-based moveFocus model
+                // so cards step one-by-one like before. Tear down any lingering
+                // vertical fast-scroll state first so isFastScrolling doesn't stay on.
+                if (isHoriz) {
+                    if (fastScrollModeRef.get() != ClassicFastScrollMode.None) endFastScroll()
                     val now = android.os.SystemClock.uptimeMillis()
-                    if (now - lastKeyRepeatTimeRef[0] < gateMs) {
-                        return@onPreviewKeyEvent true // consume — too fast
+                    if (now - lastKeyRepeatTimeRef[0] < KEY_REPEAT_THROTTLE_MS) {
+                        return@onPreviewKeyEvent true
                     }
                     lastKeyRepeatTimeRef[0] = now
-                    val direction = when (native.keyCode) {
-                        AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
-                        AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
+                    val direction = when (kc) {
                         AndroidKeyEvent.KEYCODE_DPAD_LEFT -> FocusDirection.Left
                         AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> FocusDirection.Right
                         else -> null
@@ -254,7 +350,69 @@ fun ClassicHomeContent(
                     }
                     return@onPreviewKeyEvent true
                 }
-                false
+
+                // Vertical repeat: enter / extend fast-scroll drag mode.
+                val sign = if (kc == AndroidKeyEvent.KEYCODE_DPAD_UP) -1 else 1
+                val needsStart = fastScrollModeRef.get() != ClassicFastScrollMode.Vertical ||
+                    fastScrollDirectionRef.get() != sign ||
+                    fastScrollJobRef.get()?.isActive != true
+
+                if (needsStart) {
+                    fastScrollJobRef.getAndSet(null)?.cancel()
+                    val targetState = columnListState
+                    val atScrollEdge = (sign > 0 && !targetState.canScrollForward) ||
+                        (sign < 0 && !targetState.canScrollBackward)
+                    if (atScrollEdge) {
+                        if (fastScrollModeRef.get() != ClassicFastScrollMode.None) endFastScroll()
+                        return@onPreviewKeyEvent true
+                    }
+
+                    fastScrollModeRef.set(ClassicFastScrollMode.Vertical)
+                    fastScrollDirectionRef.set(sign)
+                    if (!isFastScrolling) isFastScrolling = true
+
+                    val velocityPxPerSec = with(localDensity) {
+                        FAST_SCROLL_VERTICAL_VELOCITY_DP_PER_SEC.dp.toPx()
+                    }
+
+                    fastScrollJobRef.set(
+                        fastScrollScope.launch {
+                            try {
+                                targetState.scroll {
+                                    var lastFrame = withFrameNanos { it }
+                                    while (true) {
+                                        val now = withFrameNanos { it }
+                                        val dtSec = ((now - lastFrame) / 1_000_000_000f)
+                                            .coerceAtMost(FAST_SCROLL_MAX_FRAME_DT_SEC)
+                                        lastFrame = now
+                                        val delta = sign * velocityPxPerSec * dtSec
+                                        val consumed = scrollBy(delta)
+                                        // Hit the edge — no more room to move in this
+                                        // direction. Land focus immediately so the user
+                                        // gets instant feedback that the scroll stopped.
+                                        if (consumed == 0f && delta != 0f) break
+                                    }
+                                }
+                                endFastScroll()
+                            } catch (_: CancellationException) {
+                                // expected on release / axis change
+                            }
+                        }
+                    )
+                }
+
+                // (Re)arm the safety timer — if ACTION_UP is lost (e.g. focus shifts
+                // to a system IME or the foreground changes) we still end the drag
+                // after a short idle so we don't leave the list silently scrolling.
+                fastScrollEndTimerRef.getAndSet(null)?.cancel()
+                fastScrollEndTimerRef.set(
+                    fastScrollScope.launch {
+                        delay(FAST_SCROLL_END_TIMEOUT_MS)
+                        endFastScroll()
+                    }
+                )
+
+                return@onPreviewKeyEvent true
             },
         contentPadding = PaddingValues(top = if (heroVisible) 0.dp else 24.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(32.dp)
