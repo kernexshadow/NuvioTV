@@ -1,6 +1,5 @@
 package com.nuvio.tv.ui.util
 
-import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.runtime.DisposableEffect
@@ -9,14 +8,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -46,13 +42,6 @@ private const val DEFAULT_END_TIMEOUT_MS = 160L
  */
 private const val DEFAULT_MAX_FRAME_DT_SEC = 0.048f
 
-/**
- * Minimum interval between processed horizontal DPAD repeats. Matches the
- * gate used by [dpadRepeatThrottle] so stepping sideways feels consistent
- * across views whether fast-scroll is active or not.
- */
-private const val DEFAULT_HORIZONTAL_GATE_MS = 80L
-
 private enum class FastScrollMode { None, Vertical }
 
 /**
@@ -64,16 +53,16 @@ private enum class FastScrollMode { None, Vertical }
  *
  * Behaviour:
  *
- * - DPAD_LEFT / DPAD_RIGHT repeats dispatch throttled
- *   `focusManager.moveFocus(...)` calls just like [dpadRepeatThrottle], so
- *   horizontal navigation keeps stepping one card at a time even when the
- *   remote is firing faster than we can compose.
  * - DPAD_UP / DPAD_DOWN repeats take over [scrollableState] with a
  *   frame-driven coroutine that drags the list at constant velocity while
  *   focus stays frozen on the originating card. On release (ACTION_UP), or
  *   when the list hits its edge, or after [endTimeoutMs] of silence, the
  *   drag ends and [resolveVerticalLanding] is asked for the [FocusRequester]
  *   to hand focus to.
+ * - DPAD_LEFT / DPAD_RIGHT repeats tear down any in-flight vertical drag
+ *   and then fall through to a chained [dpadRepeatThrottle] (installed
+ *   internally) so horizontal navigation keeps stepping one card at a time
+ *   at the standard repeat gate — no more duplicated throttle logic.
  * - First-press (non-repeat) DPAD events always fall through so Compose's
  *   default focus navigation handles single-step movement.
  *
@@ -95,6 +84,7 @@ private enum class FastScrollMode { None, Vertical }
  * @param onFastScrollingChanged    observer for the vertical-drag flag
  * @param shouldHaltForward         optional downward halt guard, see above
  * @param horizontalGateMs          min interval between horizontal repeats
+ *                                  (passed through to [dpadRepeatThrottle])
  * @param verticalVelocityDpPerSec  drag speed in dp per second
  * @param endTimeoutMs              idle gap before the drag self-terminates
  * @param maxFrameDtSec             per-frame delta clamp (jitter guard)
@@ -104,12 +94,11 @@ fun Modifier.dpadVerticalFastScroll(
     resolveVerticalLanding: (sign: Int) -> FocusRequester?,
     onFastScrollingChanged: (Boolean) -> Unit = {},
     shouldHaltForward: () -> Boolean = { false },
-    horizontalGateMs: Long = DEFAULT_HORIZONTAL_GATE_MS,
+    horizontalGateMs: Long = 80L,
     verticalVelocityDpPerSec: Float = DEFAULT_VERTICAL_VELOCITY_DP_PER_SEC,
     endTimeoutMs: Long = DEFAULT_END_TIMEOUT_MS,
     maxFrameDtSec: Float = DEFAULT_MAX_FRAME_DT_SEC,
 ): Modifier = composed {
-    val focusManager = LocalFocusManager.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
@@ -120,7 +109,6 @@ fun Modifier.dpadVerticalFastScroll(
     val endTimerRef = remember { AtomicReference<Job?>(null) }
     val modeRef = remember { AtomicReference(FastScrollMode.None) }
     val directionRef = remember { AtomicInteger(0) }
-    val horizontalDispatchRef = remember { AtomicLong(0L) }
     val isActiveRef = remember { AtomicReference(false) }
 
     DisposableEffect(Unit) {
@@ -175,21 +163,12 @@ fun Modifier.dpadVerticalFastScroll(
 
         if (isHoriz) {
             // Any in-flight vertical drag gets torn down first so the flag
-            // doesn't stay latched while the user is already navigating on
-            // another axis.
+            // doesn't stay latched while the user starts navigating on
+            // another axis. The actual horizontal throttle + moveFocus is
+            // handled by the chained [dpadRepeatThrottle] below, so we fall
+            // through with `false`.
             if (modeRef.get() != FastScrollMode.None) endFastScroll()
-            val now = SystemClock.uptimeMillis()
-            if (now - horizontalDispatchRef.get() < horizontalGateMs) {
-                return@onPreviewKeyEvent true
-            }
-            horizontalDispatchRef.set(now)
-            val direction = when (kc) {
-                KeyEvent.KEYCODE_DPAD_LEFT -> FocusDirection.Left
-                KeyEvent.KEYCODE_DPAD_RIGHT -> FocusDirection.Right
-                else -> null
-            }
-            if (direction != null) focusManager.moveFocus(direction)
-            return@onPreviewKeyEvent true
+            return@onPreviewKeyEvent false
         }
 
         // Vertical repeat: enter or extend fast-scroll drag mode.
@@ -263,5 +242,12 @@ fun Modifier.dpadVerticalFastScroll(
         )
 
         true
-    }
+    }.dpadRepeatThrottle(
+        horizontalGateMs = horizontalGateMs,
+        // Vertical repeats are fully consumed by the preview handler above,
+        // so they never reach the throttle. `Long.MAX_VALUE` keeps the
+        // throttle as a pure horizontal gate without any accidental
+        // vertical side effects if a key somehow slips past.
+        verticalGateMs = Long.MAX_VALUE,
+    )
 }
