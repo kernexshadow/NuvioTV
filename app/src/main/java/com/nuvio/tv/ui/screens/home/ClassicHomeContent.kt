@@ -25,6 +25,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.ui.platform.LocalFocusManager
@@ -225,37 +226,7 @@ fun ClassicHomeContent(
             .fillMaxSize()
             .focusRequester(contentFocusRequester)
             .focusRestorer()
-            .onPreviewKeyEvent { event ->
-                val native = event.nativeKeyEvent
-                if (native.action == AndroidKeyEvent.ACTION_DOWN &&
-                    native.repeatCount > 0 &&
-                    (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT)
-                ) {
-                    val isVertical = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP
-                    val gateMs = if (isVertical) 112L else KEY_REPEAT_THROTTLE_MS
-                    val now = android.os.SystemClock.uptimeMillis()
-                    if (now - lastKeyRepeatTimeRef[0] < gateMs) {
-                        return@onPreviewKeyEvent true // consume — too fast
-                    }
-                    lastKeyRepeatTimeRef[0] = now
-                    val direction = when (native.keyCode) {
-                        AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
-                        AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
-                        AndroidKeyEvent.KEYCODE_DPAD_LEFT -> FocusDirection.Left
-                        AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> FocusDirection.Right
-                        else -> null
-                    }
-                    if (direction != null) {
-                        focusManager.moveFocus(direction)
-                    }
-                    return@onPreviewKeyEvent true
-                }
-                false
-            },
+            .dpadRepeatThrottle(),
         contentPadding = PaddingValues(top = if (heroVisible) 0.dp else 24.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(32.dp)
     ) {
