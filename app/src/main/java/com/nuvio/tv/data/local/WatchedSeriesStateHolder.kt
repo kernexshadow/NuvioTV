@@ -50,17 +50,15 @@ class WatchedSeriesStateHolder @Inject constructor(
 
     private fun store() = factory.get(profileManager.activeProfileId.value, FEATURE)
 
-    fun loadFromDisk() {
+    suspend fun loadFromDisk() {
         if (loaded) return
-        scope.launch {
-            val prefs = store().data.first()
-            val persisted = prefs[KEY] ?: emptySet()
-            revalidateAfterMap = parseTimestamps(prefs[REVALIDATE_KEY])
-            if (_fullyWatchedSeriesIds.value.isEmpty() && persisted.isNotEmpty()) {
-                _fullyWatchedSeriesIds.value = persisted
-            }
-            loaded = true
+        val prefs = store().data.first()
+        val persisted = prefs[KEY] ?: emptySet()
+        revalidateAfterMap = parseTimestamps(prefs[REVALIDATE_KEY])
+        if (_fullyWatchedSeriesIds.value.isEmpty() && persisted.isNotEmpty()) {
+            _fullyWatchedSeriesIds.value = persisted
         }
+        loaded = true
     }
 
     fun update(ids: Set<String>) {
@@ -75,6 +73,7 @@ class WatchedSeriesStateHolder @Inject constructor(
      * [revalidateAt] allows setting per-series deadlines (e.g. upcoming season premiere).
      * Series not in [revalidateAt] get the default 7-day TTL.
      */
+    @Synchronized
     fun updateWithValidation(
         ids: Set<String>,
         validatedIds: Set<String>,
@@ -94,10 +93,14 @@ class WatchedSeriesStateHolder @Inject constructor(
             }
         }
         // Prune entries for series no longer in badge set AND not freshly validated.
-        val keysToRetain = ids + validatedIds
-        val sizeBefore = updated.size
-        updated.keys.retainAll(keysToRetain)
-        if (updated.size != sizeBefore) deadlinesChanged = true
+        // Skip pruning when only adding deadlines (validatedIds not in ids) to avoid
+        // removing deadlines set by earlier calls in the same async inject loop.
+        if (idsChanged) {
+            val keysToRetain = ids + validatedIds
+            val sizeBefore = updated.size
+            updated.keys.retainAll(keysToRetain)
+            if (updated.size != sizeBefore) deadlinesChanged = true
+        }
 
         revalidateAfterMap = updated
         if (idsChanged || deadlinesChanged) {

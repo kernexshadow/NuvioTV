@@ -449,30 +449,13 @@ class HomeViewModel @Inject constructor(
             val cachedNextUp = runCatching { cwEnrichmentCache.getNextUpSnapshot() }.getOrDefault(emptyList())
             if (cachedInProgress.isEmpty() && cachedNextUp.isEmpty()) return@launch
             val dismissedNextUp = traktSettingsDataStore.dismissedNextUpKeys.first()
-            // Cross-reference cached in-progress items with current WatchProgressPreferences
-            // to avoid showing stale progress (e.g. item completed since cache was saved).
-            val currentProgress = runCatching {
-                watchProgressRepository.allProgress.first()
-            }.getOrDefault(emptyList())
-            val currentProgressByContentId = currentProgress.associateBy { it.contentId }
+            // Render cached items immediately — don't wait for Trakt/allProgress.
+            // The pipeline will replace these with live data once it completes.
             val inProgressItems = cachedInProgress
                 .filter { !watchProgressRepository.isDroppedShow(it.contentId) }
-                .mapNotNull { cached ->
-                    // Use live progress data if available; skip if item is now completed.
-                    val liveProgress = currentProgressByContentId[cached.contentId]
-                    val progress = if (liveProgress != null) {
-                        if (liveProgress.isCompleted()) return@mapNotNull null
-                        if (!liveProgress.isInProgress() && liveProgress.position <= 0L) return@mapNotNull null
-                        liveProgress.copy(
-                            poster = liveProgress.poster ?: cached.poster,
-                            backdrop = liveProgress.backdrop ?: cached.backdrop,
-                            logo = liveProgress.logo ?: cached.logo,
-                            name = liveProgress.name.takeIf { it.isNotBlank() } ?: cached.name,
-                            episodeTitle = liveProgress.episodeTitle ?: cached.episodeTitle
-                        )
-                    } else {
-                        // No live data — trust cached item as-is.
-                        com.nuvio.tv.domain.model.WatchProgress(
+                .map { cached ->
+                    ContinueWatchingItem.InProgress(
+                        progress = com.nuvio.tv.domain.model.WatchProgress(
                             contentId = cached.contentId,
                             contentType = cached.contentType,
                             name = cached.name,
@@ -487,10 +470,7 @@ class HomeViewModel @Inject constructor(
                             duration = cached.duration,
                             lastWatched = cached.lastWatched,
                             progressPercent = cached.progressPercent
-                        )
-                    }
-                    ContinueWatchingItem.InProgress(
-                        progress = progress,
+                        ),
                         episodeThumbnail = cached.episodeThumbnail,
                         episodeDescription = cached.episodeDescription,
                         episodeImdbRating = cached.episodeImdbRating,
