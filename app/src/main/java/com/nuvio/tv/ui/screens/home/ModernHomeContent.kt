@@ -146,7 +146,8 @@ fun ModernHomeContent(
     onItemFocus: (MetaPreview) -> Unit = {},
     onPreloadAdjacentItem: (MetaPreview) -> Unit = {},
     onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>) -> Unit,
-    scrollToTopTrigger: Int = 0
+    scrollToTopTrigger: Int = 0,
+    onRequestLazyCatalogLoad: (String) -> Unit = {}
 ) {
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
     val isSidebarExpanded = LocalSidebarExpanded.current
@@ -257,6 +258,8 @@ fun ModernHomeContent(
     var pendingRowFocusKey by remember { mutableStateOf<String?>(null) }
     var pendingRowFocusIndex by remember { mutableStateOf<Int?>(null) }
     var pendingRowFocusNonce by remember { mutableIntStateOf(0) }
+    // Track row keys that are currently placeholders (empty items + isLoading).
+    val placeholderRowKeysRef = remember { mutableSetOf<String>() }
     var heroItem by remember {
         val initialHero = carouselRows.firstOrNull()?.items?.firstOrNull()?.heroPreview
         mutableStateOf<HeroPreview?>(initialHero)
@@ -335,8 +338,12 @@ fun ModernHomeContent(
         loadMoreRequestedTotals.keys.retainAll(activeRowKeys)
         carouselRows.forEach { row ->
             val rowRequesters = itemFocusRequesters[row.key] ?: return@forEach
-            val allowedKeys = activeItemKeysByRow[row.key] ?: emptySet()
-            rowRequesters.keys.retainAll(allowedKeys)
+            // Prune FocusRequester entries beyond current item count
+            val maxIndex = row.items.size
+            rowRequesters.keys.removeAll { key ->
+                val idx = key.removePrefix("${row.key}_").toIntOrNull()
+                idx != null && idx >= maxIndex
+            }
         }
         if (focusedCatalogSelection?.payload?.itemId !in activeCatalogItemIds) {
             focusedCatalogSelection = null
@@ -378,12 +385,6 @@ fun ModernHomeContent(
         val hadActiveRow = focusHolder.activeRowKey != null
         val existingActive = focusHolder.activeRowKey?.let(rowByKey::get)
         val firstRow = carouselRows.first()
-        // When new rows appear before the auto-selected row (e.g., catalogs
-        // load after collections), move focus to the new first row — but only
-        // if the user hasn't manually navigated away from the initial position.
-        // Detect if the auto-selected row is stale: new rows appeared
-        // above it (e.g., catalogs loaded after collections) and the user
-        // hasn't manually navigated away from the initial selection.
         val userStillOnAutoSelected = initialAutoSelectedKey != null &&
             focusHolder.activeRowKey == initialAutoSelectedKey
         val autoSelectedStale = hadActiveRow && existingActive != null &&
@@ -709,10 +710,8 @@ fun ModernHomeContent(
                     val rowListState = uiCaches.rowListStates[rowKey]
                     val firstVisibleIndex = rowListState?.firstVisibleItemIndex ?: 0
                     val safeIndex = firstVisibleIndex.coerceIn(0, ((row?.items?.size ?: 1) - 1).coerceAtLeast(0))
-                    val itemKey = row?.items?.getOrNull(safeIndex)?.key
-                    if (itemKey != null) {
-                        uiCaches.itemFocusRequesters[rowKey]?.get(itemKey) ?: FocusRequester.Default
-                    } else FocusRequester.Default
+                    val stableKey = "${rowKey}_$safeIndex"
+                    uiCaches.itemFocusRequesters[rowKey]?.get(stableKey) ?: FocusRequester.Default
                 } else FocusRequester.Default
             }
         }
@@ -814,6 +813,33 @@ fun ModernHomeContent(
             }
         }
 
+        // Lazy catalog loading: trigger load after scroll settles
+        val latestOnRequestLazyCatalogLoad = rememberUpdatedState(onRequestLazyCatalogLoad)
+        val latestCarouselRowsForLazy = rememberUpdatedState(carouselRows)
+        LaunchedEffect(verticalRowListState) {
+            val prefetchAheadForLazy = 2
+            snapshotFlow {
+                val scrolling = verticalRowListState.isScrollInProgress
+                val info = verticalRowListState.layoutInfo
+                val firstVisible = info.visibleItemsInfo.firstOrNull()?.index ?: -1
+                val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                Triple(scrolling, firstVisible, lastVisible)
+            }.collect { (scrolling, firstVisible, lastVisible) ->
+                if (scrolling || lastVisible < 0) return@collect
+                // Small settle delay so rapid D-pad presses don't fire loads
+                delay(150)
+                // Re-check after delay — if scrolling resumed, skip
+                if (verticalRowListState.isScrollInProgress) return@collect
+                val rows = latestCarouselRowsForLazy.value
+                for (idx in firstVisible.coerceAtLeast(0)..(lastVisible + prefetchAheadForLazy)) {
+                    val row = rows.getOrNull(idx) ?: continue
+                    if (row.isLoading && row.items.firstOrNull()?.key?.startsWith("placeholder_") == true) {
+                        latestOnRequestLazyCatalogLoad.value(row.key)
+                    }
+                }
+            }
+        }
+
         CompositionLocalProvider(
             LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec,
             LocalVerticalRowsScrolling provides (uiState.memoryOnlyVerticalScroll && isVerticalRowsScrolling),
@@ -889,9 +915,8 @@ fun ModernHomeContent(
                             else {
                                 val savedIdx = (focusedItemByRow[targetRow.key] ?: 0)
                                     .coerceIn(0, (targetRow.items.size - 1).coerceAtLeast(0))
-                                val targetItemKey = targetRow.items.getOrNull(savedIdx)?.key
-                                if (targetItemKey == null) null
-                                else uiCaches.requesterFor(targetRow.key, targetItemKey)
+                                val targetStableKey = "${targetRow.key}_$savedIdx"
+                                uiCaches.requesterFor(targetRow.key, targetStableKey)
                             }
                         },
                     ),
