@@ -90,11 +90,10 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
-import coil.decode.SvgDecoder
-import coil.imageLoader
-import coil.memory.MemoryCache
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.imageLoader
+import coil3.memory.MemoryCache
+import coil3.request.ImageRequest
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
@@ -108,6 +107,7 @@ import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import kotlinx.coroutines.delay
 import android.view.KeyEvent as AndroidKeyEvent
 import kotlin.math.abs
@@ -131,6 +131,8 @@ fun ModernHomeContent(
     uiState: HomeUiState,
     focusState: HomeScreenFocusState,
     enrichingItemId: String? = null,
+    lastEnrichedPreview: MetaPreview? = null,
+    enrichedPreviews: Map<String, MetaPreview> = emptyMap(),
     trailerPreviewUrls: Map<String, String>,
     trailerPreviewAudioUrls: Map<String, String>,
     onNavigateToDetail: (String, String, String) -> Unit,
@@ -267,7 +269,6 @@ fun ModernHomeContent(
     var restoredFromSavedState by remember { mutableStateOf(false) }
     var optionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     val lastFocusedContinueWatchingIndexRef = remember { java.util.concurrent.atomic.AtomicInteger(-1) }
-    val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val lastHeroNavigationAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val heroFocusSettleDelayMsRef = remember { java.util.concurrent.atomic.AtomicLong(MODERN_HERO_FOCUS_DEBOUNCE_MS) }
     var focusedCatalogSelection by remember { mutableStateOf<FocusedCatalogSelection?>(null) }
@@ -535,9 +536,40 @@ fun ModernHomeContent(
         }
         val activeItemId = activeCarouselItem?.metaPreview?.id
         val enrichmentActive = enrichingItemId != null && enrichingItemId == activeItemId
-        // When enrichment is active use heroItem (frozen), when done use activeCarouselItem
-        // which already has the enriched data from uiState update
-        val resolvedHero = if (enrichmentActive) heroItem else activeCarouselItem?.heroPreview ?: heroItem
+        // When enrichment is active use heroItem (frozen).  When done,
+        // prefer the freshly enriched MetaPreview (from lastEnrichedPreview)
+        // over the stale presentation data — the presentation pipeline
+        // skips rebuilds for item-level enrichment changes.
+        val enrichedHero = remember(enrichedPreviews, activeItemId) {
+            val enrichedItem = activeItemId?.let { enrichedPreviews[it] }
+            if (enrichedItem != null) {
+                HeroPreview(
+                    title = enrichedItem.name,
+                    logo = enrichedItem.logo,
+                    description = enrichedItem.description,
+                    contentTypeText = activeCarouselItem?.heroPreview?.contentTypeText,
+                    isSeries = isSeriesType(enrichedItem.apiType),
+                    yearText = activeCarouselItem?.heroPreview?.yearText,
+                    runtimeText = activeCarouselItem?.heroPreview?.runtimeText,
+                    imdbText = enrichedItem.imdbRating?.let { String.format("%.1f", it) },
+                    ageRatingText = enrichedItem.ageRating,
+                    statusText = enrichedItem.status,
+                    countryText = enrichedItem.country,
+                    languageText = enrichedItem.language?.uppercase(),
+                    genres = enrichedItem.genres.take(3),
+                    poster = enrichedItem.poster,
+                    backdrop = enrichedItem.backdropUrl,
+                    imageUrl = activeCarouselItem?.heroPreview?.imageUrl,
+                    frozenBackdropUrl = activeCarouselItem?.heroPreview?.frozenBackdropUrl,
+                    frozenLogoUrl = activeCarouselItem?.heroPreview?.frozenLogoUrl
+                )
+            } else null
+        }
+        val resolvedHero = when {
+            enrichmentActive -> heroItem
+            enrichedHero != null -> enrichedHero
+            else -> activeCarouselItem?.heroPreview ?: heroItem
+        }
         val activeRowFallbackBackdrop = remember(activeRow?.key, activeRow?.items?.size) {
             activeRow?.items?.firstNotNullOfOrNull { item ->
                 item.heroPreview.backdrop?.takeIf { it.isNotBlank() }
@@ -797,39 +829,7 @@ fun ModernHomeContent(
                     .graphicsLayer { alpha = trailerContentAlpha }
                     .focusRequester(contentFocusRequester)
                     .focusRestorer { focusRestorerRequester }
-                    .onPreviewKeyEvent { event ->
-                        val native = event.nativeKeyEvent
-                       
-                    
-                        if (native.action == AndroidKeyEvent.ACTION_DOWN &&
-                            native.repeatCount > 0 &&
-                            (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT)
-                        ) {
-                            val isVertical = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP
-                            val gateMs = if (isVertical) 112L else 80L
-                            val now = android.os.SystemClock.uptimeMillis()
-                            if (now - lastKeyRepeatDispatchRef.get() < gateMs) {
-                                return@onPreviewKeyEvent true // consume, too soon
-                            }
-                            lastKeyRepeatDispatchRef.set(now)
-                            val direction = when (native.keyCode) {
-                                AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
-                                AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
-                                AndroidKeyEvent.KEYCODE_DPAD_LEFT -> FocusDirection.Left
-                                AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> FocusDirection.Right
-                                else -> null
-                            }
-                            if (direction != null) {
-                                focusManager.moveFocus(direction)
-                            }
-                            return@onPreviewKeyEvent true
-                        }
-                        false
-                    },
+                    .dpadRepeatThrottle(),
                 contentPadding = PaddingValues(bottom = rowsViewportHeight),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
@@ -921,6 +921,7 @@ fun ModernHomeContent(
                                 onCatalogItemLongPress = onCatalogItemLongPress,
                                 onItemFocus = onItemFocus,
                                 onPreloadAdjacentItem = onPreloadAdjacentItem,
+                                enrichedPreviews = enrichedPreviews,
                                 onCatalogSelectionFocused = remember(Unit) {
                                     { selection: FocusedCatalogSelection ->
                                         if (focusedCatalogSelection != selection) {
@@ -932,19 +933,7 @@ fun ModernHomeContent(
                                 onNavigateToFolderDetail = onNavigateToFolderDetail,
                                 onLoadMoreCatalog = onLoadMoreCatalog,
                                 onBackdropInteraction = remember(Unit) { { expansionInteractionNonce++ } },
-                                onExpandedCatalogFocusKeyChange = remember(Unit) { { expandedCatalogFocusKey = it } },
-                                onGetVerticalFocusRequester = { _, isDown ->
-                                    val currentRowIndex = rowIndexByKey[row.key] ?: return@ModernRowSection FocusRequester.Default
-                                    val targetRowIndex = if (isDown) currentRowIndex + 1 else currentRowIndex - 1
-                                    val targetRow = latestCarouselRows.getOrNull(targetRowIndex) ?: return@ModernRowSection FocusRequester.Default
-
-                                    val targetSavedIndex = (focusedItemByRow[targetRow.key] ?: 0)
-                                        .coerceIn(0, (targetRow.items.size - 1).coerceAtLeast(0))
-                                    val targetItemKey = targetRow.items.getOrNull(targetSavedIndex)?.key
-                                    if (targetItemKey != null) {
-                                        uiCaches.requesterFor(targetRow.key, targetItemKey)
-                                    } else FocusRequester.Default
-                                }
+                                onExpandedCatalogFocusKeyChange = remember(Unit) { { expandedCatalogFocusKey = it } }
                             )
                 }
             }

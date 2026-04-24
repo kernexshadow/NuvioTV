@@ -25,6 +25,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.ui.platform.LocalFocusManager
@@ -126,6 +127,7 @@ fun ClassicHomeContent(
     val rowStates = remember { mutableMapOf<String, LazyListState>() }
     val rowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val rowEntryFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val rowFocusedItemIndex = remember { mutableMapOf<String, Int>() }
 
     var restoringFocus by remember { mutableStateOf(focusState.hasSavedFocus) }
     val heroFocusRequester = remember { FocusRequester() }
@@ -224,37 +226,7 @@ fun ClassicHomeContent(
             .fillMaxSize()
             .focusRequester(contentFocusRequester)
             .focusRestorer()
-            .onPreviewKeyEvent { event ->
-                val native = event.nativeKeyEvent
-                if (native.action == AndroidKeyEvent.ACTION_DOWN &&
-                    native.repeatCount > 0 &&
-                    (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT)
-                ) {
-                    val isVertical = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                        native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP
-                    val gateMs = if (isVertical) 112L else KEY_REPEAT_THROTTLE_MS
-                    val now = android.os.SystemClock.uptimeMillis()
-                    if (now - lastKeyRepeatTimeRef[0] < gateMs) {
-                        return@onPreviewKeyEvent true // consume — too fast
-                    }
-                    lastKeyRepeatTimeRef[0] = now
-                    val direction = when (native.keyCode) {
-                        AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
-                        AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
-                        AndroidKeyEvent.KEYCODE_DPAD_LEFT -> FocusDirection.Left
-                        AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> FocusDirection.Right
-                        else -> null
-                    }
-                    if (direction != null) {
-                        focusManager.moveFocus(direction)
-                    }
-                    return@onPreviewKeyEvent true
-                }
-                false
-            },
+            .dpadRepeatThrottle(),
         contentPadding = PaddingValues(top = if (heroVisible) 0.dp else 24.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(32.dp)
     ) {
@@ -351,23 +323,6 @@ fun ClassicHomeContent(
                 }
             }
         ) { index, homeRow ->
-            val nextRowKey = visibleHomeRows.getOrNull(index + 1)?.let { r ->
-                when (r) {
-                    is HomeRow.Catalog -> "${r.row.addonId}_${r.row.apiType}_${r.row.catalogId}"
-                    is HomeRow.CollectionRow -> "collection_${r.collection.id}"
-                }
-            }
-            val prevRowKey = visibleHomeRows.getOrNull(index - 1)?.let { r ->
-                when (r) {
-                    is HomeRow.Catalog -> "${r.row.addonId}_${r.row.apiType}_${r.row.catalogId}"
-                    is HomeRow.CollectionRow -> "collection_${r.collection.id}"
-                }
-            }
-            val rowDownFocusRequester = nextRowKey?.let { rowFocusRequesters.getOrPut(it) { FocusRequester() } }
-            val rowUpFocusRequester = prevRowKey?.let { rowFocusRequesters.getOrPut(it) { FocusRequester() } }
-            val nextEntryRequester = nextRowKey?.let { rowEntryFocusRequesters.getOrPut(it) { FocusRequester() } }
-            val prevEntryRequester = prevRowKey?.let { rowEntryFocusRequesters.getOrPut(it) { FocusRequester() } }
-
             when (homeRow) {
                 is HomeRow.Catalog -> {
                     val catalogRow = homeRow.row
@@ -425,15 +380,13 @@ fun ClassicHomeContent(
                         listState = listState,
                         enableRowFocusRestorer = true,
                         focusedItemIndex = focusedItemIndex,
-                        downRowFocusRequester = rowDownFocusRequester,
-                        upRowFocusRequester = rowUpFocusRequester,
-                        downEntryFocusRequester = nextEntryRequester,
-                        upEntryFocusRequester = prevEntryRequester,
+                        restorerFocusedIndex = rowFocusedItemIndex[catalogKey] ?: -1,
                         onItemFocused = { itemIndex ->
                             if (restoringFocus) restoringFocus = false
                             currentFocusSnapshot.rowIndex = index
                             currentFocusSnapshot.itemIndex = itemIndex
                             currentFocusSnapshot.rowKey = catalogKey
+                            rowFocusedItemIndex[catalogKey] = itemIndex
                         }
                     )
                 }
@@ -460,13 +413,12 @@ fun ClassicHomeContent(
                         listState = listState,
                         focusedItemIndex = collectionFocusedItemIndex,
                         entryFocusRequester = rowEntryFocusRequesters.getOrPut(collectionKey) { FocusRequester() },
-                        downEntryFocusRequester = nextEntryRequester,
-                        upEntryFocusRequester = prevEntryRequester,
                         onItemFocused = { itemIndex ->
                             if (restoringFocus) restoringFocus = false
                             currentFocusSnapshot.rowIndex = index
                             currentFocusSnapshot.itemIndex = itemIndex
                             currentFocusSnapshot.rowKey = collectionKey
+                            rowFocusedItemIndex[collectionKey] = itemIndex
                         }
                     )
                 }
