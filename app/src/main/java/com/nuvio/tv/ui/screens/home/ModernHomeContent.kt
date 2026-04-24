@@ -34,7 +34,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -61,10 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
@@ -107,7 +103,7 @@ import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.ui.theme.NuvioColors
-import com.nuvio.tv.ui.util.dpadRepeatThrottle
+import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import kotlinx.coroutines.delay
 import android.view.KeyEvent as AndroidKeyEvent
 import kotlin.math.abs
@@ -116,6 +112,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 130L
 private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 170L
+
 private fun buildPrefetchRequest(
     context: android.content.Context,
     url: String,
@@ -232,7 +229,6 @@ fun ModernHomeContent(
 
     // Tag JankStats with key UI states so jank reports are actionable.
     val currentView = LocalView.current
-    val focusManager = LocalFocusManager.current
     val metricsHolder = PerformanceMetricsState.getHolderForHierarchy(currentView)
     LaunchedEffect(isVerticalRowsScrolling) {
         metricsHolder.state?.putState("HomeScrolling", isVerticalRowsScrolling.toString())
@@ -271,6 +267,10 @@ fun ModernHomeContent(
     val lastFocusedContinueWatchingIndexRef = remember { java.util.concurrent.atomic.AtomicInteger(-1) }
     val lastHeroNavigationAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val heroFocusSettleDelayMsRef = remember { java.util.concurrent.atomic.AtomicLong(MODERN_HERO_FOCUS_DEBOUNCE_MS) }
+    // Surfaced from [Modifier.dpadVerticalFastScroll] so cards inside the
+    // LazyColumn can hide their focus chrome while the list is being dragged
+    // by a held DPAD_UP / DPAD_DOWN (see [LocalFastScrollActive] below).
+    var isFastScrolling by remember { mutableStateOf(false) }
     var focusedCatalogSelection by remember { mutableStateOf<FocusedCatalogSelection?>(null) }
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
     var expandedCatalogFocusKey by remember { mutableStateOf<String?>(null) }
@@ -816,7 +816,8 @@ fun ModernHomeContent(
 
         CompositionLocalProvider(
             LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec,
-            LocalVerticalRowsScrolling provides (uiState.memoryOnlyVerticalScroll && isVerticalRowsScrolling)
+            LocalVerticalRowsScrolling provides (uiState.memoryOnlyVerticalScroll && isVerticalRowsScrolling),
+            LocalFastScrollActive provides isFastScrolling
         ) {
             LazyColumn(
                 state = verticalRowListState,
@@ -829,7 +830,71 @@ fun ModernHomeContent(
                     .graphicsLayer { alpha = trailerContentAlpha }
                     .focusRequester(contentFocusRequester)
                     .focusRestorer { focusRestorerRequester }
-                    .dpadRepeatThrottle(),
+                    .dpadVerticalFastScroll(
+                        scrollableState = verticalRowListState,
+                        onFastScrollingChanged = { isFastScrolling = it },
+                        // Vertical bottom padding on this LazyColumn is viewport-sized so
+                        // the hero artwork stays visible beneath the first row. That means
+                        // scrolling "past" the last row would push it above the viewport
+                        // into the padding and the landing bringIntoView would yank the
+                        // list backwards — the user reads that as "the list got thrown
+                        // back up." Halt downward drag the moment the last row is fully
+                        // in view so focus lands on it cleanly instead.
+                        shouldHaltForward = {
+                            val info = verticalRowListState.layoutInfo
+                            val lastIdx = carouselRows.size - 1
+                            val lastVisible = info.visibleItemsInfo.lastOrNull { it.index == lastIdx }
+                            lastIdx >= 0 && lastVisible != null &&
+                                lastVisible.offset + lastVisible.size <= info.viewportEndOffset
+                        },
+                        resolveVerticalLanding = { sign ->
+                            // Pick the row to land on, then within that row the item key
+                            // the user was last focused on (tracked in [focusedItemByRow]).
+                            // The uiCaches requester maps (rowKey, itemKey) -> the actual
+                            // FocusRequester attached to the card.
+                            val layoutInfo = verticalRowListState.layoutInfo
+                            val visibleRows = layoutInfo.visibleItemsInfo
+                            val lastIdx = carouselRows.size - 1
+                            val viewportEnd = layoutInfo.viewportEndOffset
+                            // If the last row has fully entered the viewport from the
+                            // bottom, land on it directly. Without this the generic
+                            // "first fully visible" heuristic would pick a row near the
+                            // top and the follow-up bringIntoView would yank the list.
+                            val lastRowAtBottom = lastIdx >= 0 &&
+                                visibleRows.lastOrNull { it.index == lastIdx }?.let {
+                                    it.offset + it.size <= viewportEnd
+                                } == true
+                            // Upward drag (DPAD_UP): prefer the topmost visible row even
+                            // if its top edge is slightly above the viewport, because
+                            // that's the row the user was uncovering when they let go.
+                            // Skipping it onto the row below reads as "focus landed on
+                            // the previous row instead of the next one I was reaching
+                            // for." Accept it only if at least half visible so a 5 %
+                            // sliver doesn't trigger a large backwards bringIntoView snap.
+                            val upwardTopRow = if (sign < 0) {
+                                visibleRows.firstOrNull()?.takeIf {
+                                    it.offset > -it.size / 2
+                                }
+                            } else null
+                            val targetRowIndex = when {
+                                lastRowAtBottom -> lastIdx
+                                upwardTopRow != null -> upwardTopRow.index
+                                else ->
+                                    visibleRows.firstOrNull { it.offset >= 0 }?.index
+                                        ?: visibleRows.firstOrNull()?.index
+                                        ?: verticalRowListState.firstVisibleItemIndex
+                            }
+                            val targetRow = carouselRows.getOrNull(targetRowIndex)
+                            if (targetRow == null) null
+                            else {
+                                val savedIdx = (focusedItemByRow[targetRow.key] ?: 0)
+                                    .coerceIn(0, (targetRow.items.size - 1).coerceAtLeast(0))
+                                val targetItemKey = targetRow.items.getOrNull(savedIdx)?.key
+                                if (targetItemKey == null) null
+                                else uiCaches.requesterFor(targetRow.key, targetItemKey)
+                            }
+                        },
+                    ),
                 contentPadding = PaddingValues(bottom = rowsViewportHeight),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {

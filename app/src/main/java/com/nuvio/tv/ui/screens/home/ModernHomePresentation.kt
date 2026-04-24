@@ -47,7 +47,7 @@ internal fun buildModernHomePresentation(
                 checkNotNull(cache.continueWatchingRow)
             } else {
                 HeroCarouselRow(
-                    key = "continue_watching",
+                    key = MODERN_CONTINUE_WATCHING_ROW_KEY,
                     title = strContinueWatching,
                     globalRowIndex = -1,
                     items = input.continueWatchingItems.map { item ->

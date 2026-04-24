@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -21,14 +22,10 @@ import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.delay
 
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
-import com.nuvio.tv.ui.util.dpadRepeatThrottle
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import android.view.KeyEvent as AndroidKeyEvent
-import androidx.compose.ui.platform.LocalFocusManager
+import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import com.nuvio.tv.domain.model.MetaPreview
@@ -44,9 +41,6 @@ import com.nuvio.tv.ui.components.HeroCarousel
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.LocalVerticalScrollSuppressImages
 import com.nuvio.tv.ui.components.PosterCardStyle
-
-/** Minimum interval between processed key repeat events to prevent HWUI overload. */
-private const val KEY_REPEAT_THROTTLE_MS = 80L
 
 private class FocusSnapshot(
     var rowIndex: Int,
@@ -193,11 +187,12 @@ fun ClassicHomeContent(
         }
     }
 
-    // Throttle D-pad key repeats to prevent HWUI overload when a key is held down.
-    // Use a plain ref instead of mutableStateOf to avoid recomposition on every key event.
-    val lastKeyRepeatTimeRef = remember { longArrayOf(0L) }
     val contentFocusRequester = LocalContentFocusRequester.current
-    val focusManager = LocalFocusManager.current
+
+    // Surfaced from [Modifier.dpadVerticalFastScroll] so cards inside the
+    // LazyColumn can hide their focus chrome while the list is being dragged
+    // by a held DPAD_UP / DPAD_DOWN (see [LocalFastScrollActive] below).
+    var isFastScrolling by remember { mutableStateOf(false) }
 
     // Stabilize map references to avoid recomposing every row when a single trailer URL changes.
     val stableTrailerPreviewUrls = remember { androidx.compose.runtime.mutableStateOf(trailerPreviewUrls) }
@@ -217,8 +212,9 @@ fun ClassicHomeContent(
         return
     }
 
-    androidx.compose.runtime.CompositionLocalProvider(
-        LocalVerticalScrollSuppressImages provides (uiState.memoryOnlyVerticalScroll && isVerticalScrollingState.value)
+    CompositionLocalProvider(
+        LocalVerticalScrollSuppressImages provides (uiState.memoryOnlyVerticalScroll && isVerticalScrollingState.value),
+        LocalFastScrollActive provides isFastScrolling
     ) {
     LazyColumn(
         state = columnListState,
@@ -226,7 +222,49 @@ fun ClassicHomeContent(
             .fillMaxSize()
             .focusRequester(contentFocusRequester)
             .focusRestorer()
-            .dpadRepeatThrottle(),
+            .dpadVerticalFastScroll(
+                scrollableState = columnListState,
+                onFastScrollingChanged = { isFastScrolling = it },
+                resolveVerticalLanding = { sign ->
+                    // Pick the item currently occupying the leading edge of
+                    // the viewport, then map its LazyColumn key back to the
+                    // matching FocusRequester. Hero has its own requester;
+                    // row items carry requesters in [rowEntryFocusRequesters].
+                    // Continue Watching is a full-width section with no direct
+                    // requester, so if it ends up at the edge we fall through
+                    // to the nearest requester-bearing neighbour instead of
+                    // dropping focus.
+                    val layoutInfo = columnListState.layoutInfo
+                    val visibleItems = layoutInfo.visibleItemsInfo
+                    val lastIdx = layoutInfo.totalItemsCount - 1
+                    val viewportEnd = layoutInfo.viewportEndOffset
+                    val lastItemAtBottom = lastIdx >= 0 &&
+                        visibleItems.lastOrNull { it.index == lastIdx }?.let {
+                            it.offset + it.size <= viewportEnd
+                        } == true
+                    val upwardTopItem = if (sign < 0) {
+                        visibleItems.firstOrNull()?.takeIf {
+                            it.offset > -it.size / 2
+                        }
+                    } else null
+                    val target = when {
+                        lastItemAtBottom -> visibleItems.lastOrNull { it.index == lastIdx }
+                        upwardTopItem != null -> upwardTopItem
+                        else ->
+                            visibleItems.firstOrNull { it.offset >= 0 }
+                                ?: visibleItems.firstOrNull()
+                    }
+                    fun requesterForKey(k: String?): FocusRequester? = when {
+                        k == null -> null
+                        k == "hero_carousel" -> heroFocusRequester
+                        rowEntryFocusRequesters.containsKey(k) -> rowEntryFocusRequesters[k]
+                        else -> null
+                    }
+                    if (target == null) null
+                    else requesterForKey(target.key as? String)
+                        ?: visibleItems.firstNotNullOfOrNull { requesterForKey(it.key as? String) }
+                },
+            ),
         contentPadding = PaddingValues(top = if (heroVisible) 0.dp else 24.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(32.dp)
     ) {
