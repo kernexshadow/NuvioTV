@@ -221,12 +221,16 @@ fun CatalogRowSection(
                 .fillMaxWidth()
                 .focusRequester(resolvedRowFocusRequester)
                 .focusRestorer(
-                    run {
-                        val idx = (if (lastFocusedItemIndex >= 0) lastFocusedItemIndex else restorerFocusedIndex)
-                            .coerceIn(0, (catalogRow.items.size - 1).coerceAtLeast(0))
-                        catalogRow.items.getOrNull(idx)
-                            ?.let { itemFocusRequestersByKey.getOrPut(rowItemFocusKey(idx, it)) { FocusRequester() } }
-                            ?: FocusRequester.Default
+                    if (enableRowFocusRestorer) {
+                        run {
+                            val idx = (if (lastFocusedItemIndex >= 0) lastFocusedItemIndex else restorerFocusedIndex)
+                                .coerceIn(0, (catalogRow.items.size - 1).coerceAtLeast(0))
+                            catalogRow.items.getOrNull(idx)
+                                ?.let { itemFocusRequestersByKey.getOrPut(rowItemFocusKey(idx, it)) { FocusRequester() } }
+                                ?: FocusRequester.Default
+                        }
+                    } else {
+                        FocusRequester.Default
                     }
                 )
                 .focusGroup(),

@@ -35,6 +35,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -132,7 +133,6 @@ fun FolderDetailScreen(
                     onSelectTab = viewModel::selectTab,
                     onNavigateToDetail = onNavigateToDetail,
                     isItemWatched = isItemWatched,
-                    onItemFocus = viewModel::onItemFocused,
                     onLoadMore = { viewModel.loadMoreItems(uiState.selectedTabIndex) },
                     onSaveFocusState = { verticalIndex, verticalOffset, focusedItemKey ->
                         viewModel.saveTabFocusState(
@@ -213,8 +213,7 @@ private fun TabbedGridContent(
     onNavigateToDetail: (String, String, String) -> Unit,
     onSaveFocusState: (Int, Int, String?) -> Unit,
     onLoadMore: () -> Unit = {},
-    isItemWatched: (MetaPreview) -> Boolean = { false },
-    onItemFocus: (MetaPreview) -> Unit = {}
+    isItemWatched: (MetaPreview) -> Boolean = { false }
 ) {
     val tabFocusRequesters = remember(uiState.tabs.size) { uiState.tabs.indices.map { FocusRequester() } }
 
@@ -391,7 +390,8 @@ private fun TabbedGridContent(
                     .fillMaxSize()
                     .focusRestorer {
                         lastFocusedItemKey?.let { itemFocusRequesters[it] } ?: FocusRequester.Default
-                    },
+                    }
+                    .dpadRepeatThrottle(),
                 contentPadding = PaddingValues(
                     start = 48.dp,
                     end = 48.dp,
@@ -412,10 +412,7 @@ private fun TabbedGridContent(
                         posterCardStyle = posterCardStyle,
                         focusRequester = focusReq,
                         isWatched = isItemWatched(item),
-                        onFocus = { focusedItem ->
-                            lastFocusedItemKey = itemKey
-                            onItemFocus(focusedItem)
-                        },
+                        onFocus = { _ -> lastFocusedItemKey = itemKey },
                         onClick = {
                             onNavigateToDetail(
                                 item.id,
@@ -587,7 +584,7 @@ private fun RowsContent(
                             } else {
                                 -1
                             },
-                            restorerFocusedIndex = rowFocusedItemIndex[rowKey] ?: -1,
+                            restorerFocusedIndex = -1,
                             onItemFocused = { itemIndex ->
                                 currentFocusedRowIndex[0] = index
                                 currentFocusedItemIndex[0] = itemIndex

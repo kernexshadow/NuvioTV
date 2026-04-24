@@ -107,6 +107,7 @@ import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import kotlinx.coroutines.delay
 import android.view.KeyEvent as AndroidKeyEvent
 import kotlin.math.abs
@@ -268,7 +269,6 @@ fun ModernHomeContent(
     var restoredFromSavedState by remember { mutableStateOf(false) }
     var optionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     val lastFocusedContinueWatchingIndexRef = remember { java.util.concurrent.atomic.AtomicInteger(-1) }
-    val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val lastHeroNavigationAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val heroFocusSettleDelayMsRef = remember { java.util.concurrent.atomic.AtomicLong(MODERN_HERO_FOCUS_DEBOUNCE_MS) }
     var focusedCatalogSelection by remember { mutableStateOf<FocusedCatalogSelection?>(null) }
@@ -829,39 +829,7 @@ fun ModernHomeContent(
                     .graphicsLayer { alpha = trailerContentAlpha }
                     .focusRequester(contentFocusRequester)
                     .focusRestorer { focusRestorerRequester }
-                    .onPreviewKeyEvent { event ->
-                        val native = event.nativeKeyEvent
-                       
-                    
-                        if (native.action == AndroidKeyEvent.ACTION_DOWN &&
-                            native.repeatCount > 0 &&
-                            (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT)
-                        ) {
-                            val isVertical = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP
-                            val gateMs = if (isVertical) 112L else 80L
-                            val now = android.os.SystemClock.uptimeMillis()
-                            if (now - lastKeyRepeatDispatchRef.get() < gateMs) {
-                                return@onPreviewKeyEvent true // consume, too soon
-                            }
-                            lastKeyRepeatDispatchRef.set(now)
-                            val direction = when (native.keyCode) {
-                                AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
-                                AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
-                                AndroidKeyEvent.KEYCODE_DPAD_LEFT -> FocusDirection.Left
-                                AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> FocusDirection.Right
-                                else -> null
-                            }
-                            if (direction != null) {
-                                focusManager.moveFocus(direction)
-                            }
-                            return@onPreviewKeyEvent true
-                        }
-                        false
-                    },
+                    .dpadRepeatThrottle(),
                 contentPadding = PaddingValues(bottom = rowsViewportHeight),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {

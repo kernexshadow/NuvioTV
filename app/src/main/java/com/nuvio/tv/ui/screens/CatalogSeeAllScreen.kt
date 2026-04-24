@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -194,6 +195,7 @@ fun CatalogSeeAllScreen(
                 LazyVerticalGrid(
                     state = gridState,
                     columns = GridCells.Adaptive(minSize = posterCardStyle.width),
+                    modifier = Modifier.dpadRepeatThrottle(),
                     contentPadding = PaddingValues(
                         start = 48.dp,
                         end = 24.dp,
