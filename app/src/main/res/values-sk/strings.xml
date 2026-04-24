@@ -1391,4 +1391,5 @@
     <string name="trakt_error_code_expired">Kód zariadenia vypršal. Začnite znova.</string>
     <string name="trakt_error_code_used">Kód zariadenia bol už použitý. Začnite znova.</string>
     <string name="trakt_error_denied">Autorizácia bola zamietnutá na Trakt.</string>
+
 </resources>
