@@ -32,6 +32,9 @@ class ProfileManager @Inject constructor(
         .map { true }
         .stateIn(scope, SharingStarted.Eagerly, false)
 
+    val hasEverSelectedProfile: StateFlow<Boolean> = profileDataStore.hasEverSelectedProfile
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
     val profiles: StateFlow<List<UserProfile>> = profileDataStore.profilesList
         .stateIn(scope, SharingStarted.Eagerly, listOf(
             UserProfile(id = 1, name = "Profile 1", avatarColorHex = "#1E88E5")

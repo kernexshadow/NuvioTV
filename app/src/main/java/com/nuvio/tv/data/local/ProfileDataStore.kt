@@ -3,6 +3,7 @@ package com.nuvio.tv.data.local
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -27,6 +28,7 @@ class ProfileDataStore @Inject constructor(
 
     private val profilesJsonKey = stringPreferencesKey("profiles_json")
     private val activeProfileIdKey = intPreferencesKey("active_profile_id")
+    private val hasEverSelectedProfileKey = booleanPreferencesKey("profile_has_ever_selected")
 
     private val profileListType = Types.newParameterizedType(List::class.java, ProfileJson::class.java)
 
@@ -43,9 +45,14 @@ class ProfileDataStore @Inject constructor(
         prefs[activeProfileIdKey] ?: 1
     }
 
+    val hasEverSelectedProfile: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[hasEverSelectedProfileKey] ?: false
+    }
+
     suspend fun setActiveProfile(id: Int) {
         dataStore.edit { prefs ->
             prefs[activeProfileIdKey] = id
+            prefs[hasEverSelectedProfileKey] = true
         }
     }
 

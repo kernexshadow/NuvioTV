@@ -251,6 +251,7 @@ class MainActivity : ComponentActivity() {
 
             val activeProfileId by profileManager.activeProfileId.collectAsState()
             val profiles by profileManager.profiles.collectAsState()
+            val hasEverSelectedProfile by profileManager.hasEverSelectedProfile.collectAsState()
             val activeProfile = remember(activeProfileId, profiles) {
                 profiles.firstOrNull { it.id == activeProfileId }
             }
@@ -269,6 +270,16 @@ class MainActivity : ComponentActivity() {
             val activeProfileHasPin = remember(activeProfileId, profilePinStates) {
                 profilePinStates[activeProfileId] == true
             }
+
+            LaunchedEffect(hasEverSelectedProfile, activeProfileHasPin) {
+                if (hasEverSelectedProfile && !activeProfileHasPin && !hasSelectedProfileThisSession) {
+                    hasSelectedProfileThisSession = true
+                    if (authManager.authState.value is AuthState.FullAccount) {
+                        startupSyncService.requestSyncNow()
+                    }
+                }
+            }
+
             var avatarCatalog by remember { mutableStateOf(emptyList<com.nuvio.tv.data.remote.supabase.AvatarCatalogItem>()) }
 
             LaunchedEffect(Unit) {
