@@ -252,6 +252,7 @@ class MainActivity : ComponentActivity() {
             val activeProfileId by profileManager.activeProfileId.collectAsState()
             val profiles by profileManager.profiles.collectAsState()
             val hasEverSelectedProfile by profileManager.hasEverSelectedProfile.collectAsState()
+            val rememberLastProfileEnabled by profileManager.rememberLastProfileEnabled.collectAsState()
             val activeProfile = remember(activeProfileId, profiles) {
                 profiles.firstOrNull { it.id == activeProfileId }
             }
@@ -271,8 +272,8 @@ class MainActivity : ComponentActivity() {
                 profilePinStates[activeProfileId] == true
             }
 
-            LaunchedEffect(hasEverSelectedProfile, activeProfileHasPin) {
-                if (hasEverSelectedProfile && !activeProfileHasPin && !hasSelectedProfileThisSession) {
+            LaunchedEffect(hasEverSelectedProfile, activeProfileHasPin, rememberLastProfileEnabled) {
+                if (rememberLastProfileEnabled && hasEverSelectedProfile && !activeProfileHasPin && !hasSelectedProfileThisSession) {
                     hasSelectedProfileThisSession = true
                     if (authManager.authState.value is AuthState.FullAccount) {
                         startupSyncService.requestSyncNow()

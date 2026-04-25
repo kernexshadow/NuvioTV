@@ -35,6 +35,9 @@ class ProfileManager @Inject constructor(
     val hasEverSelectedProfile: StateFlow<Boolean> = profileDataStore.hasEverSelectedProfile
         .stateIn(scope, SharingStarted.Eagerly, false)
 
+    val rememberLastProfileEnabled: StateFlow<Boolean> = profileDataStore.rememberLastProfileEnabled
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
     val profiles: StateFlow<List<UserProfile>> = profileDataStore.profilesList
         .stateIn(scope, SharingStarted.Eagerly, listOf(
             UserProfile(id = 1, name = "Profile 1", avatarColorHex = "#1E88E5")
@@ -51,6 +54,10 @@ class ProfileManager @Inject constructor(
         if (exists) {
             profileDataStore.setActiveProfile(id)
         }
+    }
+
+    suspend fun setRememberLastProfileEnabled(enabled: Boolean) {
+        profileDataStore.setRememberLastProfileEnabled(enabled)
     }
 
     suspend fun createProfile(
