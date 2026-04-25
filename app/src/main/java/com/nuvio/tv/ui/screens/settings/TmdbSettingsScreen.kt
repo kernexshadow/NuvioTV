@@ -24,6 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import com.nuvio.tv.R
+import com.nuvio.tv.core.build.AppFeaturePolicy
 import com.nuvio.tv.data.local.AVAILABLE_SUBTITLE_LANGUAGES
 import com.nuvio.tv.data.local.displayName
 
@@ -207,18 +208,20 @@ fun TmdbSettingsContent(
                     )
                 }
 
-                item(key = "tmdb_trailers") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_trailers_title),
-                        subtitle = stringResource(R.string.tmdb_trailers_subtitle),
-                        checked = uiState.useTrailers,
-                        enabled = uiState.enabled,
-                        onToggle = {
-                            viewModel.onEvent(
-                                TmdbSettingsEvent.ToggleTrailers(!uiState.useTrailers)
-                            )
-                        }
-                    )
+                if (AppFeaturePolicy.inAppTrailerPlaybackEnabled) {
+                    item(key = "tmdb_trailers") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_trailers_title),
+                            subtitle = stringResource(R.string.tmdb_trailers_subtitle),
+                            checked = uiState.useTrailers,
+                            enabled = uiState.enabled,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    TmdbSettingsEvent.ToggleTrailers(!uiState.useTrailers)
+                                )
+                            }
+                        )
+                    }
                 }
 
                 item(key = "tmdb_more_like_this") {
