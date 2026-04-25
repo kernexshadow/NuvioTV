@@ -345,9 +345,29 @@ fun ModernHomeContent(
                 idx != null && idx >= maxIndex
             }
         }
-        if (focusedCatalogSelection?.payload?.itemId !in activeCatalogItemIds) {
+        val staleSelection = focusedCatalogSelection?.payload?.itemId?.let { id ->
+            !id.startsWith("__placeholder_") && id !in activeCatalogItemIds
+        } ?: false
+        if (staleSelection) {
             focusedCatalogSelection = null
             expandedCatalogFocusKey = null
+        }
+        // After placeholder→data transition, update selection with real item
+        val currentSelection = focusedCatalogSelection
+        if (currentSelection != null && currentSelection.payload.itemId.startsWith("__placeholder_")) {
+            val activeKey = focusHolder.activeRowKey
+            val activeIdx = focusHolder.activeItemIndex
+            val activeRow = activeKey?.let(rowByKey::get)
+            val realItem = activeRow?.items?.getOrNull(activeIdx)
+            val realPayload = realItem?.payload as? ModernPayload.Catalog
+            if (realPayload != null && !realPayload.itemId.startsWith("__placeholder_")) {
+                focusedCatalogSelection = FocusedCatalogSelection(
+                    focusKey = realPayload.focusKey,
+                    payload = realPayload
+                )
+                lastRequestedTrailerFocusKey = null
+                expandedCatalogFocusKey = null
+            }
         }
 
         carouselRows.forEach { row ->
