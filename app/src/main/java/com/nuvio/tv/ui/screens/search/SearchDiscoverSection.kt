@@ -87,6 +87,7 @@ internal fun DiscoverSection(
     onSelectCatalog: (String) -> Unit,
     onSelectGenre: (String?) -> Unit,
     onLoadMore: () -> Unit,
+    onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val selectedCatalog = uiState.discoverCatalogs.firstOrNull { it.key == uiState.selectedDiscoverCatalogKey }
@@ -242,6 +243,9 @@ internal fun DiscoverSection(
                             item.apiType,
                             selectedCatalog?.addonBaseUrl ?: ""
                         )
+                    },
+                    onItemLongPress = { item ->
+                        onItemLongPress(item, selectedCatalog?.addonBaseUrl ?: "")
                     },
                     filterKey = "${uiState.selectedDiscoverType}|${uiState.selectedDiscoverCatalogKey}|${uiState.selectedDiscoverGenre}"
                 )
@@ -436,6 +440,7 @@ internal fun DiscoverGrid(
     isLoadingMore: Boolean,
     onLoadMore: () -> Unit,
     onItemClick: (Int, MetaPreview) -> Unit,
+    onItemLongPress: (MetaPreview) -> Unit = {},
     filterKey: String = ""
 ) {
     val restoreFocusRequester = remember { FocusRequester() }
@@ -603,6 +608,7 @@ internal fun DiscoverGrid(
             GridContentCard(
                 item = item,
                 onClick = { onItemClick(index, item) },
+                onLongPress = { onItemLongPress(item) },
                 posterCardStyle = adaptiveStyle,
                 isWatched = run {
                     val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
