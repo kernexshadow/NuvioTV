@@ -64,9 +64,11 @@ fun CatalogSeeAllScreen(
     type: String,
     searchViewModel: SearchViewModel? = null,
     viewModel: HomeViewModel = hiltViewModel(),
+    posterOptionsViewModel: com.nuvio.tv.ui.components.posteroptions.PosterOptionsViewModel = hiltViewModel(),
     onNavigateToDetail: (String, String, String) -> Unit,
     onBackPress: () -> Unit
 ) {
+    val posterOptionsController = searchViewModel?.posterOptions ?: posterOptionsViewModel.controller
     val uiState by viewModel.uiState.collectAsState()
     val fullCatalogRows by viewModel.fullCatalogRows.collectAsState()
     val computedHeightDp = (uiState.posterCardWidthDp * 1.5f).roundToInt()
@@ -231,6 +233,10 @@ fun CatalogSeeAllScreen(
                                     item.apiType,
                                     catalogRow.addonBaseUrl
                                 )
+                            },
+                            onLongPress = {
+                                focusedItemIndex = index
+                                posterOptionsController.show(item, catalogRow.addonBaseUrl)
                             }
                         )
                     }
@@ -262,5 +268,14 @@ fun CatalogSeeAllScreen(
                 icon = Icons.Default.GridView
             )
         }
+
+        val posterOptionsState by posterOptionsController.state.collectAsState()
+        com.nuvio.tv.ui.components.posteroptions.PosterOptionsHost(
+            state = posterOptionsState,
+            controller = posterOptionsController,
+            onNavigateToDetail = { id, type2, addonBaseUrl ->
+                onNavigateToDetail(id, type2, addonBaseUrl)
+            }
+        )
     }
 }

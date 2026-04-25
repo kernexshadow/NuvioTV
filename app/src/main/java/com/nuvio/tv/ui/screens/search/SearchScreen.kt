@@ -594,6 +594,9 @@ fun SearchScreen(
                                 onItemClick = { id, type, addonBaseUrl ->
                                     onNavigateToDetail(id, type, addonBaseUrl)
                                 },
+                                onItemLongPress = { item, addonBaseUrl ->
+                                    viewModel.posterOptions.show(item, addonBaseUrl)
+                                },
                                 onSeeAll = {
                                     onNavigateToSeeAll(
                                         catalogRow.catalogId,
@@ -608,6 +611,15 @@ fun SearchScreen(
             }
         }
     }
+
+    val posterOptionsState by viewModel.posterOptions.state.collectAsState()
+    com.nuvio.tv.ui.components.posteroptions.PosterOptionsHost(
+        state = posterOptionsState,
+        controller = viewModel.posterOptions,
+        onNavigateToDetail = { id, type, addonBaseUrl ->
+            onNavigateToDetail(id, type, addonBaseUrl)
+        }
+    )
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)

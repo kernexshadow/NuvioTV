@@ -141,6 +141,9 @@ fun FolderDetailScreen(
                             verticalScrollOffset = verticalOffset,
                             focusedItemKey = focusedItemKey
                         )
+                    },
+                    onItemLongPress = { item, addonBaseUrl ->
+                        viewModel.posterOptions.show(item, addonBaseUrl)
                     }
                 )
                 FolderViewMode.ROWS -> {
@@ -152,13 +155,25 @@ fun FolderDetailScreen(
                         isItemWatched = isItemWatched,
                         onLoadMoreCatalog = viewModel::loadMoreForCatalog,
                         onSaveFocusState = viewModel::saveRowsFocusState,
-                        onItemFocus = viewModel::onItemFocused
+                        onItemFocus = viewModel::onItemFocused,
+                        onItemLongPress = { item, addonBaseUrl ->
+                            viewModel.posterOptions.show(item, addonBaseUrl)
+                        }
                     )
                 }
                 FolderViewMode.FOLLOW_LAYOUT -> {} // handled above
             }
         }
     }
+
+    val posterOptionsState by viewModel.posterOptions.state.collectAsStateWithLifecycle()
+    com.nuvio.tv.ui.components.posteroptions.PosterOptionsHost(
+        state = posterOptionsState,
+        controller = viewModel.posterOptions,
+        onNavigateToDetail = { id, type, addonBaseUrl ->
+            onNavigateToDetail(id, type, addonBaseUrl)
+        }
+    )
 }
 
 @Composable
@@ -213,7 +228,8 @@ private fun TabbedGridContent(
     onNavigateToDetail: (String, String, String) -> Unit,
     onSaveFocusState: (Int, Int, String?) -> Unit,
     onLoadMore: () -> Unit = {},
-    isItemWatched: (MetaPreview) -> Boolean = { false }
+    isItemWatched: (MetaPreview) -> Boolean = { false },
+    onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> }
 ) {
     val tabFocusRequesters = remember(uiState.tabs.size) { uiState.tabs.indices.map { FocusRequester() } }
 
@@ -419,6 +435,10 @@ private fun TabbedGridContent(
                                 item.apiType,
                                 currentTab.catalogRow.addonBaseUrl
                             )
+                        },
+                        onLongPress = {
+                            lastFocusedItemKey = itemKey
+                            onItemLongPress(item, currentTab.catalogRow.addonBaseUrl)
                         }
                     )
                 }
@@ -450,7 +470,8 @@ private fun RowsContent(
     onLoadMoreCatalog: (String, String, String) -> Unit = { _, _, _ -> },
     onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>) -> Unit,
     isItemWatched: (MetaPreview) -> Boolean = { false },
-    onItemFocus: (MetaPreview) -> Unit = {}
+    onItemFocus: (MetaPreview) -> Unit = {},
+    onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> }
 ) {
     val sourceTabs = uiState.tabs.filter { !it.isAllTab }
     val columnListState = rememberLazyListState(
@@ -561,6 +582,7 @@ private fun RowsContent(
                         CatalogRowSection(
                             catalogRow = catalogRow,
                             onItemClick = onNavigateToDetail,
+                            onItemLongPress = onItemLongPress,
                             onSeeAll = {
                                 onLoadMoreCatalog(
                                     catalogRow.catalogId,
