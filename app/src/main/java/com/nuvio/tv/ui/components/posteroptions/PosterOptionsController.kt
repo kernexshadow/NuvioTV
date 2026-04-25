@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.components.posteroptions
 
 import android.util.Log
+import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.repository.parseContentIds
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibraryListTab
@@ -34,7 +35,8 @@ import kotlinx.coroutines.launch
  */
 class PosterOptionsController @Inject constructor(
     private val libraryRepository: LibraryRepository,
-    private val watchProgressRepository: WatchProgressRepository
+    private val watchProgressRepository: WatchProgressRepository,
+    private val tmdbService: TmdbService
 ) {
     private val _state = MutableStateFlow(PosterOptionsState())
     val state: StateFlow<PosterOptionsState> = _state.asStateFlow()
@@ -120,6 +122,38 @@ class PosterOptionsController @Inject constructor(
             )
         }
         targetFlow.value = item
+
+        // Resolve TMDB→IMDB in the background so the dialog observes — and writes — under
+        // the same canonical id the details screen uses. Without this, adding from a
+        // TMDB-rooted screen (cast filmography, TMDB lists) and then again from details
+        // creates duplicate library/watched entries (the storage key-matches exactly).
+        scope?.launch {
+            val canonical = canonicalize(item)
+            if (canonical.id != item.id && _state.value.target?.id == item.id) {
+                _state.update { it.copy(target = canonical) }
+                targetFlow.value = canonical
+            }
+        }
+    }
+
+    private suspend fun canonicalize(item: MetaPreview): MetaPreview {
+        if (item.id.startsWith("tt", ignoreCase = false)) return item
+        val tmdbNumber = parseContentIds(item.id).tmdb ?: item.id.toIntOrNull() ?: return item
+        val mediaType = if (item.apiType.equals("series", ignoreCase = true) ||
+            item.apiType.equals("tv", ignoreCase = true)
+        ) "tv" else "movie"
+        val imdb = runCatching { tmdbService.tmdbToImdb(tmdbNumber, mediaType) }.getOrNull()
+        return if (!imdb.isNullOrBlank()) item.copy(id = imdb) else item
+    }
+
+    private suspend fun ensureCanonical(): MetaPreview? {
+        val current = _state.value.target ?: return null
+        val canonical = canonicalize(current)
+        if (canonical.id != current.id && _state.value.target?.id == current.id) {
+            _state.update { it.copy(target = canonical) }
+            targetFlow.value = canonical
+        }
+        return canonical
     }
 
     fun dismiss() {
@@ -129,18 +163,19 @@ class PosterOptionsController @Inject constructor(
 
     fun toggleLibrary() {
         val state = _state.value
-        val item = state.target ?: return
+        if (state.target == null) return
         if (state.isLibraryPending) return
         val scope = this.scope ?: return
 
         _state.update { it.copy(isLibraryPending = true) }
         scope.launch {
+            val canonical = ensureCanonical() ?: return@launch
             runCatching {
                 libraryRepository.toggleDefault(
-                    item.toLibraryEntryInput(state.addonBaseUrl.takeIf { it.isNotBlank() })
+                    canonical.toLibraryEntryInput(state.addonBaseUrl.takeIf { it.isNotBlank() })
                 )
             }.onFailure { error ->
-                Log.w(TAG, "Failed to toggle library for ${item.id}: ${error.message}")
+                Log.w(TAG, "Failed to toggle library for ${canonical.id}: ${error.message}")
             }
             _state.update { it.copy(isLibraryPending = false) }
         }
@@ -155,7 +190,6 @@ class PosterOptionsController @Inject constructor(
             return
         }
         val scope = this.scope ?: return
-        val input = item.toLibraryEntryInput(state.addonBaseUrl.takeIf { it.isNotBlank() })
 
         _state.update { current ->
             current.copy(
@@ -171,9 +205,11 @@ class PosterOptionsController @Inject constructor(
             )
         }
         targetFlow.value = null
-        activeListPickerInput = input
 
         scope.launch {
+            val canonical = canonicalize(item)
+            val input = canonical.toLibraryEntryInput(state.addonBaseUrl.takeIf { it.isNotBlank() })
+            activeListPickerInput = input
             runCatching {
                 libraryRepository.getMembershipSnapshot(input)
             }.onSuccess { snapshot ->
@@ -188,7 +224,7 @@ class PosterOptionsController @Inject constructor(
                     )
                 }
             }.onFailure { error ->
-                Log.w(TAG, "Failed to load list picker for ${item.id}: ${error.message}")
+                Log.w(TAG, "Failed to load list picker for ${canonical.id}: ${error.message}")
                 _state.update { current ->
                     current.copy(
                         listPickerPending = false,
@@ -270,15 +306,16 @@ class PosterOptionsController @Inject constructor(
 
         _state.update { it.copy(isWatchedPending = true) }
         scope.launch {
+            val canonical = ensureCanonical() ?: return@launch
             val currentlyWatched = _state.value.isWatched
             runCatching {
                 if (currentlyWatched) {
-                    watchProgressRepository.removeFromHistory(item.id, videoId = item.imdbId)
+                    watchProgressRepository.removeFromHistory(canonical.id, videoId = canonical.imdbId)
                 } else {
-                    watchProgressRepository.markAsCompleted(buildCompletedMovieProgress(item))
+                    watchProgressRepository.markAsCompleted(buildCompletedMovieProgress(canonical))
                 }
             }.onFailure { error ->
-                Log.w(TAG, "Failed to toggle watched for ${item.id}: ${error.message}")
+                Log.w(TAG, "Failed to toggle watched for ${canonical.id}: ${error.message}")
             }
             _state.update { it.copy(isWatchedPending = false) }
         }
@@ -327,6 +364,14 @@ private fun MetaPreview.toLibraryEntryInput(addonBaseUrl: String?): LibraryEntry
         ?.getOrNull(1)
         ?.toIntOrNull()
     val parsedIds = parseContentIds(id)
+    // The library renders as portrait. If the source MetaPreview was built for landscape
+    // display (e.g. TMDB collection / more-like-this), its `poster` field holds the backdrop.
+    // Prefer `rawPosterUrl` (the proper portrait) when available so the saved entry isn't a
+    // stretched/cropped landscape inside a portrait card.
+    val isLandscapeSource = posterShape == com.nuvio.tv.domain.model.PosterShape.LANDSCAPE
+    val portraitPoster = rawPosterUrl?.takeIf { it.isNotBlank() }
+    val savedPoster = if (isLandscapeSource && portraitPoster != null) portraitPoster else poster
+    val savedShape = if (isLandscapeSource) com.nuvio.tv.domain.model.PosterShape.POSTER else posterShape
     return LibraryEntryInput(
         itemId = id,
         itemType = apiType,
@@ -335,8 +380,8 @@ private fun MetaPreview.toLibraryEntryInput(addonBaseUrl: String?): LibraryEntry
         traktId = parsedIds.trakt,
         imdbId = parsedIds.imdb,
         tmdbId = parsedIds.tmdb,
-        poster = poster,
-        posterShape = posterShape,
+        poster = savedPoster,
+        posterShape = savedShape,
         background = background,
         logo = logo,
         description = description,
