@@ -37,6 +37,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.R
+import com.nuvio.tv.core.build.AppFeaturePolicy
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.updater.UpdateViewModel
 
@@ -63,7 +64,6 @@ fun AboutSettingsContent(
     initialFocusRequester: FocusRequester? = null
 ) {
     val context = LocalContext.current
-    val updateViewModel: UpdateViewModel = hiltViewModel(context as ComponentActivity)
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -114,24 +114,32 @@ fun AboutSettingsContent(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                SettingsActionRow(
-                    title = stringResource(R.string.about_check_updates),
-                    subtitle = stringResource(R.string.about_check_updates_subtitle),
-                    trailingIcon = Icons.Default.OpenInNew,
-                    modifier = if (initialFocusRequester != null) {
-                        Modifier.focusRequester(initialFocusRequester)
-                    } else {
-                        Modifier
-                    },
-                    onClick = {
-                        updateViewModel.checkForUpdates(force = true, showNoUpdateFeedback = true)
-                    }
-                )
+                if (AppFeaturePolicy.inAppUpdatesEnabled) {
+                    val updateViewModel: UpdateViewModel = hiltViewModel(context as ComponentActivity)
+                    SettingsActionRow(
+                        title = stringResource(R.string.about_check_updates),
+                        subtitle = stringResource(R.string.about_check_updates_subtitle),
+                        trailingIcon = Icons.Default.OpenInNew,
+                        modifier = if (initialFocusRequester != null) {
+                            Modifier.focusRequester(initialFocusRequester)
+                        } else {
+                            Modifier
+                        },
+                        onClick = {
+                            updateViewModel.checkForUpdates(force = true, showNoUpdateFeedback = true)
+                        }
+                    )
+                }
 
                 SettingsActionRow(
                     title = stringResource(R.string.about_privacy_policy),
                     subtitle = stringResource(R.string.about_privacy_policy_subtitle),
                     trailingIcon = Icons.Default.OpenInNew,
+                    modifier = if (!AppFeaturePolicy.inAppUpdatesEnabled && initialFocusRequester != null) {
+                        Modifier.focusRequester(initialFocusRequester)
+                    } else {
+                        Modifier
+                    },
                     onClick = {
                         val intent = Intent(
                             Intent.ACTION_VIEW,
