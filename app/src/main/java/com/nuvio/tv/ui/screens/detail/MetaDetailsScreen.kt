@@ -1206,6 +1206,7 @@ private fun MetaDetailsContent(
         else -> null
     }
     val commentsUpFocusRequester = when {
+        shouldSplitCollection && collection.isNotEmpty() -> collectionSectionFocusRequester
         hasVisiblePeopleSection -> when (activePeopleTab) {
             PeopleSectionTab.CAST -> castSectionFocusRequester
             PeopleSectionTab.MORE_LIKE_THIS -> moreLikeSectionFocusRequester
