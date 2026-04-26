@@ -1266,11 +1266,13 @@ private fun ExoPlayerSurface(
 
     DisposableEffect(playerView) {
         val listener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            playerView.applyExoAspectMode(latestAspectMode)
+            playerView.post {
+                playerView.applyExoAspectMode(latestAspectMode)
+            }
         }
-        playerView.addOnLayoutChangeListener(listener)
+        val removeListener = addExoAspectLayoutChangeListener(playerView, listener)
         onDispose {
-            playerView.removeOnLayoutChangeListener(listener)
+            removeListener()
         }
     }
 
