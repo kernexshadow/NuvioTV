@@ -218,7 +218,9 @@ fun PlayerScreen(
                     viewModel.pauseForLifecycle()
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    // Don't auto-resume, let user control
+                    // Re-create the MediaSession so media controls work in foreground.
+                    // Don't auto-resume playback — let the user press play.
+                    viewModel.resumeForLifecycle()
                 }
                 else -> {}
             }

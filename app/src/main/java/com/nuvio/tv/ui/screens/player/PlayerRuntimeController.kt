@@ -258,6 +258,10 @@ class PlayerRuntimeController(
     internal var nextEpisodeVideo: Video? = null
     internal var userPausedManually = false
 
+    internal var isInBackground: Boolean = false
+    internal var pendingBackgroundCrashRecovery: Boolean = false
+    internal var backgroundCrashSavedPositionMs: Long = 0L
+
     
     internal var skipIntervals: List<SkipInterval> = emptyList()
     internal var skipIntroEnabled: Boolean = true
