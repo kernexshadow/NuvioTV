@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.LaunchedEffect
@@ -121,63 +122,72 @@ fun ThemeSettingsContent(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        SettingsDetailHeader(
-            title = stringResource(R.string.appearance_title),
-            subtitle = stringResource(R.string.appearance_subtitle)
-        )
-
-        SettingsGroupCard(
-            modifier = Modifier.fillMaxWidth(),
-            title = stringResource(R.string.appearance_color_theme),
-            subtitle = stringResource(R.string.appearance_color_theme_subtitle)
+    val themeScrollState = rememberScrollState()
+    val themeRowState = rememberLazyListState()
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(themeScrollState),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            LazyRow(
+            SettingsDetailHeader(
+                title = stringResource(R.string.appearance_title),
+                subtitle = stringResource(R.string.appearance_subtitle)
+            )
+
+            SettingsGroupCard(
                 modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                title = stringResource(R.string.appearance_color_theme),
+                subtitle = stringResource(R.string.appearance_color_theme_subtitle)
             ) {
-                itemsIndexed(
-                    items = uiState.availableThemes,
-                    key = { _, theme -> theme.name }
-                ) { index, theme ->
-                    ThemeSwatchChip(
-                        theme = theme,
-                        isSelected = theme == uiState.selectedTheme,
-                        onClick = { viewModel.onEvent(ThemeSettingsEvent.SelectTheme(theme)) },
-                        modifier = if (index == 0 && initialFocusRequester != null) {
-                            Modifier.focusRequester(initialFocusRequester)
-                        } else {
-                            Modifier
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    LazyRow(
+                        state = themeRowState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        itemsIndexed(
+                            items = uiState.availableThemes,
+                            key = { _, theme -> theme.name }
+                        ) { index, theme ->
+                            ThemeSwatchChip(
+                                theme = theme,
+                                isSelected = theme == uiState.selectedTheme,
+                                onClick = { viewModel.onEvent(ThemeSettingsEvent.SelectTheme(theme)) },
+                                modifier = if (index == 0 && initialFocusRequester != null) {
+                                    Modifier.focusRequester(initialFocusRequester)
+                                } else {
+                                    Modifier
+                                }
+                            )
                         }
-                    )
+                    }
+                    SettingsHorizontalScrollIndicators(state = themeRowState)
                 }
             }
-        }
 
-        SettingsGroupCard(
-            modifier = Modifier.fillMaxWidth(),
-            title = stringResource(R.string.appearance_font_and_language),
-            subtitle = stringResource(R.string.appearance_font_and_language_subtitle)
-        ) {
-            SettingsActionRow(
-                title = stringResource(R.string.appearance_font),
-                subtitle = stringResource(R.string.appearance_font_subtitle),
-                value = uiState.selectedFont.displayName,
-                onClick = { showFontDialog = true }
-            )
-            SettingsActionRow(
-                title = stringResource(R.string.appearance_language),
-                subtitle = stringResource(R.string.appearance_language_subtitle),
-                value = currentLocaleName,
-                onClick = { showLanguageDialog = true }
-            )
+            SettingsGroupCard(
+                modifier = Modifier.fillMaxWidth(),
+                title = stringResource(R.string.appearance_font_and_language),
+                subtitle = stringResource(R.string.appearance_font_and_language_subtitle)
+            ) {
+                SettingsActionRow(
+                    title = stringResource(R.string.appearance_font),
+                    subtitle = stringResource(R.string.appearance_font_subtitle),
+                    value = uiState.selectedFont.displayName,
+                    onClick = { showFontDialog = true }
+                )
+                SettingsActionRow(
+                    title = stringResource(R.string.appearance_language),
+                    subtitle = stringResource(R.string.appearance_language_subtitle),
+                    value = currentLocaleName,
+                    onClick = { showLanguageDialog = true }
+                )
+            }
         }
+        SettingsVerticalScrollIndicators(state = themeScrollState)
     }
 
     if (showFontDialog) {
