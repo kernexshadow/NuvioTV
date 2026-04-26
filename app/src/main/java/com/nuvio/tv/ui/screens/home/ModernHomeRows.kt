@@ -693,7 +693,8 @@ internal fun ModernRowSection(
         }
 
         CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalBringIntoViewSpec) {
-            val lastFocusedIdx = focusedItemByRow[rowKey] ?: 0
+            val initialIdx = remember(rowKey) { focusedItemByRow[rowKey] ?: 0 }
+            var lastFocusedIdx by remember { mutableIntStateOf(initialIdx)}
             val restoreIdx = lastFocusedIdx.coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
             val restoreStableKey = "${row.key}_$restoreIdx"
             val restoreFocusRequester = uiCaches.requesterFor(rowKey, restoreStableKey)
@@ -735,7 +736,9 @@ internal fun ModernRowSection(
                     val requester = uiCaches.requesterFor(row.key, stableItemKey)
                     val isContinueWatchingRow = row.key == MODERN_CONTINUE_WATCHING_ROW_KEY
                     val onFocused = remember(row.key, index, isContinueWatchingRow) {
-                        { onRowItemFocused(row.key, index, isContinueWatchingRow) }
+                        { onRowItemFocused(row.key, index, isContinueWatchingRow)
+                            lastFocusedIdx = index
+                            focusedItemByRow[row.key] = index }
                     }
                     val isCwPayload = item.payload is ModernPayload.ContinueWatching
 
