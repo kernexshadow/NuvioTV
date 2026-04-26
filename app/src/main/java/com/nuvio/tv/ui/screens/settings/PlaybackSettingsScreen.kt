@@ -462,7 +462,7 @@ internal fun ToggleSettingsItem(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
-                    maxLines = 1,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
             }
@@ -630,7 +630,7 @@ internal fun NavigationSettingsItem(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
-                    maxLines = 1,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
             }
@@ -735,7 +735,7 @@ internal fun SliderSettingsItem(
                             text = subtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
-                            maxLines = 1,
+                            maxLines = 3,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
