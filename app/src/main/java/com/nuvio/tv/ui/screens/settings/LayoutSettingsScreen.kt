@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -147,10 +148,11 @@ fun LayoutSettingsContent(
                 .fillMaxWidth()
                 .weight(1f)
         ) {
+        val layoutListState = rememberLazyListState()
+        Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
+            state = layoutListState,
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -615,6 +617,8 @@ fun LayoutSettingsContent(
                     )
                 }
             }
+        }
+        SettingsVerticalScrollIndicators(state = layoutListState)
         }
         }
     }
