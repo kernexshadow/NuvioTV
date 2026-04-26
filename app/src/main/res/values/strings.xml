@@ -570,6 +570,8 @@
     <string name="layout_catalog_type_sub">Show type suffix next to catalog name (Movie/Series).</string>
     <string name="layout_hide_unreleased">Hide Unreleased Content</string>
     <string name="layout_hide_unreleased_sub">Hide movies and shows that haven\'t been released yet.</string>
+    <string name="layout_smooth_focus_scroll">Nuvio Focus Scrolling</string>
+    <string name="layout_smooth_focus_scroll_sub">Use Nuvio\'s custom focus scroll animation and positioning.</string>
     <string name="layout_section_detail">Detail Page</string>
     <string name="layout_section_detail_desc">Settings for the detail and episode screens.</string>
     <string name="layout_blur_unwatched">Blur Unwatched Episodes</string>

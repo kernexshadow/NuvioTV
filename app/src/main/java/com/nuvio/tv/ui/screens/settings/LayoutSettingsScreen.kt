@@ -413,6 +413,19 @@ fun LayoutSettingsContent(
                         },
                         onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
                     )
+                    CompactToggleRow(
+                        title = stringResource(R.string.layout_smooth_focus_scroll),
+                        subtitle = stringResource(R.string.layout_smooth_focus_scroll_sub),
+                        checked = uiState.smoothBringIntoViewEnabled,
+                        onToggle = {
+                            viewModel.onEvent(
+                                LayoutSettingsEvent.SetSmoothBringIntoViewEnabled(
+                                    !uiState.smoothBringIntoViewEnabled
+                                )
+                            )
+                        },
+                        onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
+                    )
                 }
             }
 

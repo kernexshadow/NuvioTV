@@ -160,7 +160,8 @@ private data class MainUiPrefs(
     val hasChosenLayout: Boolean? = null,
     val sidebarCollapsed: Boolean = false,
     val modernSidebarEnabled: Boolean = false,
-    val modernSidebarBlurPref: Boolean = false
+    val modernSidebarBlurPref: Boolean = false,
+    val smoothBringIntoViewEnabled: Boolean = true
 )
 
 @AndroidEntryPoint
@@ -294,13 +295,21 @@ class MainActivity : ComponentActivity() {
                     )
                 }.combine(layoutPreferenceDataStore.modernSidebarBlurEnabled) { prefs, modernSidebarBlurPref ->
                     prefs.copy(modernSidebarBlurPref = modernSidebarBlurPref)
+                }.combine(layoutPreferenceDataStore.smoothBringIntoViewEnabled) { prefs, smoothBringIntoViewEnabled ->
+                    prefs.copy(smoothBringIntoViewEnabled = smoothBringIntoViewEnabled)
                 }
             }
             val mainUiPrefs by mainUiPrefsFlow.collectAsState(initial = MainUiPrefs(hasChosenLayout = null))
 
             NuvioTheme(appTheme = mainUiPrefs.theme, appFont = mainUiPrefs.font) {
+                val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
+                val bringIntoViewSpec = if (mainUiPrefs.smoothBringIntoViewEnabled) {
+                    NuvioScrollDefaults.smoothScrollSpec
+                } else {
+                    defaultBringIntoViewSpec
+                }
                 CompositionLocalProvider(
-                    LocalBringIntoViewSpec provides NuvioScrollDefaults.smoothScrollSpec
+                    LocalBringIntoViewSpec provides bringIntoViewSpec
                 ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
