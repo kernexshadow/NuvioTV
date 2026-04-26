@@ -410,13 +410,18 @@ class CollectionEditorViewModel @Inject constructor(
                 TmdbBuilderMode.NETWORK -> TmdbCollectionMediaType.TV
                 else -> TmdbCollectionMediaType.MOVIE
             }
+            val sortBy = when (mode) {
+                TmdbBuilderMode.LIST,
+                TmdbBuilderMode.COLLECTION -> TmdbCollectionSort.ORIGINAL.value
+                else -> TmdbCollectionSort.POPULAR_DESC.value
+            }
             it.copy(
                 tmdbBuilderMode = mode,
                 tmdbInput = "",
                 tmdbTitleInput = "",
                 tmdbMediaType = mediaType,
                 tmdbMediaBoth = false,
-                tmdbSortBy = TmdbCollectionSort.POPULAR_DESC.value,
+                tmdbSortBy = sortBy,
                 tmdbCompanyResults = emptyList(),
                 tmdbCollectionResults = emptyList(),
                 tmdbSearchError = null
@@ -446,6 +451,24 @@ class CollectionEditorViewModel @Inject constructor(
 
     fun setTmdbFilters(filters: TmdbCollectionFilters) {
         _uiState.update { it.copy(tmdbFilters = filters) }
+    }
+
+    fun updateTmdbSourceTitle(index: Int, title: String) {
+        updateTmdbSource(index) { it.copy(title = title) }
+    }
+
+    fun updateTmdbSourceSort(index: Int, sortBy: String) {
+        updateTmdbSource(index) { it.copy(sortBy = sortBy) }
+    }
+
+    private fun updateTmdbSource(index: Int, transform: (TmdbCollectionSource) -> TmdbCollectionSource) {
+        _uiState.update { state ->
+            val folder = state.editingFolder ?: return@update state
+            val source = folder.sources.getOrNull(index) as? TmdbCollectionSource ?: return@update state
+            val updatedSources = folder.sources.toMutableList()
+            updatedSources[index] = transform(source)
+            state.copy(editingFolder = folder.copy(sources = updatedSources))
+        }
     }
 
     fun searchTmdbCompanies() {

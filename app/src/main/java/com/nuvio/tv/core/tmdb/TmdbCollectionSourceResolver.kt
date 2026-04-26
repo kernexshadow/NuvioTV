@@ -13,6 +13,7 @@ import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.model.TmdbCollectionMediaType
+import com.nuvio.tv.domain.model.TmdbCollectionSort
 import com.nuvio.tv.domain.model.TmdbCollectionSource
 import com.nuvio.tv.domain.model.TmdbCollectionSourceType
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -140,7 +142,10 @@ class TmdbCollectionSourceResolver @Inject constructor(
         val id = source.tmdbId ?: error("Missing TMDB list ID")
         val body = tmdbApi.getListDetails(id, BuildConfig.TMDB_API_KEY, language, page).body()
             ?: error("TMDB list not found")
-        val items = body.items.orEmpty().mapNotNull { it.toPreview() }.distinctBy { "${it.apiType}:${it.id}" }
+        val items = body.items.orEmpty()
+            .mapNotNull { it.toPreview() }
+            .sortedFor(source.sortBy)
+            .distinctBy { "${it.apiType}:${it.id}" }
         return row(
             source = source.copy(title = source.title.ifBlank { body.name ?: "TMDB List" }),
             page = body.page ?: page,
@@ -154,7 +159,6 @@ class TmdbCollectionSourceResolver @Inject constructor(
         val body = tmdbApi.getCollectionDetails(id, BuildConfig.TMDB_API_KEY, language).body()
             ?: error("TMDB collection not found")
         val items = body.parts.orEmpty()
-            .sortedBy { it.releaseDate ?: "9999" }
             .mapNotNull {
                 val title = it.title?.takeIf { value -> value.isNotBlank() } ?: return@mapNotNull null
                 MetaPreview(
@@ -172,6 +176,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
                     genres = emptyList()
                 )
             }
+            .sortedFor(source.sortBy)
         return row(
             source = source.copy(title = source.title.ifBlank { body.name ?: "TMDB Collection" }),
             page = 1,
@@ -187,6 +192,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
             source.mediaType
         }
         val filters = source.filters
+        val today = LocalDate.now().toString()
         val response = when (mediaType) {
             TmdbCollectionMediaType.MOVIE -> tmdbApi.discoverMovies(
                 apiKey = BuildConfig.TMDB_API_KEY,
@@ -221,7 +227,8 @@ class TmdbCollectionSourceResolver @Inject constructor(
                     TmdbCollectionSourceType.NETWORK -> source.tmdbId?.toString()
                     else -> filters.withNetworks
                 },
-                firstAirDateLte = filters.releaseDateLte,
+                firstAirDateLte = filters.releaseDateLte ?: if (source.sourceType == TmdbCollectionSourceType.NETWORK) today else null,
+                withStatus = if (source.sourceType == TmdbCollectionSourceType.NETWORK) "0|3|4" else null,
                 voteCountGte = filters.voteCountGte,
                 withGenres = filters.withGenres,
                 firstAirDateGte = filters.releaseDateGte,
@@ -243,7 +250,7 @@ class TmdbCollectionSourceResolver @Inject constructor(
     }
 
     private fun row(source: TmdbCollectionSource, page: Int, hasMore: Boolean, items: List<MetaPreview>): CatalogRow {
-        val mediaType = source.mediaType.value
+        val mediaType = if (source.mediaType == TmdbCollectionMediaType.TV) "series" else source.mediaType.value
         return CatalogRow(
             addonId = "tmdb",
             addonName = "TMDB",
@@ -259,6 +266,20 @@ class TmdbCollectionSourceResolver @Inject constructor(
             supportsSkip = hasMore,
             skipStep = 20
         )
+    }
+
+    private fun List<MetaPreview>.sortedFor(sortBy: String): List<MetaPreview> {
+        return when (sortBy) {
+            TmdbCollectionSort.ORIGINAL.value -> this
+            TmdbCollectionSort.VOTE_AVERAGE_DESC.value -> sortedWith(
+                compareByDescending<MetaPreview> { it.imdbRating ?: -1f }
+                    .thenByDescending { it.releaseInfo ?: "" }
+            )
+            TmdbCollectionSort.RELEASE_DATE_DESC.value,
+            TmdbCollectionSort.FIRST_AIR_DATE_DESC.value -> sortedByDescending { it.releaseInfo ?: "" }
+            TmdbCollectionSort.POPULAR_DESC.value -> this
+            else -> this
+        }
     }
 
     private fun TmdbListItem.toPreview(): MetaPreview? {

@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.collection
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -92,6 +93,7 @@ fun FolderEditorContent(
     val folder = uiState.editingFolder ?: return
 
     if (uiState.showCatalogPicker) {
+        BackHandler { viewModel.hideCatalogPicker() }
         CatalogPickerContent(
             catalogs = uiState.availableCatalogs,
             alreadyAdded = folder.sources,
@@ -102,6 +104,7 @@ fun FolderEditorContent(
     }
 
     if (uiState.showTmdbSourcePicker) {
+        BackHandler { viewModel.hideTmdbSourcePicker() }
         TmdbSourcePickerContent(
             uiState = uiState,
             presets = viewModel.tmdbPresets(),
@@ -189,7 +192,7 @@ fun FolderEditorContent(
                 NuvioButton(onClick = { viewModel.cancelFolderEdit() }) {
                     Text(stringResource(R.string.collections_cancel))
                 }
-                val canSaveFolder = (uiState.editingFolder?.sources?.isNotEmpty() == true)
+                val canSaveFolder = folder.sources.isNotEmpty()
                 NuvioButton(onClick = { viewModel.saveFolderEdit() }, enabled = canSaveFolder) {
                     Text(stringResource(R.string.collections_editor_save))
                 }
@@ -618,7 +621,7 @@ fun FolderEditorContent(
                             )
                             Text(
                                 text = when {
-                                    isMissing && addonSource != null -> stringResource(R.string.collections_editor_addon_missing, addonSource.addonId)
+                                    isMissing -> stringResource(R.string.collections_editor_addon_missing, addonSource.addonId)
                                     addonSource != null && catalog != null -> "${addonSource.type} - ${catalog.addonName}"
                                     tmdbSource != null -> tmdbSourceSubtitle(tmdbSource)
                                     else -> stringResource(R.string.collections_editor_source)
@@ -670,6 +673,30 @@ fun FolderEditorContent(
                                         Text(stringResource(R.string.collections_editor_choose_genre))
                                     }
                                 }
+                            }
+                            if (tmdbSource != null) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                NuvioTextField(
+                                    value = tmdbSource.title,
+                                    onValueChange = { viewModel.updateTmdbSourceTitle(index, it) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    placeholder = stringResource(R.string.collections_editor_tmdb_display_title)
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                TmdbMediaSortControls(
+                                    mediaType = tmdbSource.mediaType,
+                                    bothSelected = false,
+                                    sortBy = tmdbSource.sortBy,
+                                    onMediaTypeChange = {},
+                                    onBothChange = {},
+                                    onSortChange = { viewModel.updateTmdbSourceSort(index, it) },
+                                    showMediaControls = false,
+                                    showSortControls = true,
+                                    showOriginalSort = tmdbSource.sourceType == TmdbCollectionSourceType.LIST ||
+                                        tmdbSource.sourceType == TmdbCollectionSourceType.COLLECTION,
+                                    showPopularSort = tmdbSource.sourceType != TmdbCollectionSourceType.LIST &&
+                                        tmdbSource.sourceType != TmdbCollectionSourceType.COLLECTION
+                                )
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {

@@ -45,6 +45,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -84,7 +85,7 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.R
 import androidx.compose.ui.res.stringResource
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun TmdbSourcePickerContent(
     uiState: CollectionEditorUiState,
@@ -104,6 +105,16 @@ fun TmdbSourcePickerContent(
     onAddDiscover: () -> Unit,
     onBack: () -> Unit
 ) {
+    val modeFocusRequesters = remember {
+        TmdbBuilderMode.values().associateWith { FocusRequester() }
+    }
+    var lastFocusedMode by remember { mutableStateOf(TmdbBuilderMode.PRESETS) }
+
+    LaunchedEffect(Unit) {
+        repeat(3) { androidx.compose.runtime.withFrameNanos { } }
+        try { modeFocusRequesters[TmdbBuilderMode.PRESETS]?.requestFocus() } catch (_: Exception) {}
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -119,13 +130,15 @@ fun TmdbSourcePickerContent(
                 style = MaterialTheme.typography.headlineMedium,
                 color = NuvioColors.TextPrimary
             )
-            NuvioButton(onClick = onBack) { Text(stringResource(R.string.collections_editor_done)) }
+            NuvioButton(onClick = onBack) { Text(stringResource(R.string.collections_editor_back)) }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
         LazyRow(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRestorer(modeFocusRequesters[lastFocusedMode] ?: FocusRequester.Default),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(end = 16.dp, top = 4.dp, bottom = 4.dp)
         ) {
@@ -133,6 +146,11 @@ fun TmdbSourcePickerContent(
                 val selected = uiState.tmdbBuilderMode == mode
                 Button(
                     onClick = { onModeChange(mode) },
+                    modifier = Modifier
+                        .focusRequester(modeFocusRequesters[mode]!!)
+                        .onFocusChanged {
+                            if (it.isFocused) lastFocusedMode = mode
+                        },
                     colors = ButtonDefaults.colors(
                         containerColor = if (selected) NuvioColors.Secondary.copy(alpha = 0.3f) else NuvioColors.BackgroundCard,
                         contentColor = if (selected) NuvioColors.Secondary else NuvioColors.TextSecondary,
@@ -185,7 +203,9 @@ fun TmdbSourcePickerContent(
                             onSortChange = onSortChange,
                             onAdd = onAddFromInput,
                             showMediaControls = false,
-                            showSortControls = isNetwork
+                            showSortControls = true,
+                            showOriginalSort = !isNetwork,
+                            showPopularSort = isNetwork
                         )
                     }
                 }
@@ -236,7 +256,9 @@ fun TmdbSourcePickerContent(
                             onAdd = onAddFromInput,
                             onSearch = onSearchCollections,
                             showMediaControls = false,
-                            showSortControls = false
+                            showSortControls = true,
+                            showOriginalSort = true,
+                            showPopularSort = false
                         )
                     }
                     items(uiState.tmdbCollectionResults) { result ->
@@ -288,7 +310,9 @@ private fun TmdbBasicSourceForm(
     onAdd: () -> Unit,
     onSearch: (() -> Unit)? = null,
     showMediaControls: Boolean = true,
-    showSortControls: Boolean = true
+    showSortControls: Boolean = true,
+    showOriginalSort: Boolean = false,
+    showPopularSort: Boolean = true
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TmdbLabeledField(
@@ -332,7 +356,9 @@ private fun TmdbBasicSourceForm(
                 onBothChange = onMediaBothChange,
                 onSortChange = onSortChange,
                 showMediaControls = showMediaControls,
-                showSortControls = showSortControls
+                showSortControls = showSortControls,
+                showOriginalSort = showOriginalSort,
+                showPopularSort = showPopularSort
             )
         }
         TmdbActionButtons(onSearch = onSearch, onAdd = onAdd)
@@ -669,7 +695,7 @@ private fun tmdbTitleForMedia(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun TmdbMediaSortControls(
+fun TmdbMediaSortControls(
     mediaType: TmdbCollectionMediaType,
     bothSelected: Boolean,
     sortBy: String,
@@ -677,7 +703,9 @@ private fun TmdbMediaSortControls(
     onBothChange: (Boolean) -> Unit,
     onSortChange: (String) -> Unit,
     showMediaControls: Boolean = true,
-    showSortControls: Boolean = true
+    showSortControls: Boolean = true,
+    showOriginalSort: Boolean = false,
+    showPopularSort: Boolean = true
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (showMediaControls) {
@@ -701,15 +729,18 @@ private fun TmdbMediaSortControls(
         }
         if (showSortControls) {
             TmdbOptionRow(label = stringResource(R.string.library_filter_sort)) {
-                val sorts = listOf(
-                    TmdbCollectionSort.POPULAR_DESC.value to stringResource(R.string.tmdb_entity_rail_popular),
-                    TmdbCollectionSort.VOTE_AVERAGE_DESC.value to stringResource(R.string.tmdb_entity_rail_top_rated),
-                    if (mediaType == TmdbCollectionMediaType.TV && !bothSelected) {
-                        TmdbCollectionSort.FIRST_AIR_DATE_DESC.value to stringResource(R.string.tmdb_entity_rail_recent)
-                    } else {
-                        TmdbCollectionSort.RELEASE_DATE_DESC.value to stringResource(R.string.tmdb_entity_rail_recent)
-                    }
-                )
+                val sorts = buildList {
+                    if (showOriginalSort) add(TmdbCollectionSort.ORIGINAL.value to "Original")
+                    if (showPopularSort) add(TmdbCollectionSort.POPULAR_DESC.value to stringResource(R.string.tmdb_entity_rail_popular))
+                    add(TmdbCollectionSort.VOTE_AVERAGE_DESC.value to stringResource(R.string.tmdb_entity_rail_top_rated))
+                    add(
+                        if (mediaType == TmdbCollectionMediaType.TV && !bothSelected) {
+                            TmdbCollectionSort.FIRST_AIR_DATE_DESC.value to stringResource(R.string.tmdb_entity_rail_recent)
+                        } else {
+                            TmdbCollectionSort.RELEASE_DATE_DESC.value to stringResource(R.string.tmdb_entity_rail_recent)
+                        }
+                    )
+                }
                 sorts.forEach { (value, label) ->
                     TmdbChoiceButton(
                         label = label,

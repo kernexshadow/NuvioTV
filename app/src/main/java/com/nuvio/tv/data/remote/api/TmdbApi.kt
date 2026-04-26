@@ -189,7 +189,8 @@ interface TmdbApi {
         @Query("with_original_language") withOriginalLanguage: String? = null,
         @Query("with_origin_country") withOriginCountry: String? = null,
         @Query("with_keywords") withKeywords: String? = null,
-        @Query("first_air_date_year") firstAirDateYear: Int? = null
+        @Query("first_air_date_year") firstAirDateYear: Int? = null,
+        @Query("with_status") withStatus: String? = null
     ): Response<TmdbDiscoverResponse>
 
     @GET("list/{list_id}")

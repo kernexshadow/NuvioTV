@@ -234,7 +234,7 @@ class FolderDetailViewModel @Inject constructor(
                         val labels = buildAddonTabLabels(source, catalog?.name)
                         Triple(labels.first, labels.second, source.type)
                     }
-                    is TmdbCollectionSource -> Triple(source.title, buildTmdbTypeLabel(source), source.mediaType.value)
+                    is TmdbCollectionSource -> Triple(source.title, buildTmdbTypeLabel(source), source.mediaType.value.toCollectionRawType())
                 }
                 FolderTab(label = name, typeLabel = typeLabel, rawType = rawType, source = source, isLoading = true)
             }
@@ -759,6 +759,10 @@ class FolderDetailViewModel @Inject constructor(
         }
     }
 
+    private fun String.toCollectionRawType(): String {
+        return if (lowercase() == "tv") "series" else this
+    }
+
     private fun buildCatalogExtraArgs(source: AddonCatalogCollectionSource): Map<String, String> {
         val genre = source.genre?.takeIf { it.isNotBlank() } ?: return emptyMap()
         return mapOf("genre" to genre)
@@ -946,4 +950,5 @@ class FolderDetailViewModel @Inject constructor(
             if (changed) state.copy(tabs = updatedTabs) else state
         }
     }
+
 }

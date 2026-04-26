@@ -207,6 +207,7 @@ fun tmdbSourceSubtitle(source: TmdbCollectionSource): String {
         TmdbCollectionMediaType.TV -> "Series"
     }
     val sort = when (source.sortBy) {
+        TmdbCollectionSort.ORIGINAL.value -> "Original"
         TmdbCollectionSort.POPULAR_DESC.value -> "Popular"
         TmdbCollectionSort.VOTE_AVERAGE_DESC.value -> "Top Rated"
         TmdbCollectionSort.RELEASE_DATE_DESC.value,

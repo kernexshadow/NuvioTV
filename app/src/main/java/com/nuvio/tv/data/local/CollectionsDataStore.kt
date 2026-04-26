@@ -14,6 +14,7 @@ import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.model.TmdbCollectionFilters
 import com.nuvio.tv.domain.model.TmdbCollectionMediaType
+import com.nuvio.tv.domain.model.TmdbCollectionSort
 import com.nuvio.tv.domain.model.TmdbCollectionSource
 import com.nuvio.tv.domain.model.TmdbCollectionSourceType
 import kotlinx.coroutines.flow.Flow
@@ -354,6 +355,15 @@ class CollectionsDataStore @Inject constructor(
                 val type = tmdbSourceType?.let { raw ->
                     runCatching { TmdbCollectionSourceType.valueOf(raw.uppercase()) }.getOrNull()
                 } ?: return null
+                val sourceSortBy = sortBy?.takeIf { it.isNotBlank() } ?: TmdbCollectionSort.POPULAR_DESC.value
+                val normalizedSortBy = if (
+                    type in setOf(TmdbCollectionSourceType.LIST, TmdbCollectionSourceType.COLLECTION) &&
+                    sourceSortBy == TmdbCollectionSort.POPULAR_DESC.value
+                ) {
+                    TmdbCollectionSort.ORIGINAL.value
+                } else {
+                    sourceSortBy
+                }
                 TmdbCollectionSource(
                     sourceType = type,
                     title = title?.takeIf { it.isNotBlank() } ?: type.name.lowercase().replaceFirstChar { it.uppercase() },
@@ -361,7 +371,7 @@ class CollectionsDataStore @Inject constructor(
                     mediaType = mediaType?.let { raw ->
                         runCatching { TmdbCollectionMediaType.valueOf(raw.uppercase()) }.getOrNull()
                     } ?: TmdbCollectionMediaType.MOVIE,
-                    sortBy = sortBy?.takeIf { it.isNotBlank() } ?: "popularity.desc",
+                    sortBy = normalizedSortBy,
                     filters = filters?.toDomain() ?: TmdbCollectionFilters()
                 )
             }
