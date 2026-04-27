@@ -9,7 +9,7 @@ object AddonWebPage {
 
     fun getHtml(
         baseContext: Context,
-        webConfigMode: AddonConfigServer.WebConfigMode = AddonConfigServer.WebConfigMode.FULL
+        webConfigMode: AddonWebConfigMode = AddonWebConfigMode.FULL
     ): String {
         val tag = baseContext.getSharedPreferences("app_locale", Context.MODE_PRIVATE)
             .getString("locale_tag", null)
@@ -18,7 +18,7 @@ object AddonWebPage {
             config.setLocale(Locale.forLanguageTag(tag))
             baseContext.createConfigurationContext(config)
         } else baseContext
-        val isCollectionsOnly = webConfigMode == AddonConfigServer.WebConfigMode.COLLECTIONS_ONLY
+        val isCollectionsOnly = webConfigMode == AddonWebConfigMode.COLLECTIONS_ONLY
         val pageTitle = if (isCollectionsOnly) {
             context.getString(R.string.web_manage_collections_title)
         } else {
@@ -886,6 +886,30 @@ object AddonWebPage {
     margin-bottom: 0.25rem;
   }
   .source-search-input:focus { border-color: rgba(255,255,255,0.25); outline: none; }
+  .tmdb-source-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+  .tmdb-source-grid input,
+  .tmdb-source-grid select {
+    width: 100%;
+    min-width: 0;
+  }
+  .tmdb-source-wide {
+    grid-column: 1 / -1;
+  }
+  .source-provider {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgba(130, 170, 255, 0.95);
+    border: 1px solid rgba(130, 170, 255, 0.25);
+    border-radius: 100px;
+    padding: 0.08rem 0.35rem;
+    flex-shrink: 0;
+  }
 
   /* ── Shared small buttons ── */
   .btn-icon {
@@ -1047,6 +1071,14 @@ var i18n = {
   hideTitle: '${context.getString(R.string.collections_editor_hide_title).replace("'", "\\'")}',
   catalogs: '${context.getString(R.string.collections_editor_catalogs).replace("'", "\\'")}',
   addCatalog: '${context.getString(R.string.collections_editor_add_catalog).replace("'", "\\'")}',
+  addTmdb: 'Add TMDB source',
+  tmdbSource: 'TMDB source',
+  tmdbType: 'Type',
+  tmdbTitle: 'Title',
+  tmdbId: 'TMDB ID',
+  tmdbMedia: 'Media',
+  tmdbSort: 'Sort',
+  tmdbFilters: 'Filters',
   addFolder: '${context.getString(R.string.collections_editor_add_folder).replace("'", "\\'")}',
   folders: '${context.getString(R.string.collections_editor_folders).replace("'", "\\'")}',
   hidden: '${context.getString(R.string.web_badge_disabled).replace("'", "\\'")}',
@@ -1096,6 +1128,54 @@ function generateId() {
     var r = Math.random() * 16 | 0;
     return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
   });
+}
+
+function addonSourceFromCatalog(src) {
+  return {
+    provider: 'addon',
+    addonId: src.addonId,
+    type: src.type,
+    catalogId: src.catalogId,
+    genre: src.genre || null
+  };
+}
+
+function isAddonSource(src) {
+  return !src.provider || String(src.provider).toLowerCase() === 'addon';
+}
+
+function getFolderSources(folder) {
+  if (!Array.isArray(folder.sources)) {
+    folder.sources = (folder.catalogSources || []).map(addonSourceFromCatalog);
+  }
+  folder.catalogSources = folder.sources
+    .filter(isAddonSource)
+    .map(function(src) {
+      return {
+        addonId: src.addonId,
+        type: src.type,
+        catalogId: src.catalogId,
+        genre: src.genre || null
+      };
+    });
+  return folder.sources;
+}
+
+function normalizeCollectionsForEditing(items) {
+  (items || []).forEach(function(col) {
+    (col.folders || []).forEach(function(folder) {
+      getFolderSources(folder);
+    });
+  });
+  return items || [];
+}
+
+function tmdbDefaultTitle(type) {
+  if (type === 'LIST') return 'TMDB List';
+  if (type === 'COLLECTION') return 'TMDB Collection';
+  if (type === 'COMPANY') return 'TMDB Production';
+  if (type === 'NETWORK') return 'TMDB Network';
+  return 'TMDB Discover';
 }
 
 var EMOJI_CATEGORIES = [
@@ -1235,7 +1315,7 @@ async function loadState() {
     var state = await res.json();
     addons = state.addons || [];
     catalogs = state.catalogs || [];
-    collections = state.collections || [];
+    collections = normalizeCollectionsForEditing(state.collections || []);
     disabledCollectionKeys = (state.disabledCollectionKeys || []).slice();
     originalAddons = JSON.parse(JSON.stringify(addons));
     originalCatalogs = JSON.parse(JSON.stringify(catalogs));
@@ -1717,7 +1797,7 @@ function updateCollectionTitle(ci, val) {
 }
 
 function addFolder(ci) {
-  collections[ci].folders.push({ id: generateId(), title: 'New Folder', coverImageUrl: null, focusGifUrl: null, focusGifEnabled: true, coverEmoji: null, tileShape: 'SQUARE', hideTitle: false, heroBackdropUrl: null, titleLogoUrl: null, catalogSources: [] });
+  collections[ci].folders.push({ id: generateId(), title: 'New Folder', coverImageUrl: null, focusGifUrl: null, focusGifEnabled: true, coverEmoji: null, tileShape: 'SQUARE', hideTitle: false, heroBackdropUrl: null, titleLogoUrl: null, catalogSources: [], sources: [] });
   expandedFolder = ci + '-' + (collections[ci].folders.length - 1);
   renderCollections();
 }
@@ -1838,28 +1918,66 @@ function addCatalogSourceByVal(ci, fi, val) {
   var parts = val.split('::');
   if (parts.length < 3) return;
   var src = { addonId: parts[0], type: parts[1], catalogId: parts[2] };
-  var existing = collections[ci].folders[fi].catalogSources;
+  var folder = collections[ci].folders[fi];
+  var existing = getFolderSources(folder);
   var dup = existing.some(function(s) { return s.addonId === src.addonId && s.type === src.type && s.catalogId === src.catalogId; });
   if (dup) return;
-  existing.push(src);
+  existing.push(addonSourceFromCatalog(src));
+  getFolderSources(folder);
+  renderCollections();
+}
+
+function addTmdbSource(ci, fi) {
+  var folder = collections[ci].folders[fi];
+  var type = document.getElementById('tmdb-type-' + ci + '-' + fi).value;
+  var title = document.getElementById('tmdb-title-' + ci + '-' + fi).value.trim() || tmdbDefaultTitle(type);
+  var idRaw = document.getElementById('tmdb-id-' + ci + '-' + fi).value.trim();
+  var mediaType = document.getElementById('tmdb-media-' + ci + '-' + fi).value;
+  var sortBy = document.getElementById('tmdb-sort-' + ci + '-' + fi).value;
+  var errorEl = document.getElementById('tmdb-error-' + ci + '-' + fi);
+  var tmdbId = idRaw ? parseInt(idRaw, 10) : null;
+  if (type !== 'DISCOVER' && (!tmdbId || tmdbId < 1)) {
+    errorEl.textContent = 'Enter a TMDB ID for this source';
+    errorEl.style.display = 'block';
+    return;
+  }
+  errorEl.style.display = 'none';
+  if (type === 'NETWORK') mediaType = 'TV';
+  if (type === 'LIST' || type === 'COLLECTION') mediaType = 'MOVIE';
+  var source = {
+    provider: 'tmdb',
+    tmdbSourceType: type,
+    title: title,
+    tmdbId: tmdbId,
+    mediaType: mediaType,
+    sortBy: sortBy,
+    filters: tmdbFiltersFromInputs(ci, fi)
+  };
+  getFolderSources(folder).push(source);
+  getFolderSources(folder);
   renderCollections();
 }
 
 function removeCatalogSource(ci, fi, si) {
-  collections[ci].folders[fi].catalogSources.splice(si, 1);
+  var folder = collections[ci].folders[fi];
+  getFolderSources(folder).splice(si, 1);
+  getFolderSources(folder);
   renderCollections();
 }
 
 function moveCatalogSource(ci, fi, si, dir) {
-  var sources = collections[ci].folders[fi].catalogSources;
+  var folder = collections[ci].folders[fi];
+  var sources = getFolderSources(folder);
   var ni = si + dir;
   if (ni < 0 || ni >= sources.length) return;
   var item = sources.splice(si, 1)[0];
   sources.splice(ni, 0, item);
+  getFolderSources(folder);
   renderCollections();
 }
 
 function catalogSourceLabel(src) {
+  if (String(src.provider || 'addon').toLowerCase() === 'tmdb') return tmdbSourceLabel(src);
   var match = availableCatalogs.find(function(c) {
     return c.key === src.addonId + '_' + src.type + '_' + src.catalogId;
   });
@@ -1867,12 +1985,48 @@ function catalogSourceLabel(src) {
   return src.catalogId + ' - ' + toTitleCase(src.type) + ' (' + src.addonId + ')';
 }
 
+function tmdbSourceLabel(src) {
+  var media = src.mediaType === 'TV' ? 'Series' : 'Movies';
+  var type = src.tmdbSourceType || 'DISCOVER';
+  var title = src.title || tmdbDefaultTitle(type);
+  return title + ' - ' + typeLabel(type) + ' (' + media + ')';
+}
+
+function typeLabel(value) {
+  return (value || '').toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+}
+
+function tmdbFiltersFromInputs(ci, fi) {
+  function value(id) {
+    var el = document.getElementById(id + '-' + ci + '-' + fi);
+    return el && el.value.trim() ? el.value.trim() : null;
+  }
+  function numberValue(id) {
+    var raw = value(id);
+    return raw ? Number(raw) : null;
+  }
+  return {
+    withGenres: value('tmdb-genres'),
+    releaseDateGte: value('tmdb-release-gte'),
+    releaseDateLte: value('tmdb-release-lte'),
+    voteAverageGte: numberValue('tmdb-vote-gte'),
+    voteAverageLte: numberValue('tmdb-vote-lte'),
+    voteCountGte: numberValue('tmdb-vote-count-gte'),
+    withOriginalLanguage: value('tmdb-language'),
+    withOriginCountry: value('tmdb-country'),
+    withKeywords: value('tmdb-keywords'),
+    withCompanies: value('tmdb-companies'),
+    withNetworks: value('tmdb-networks'),
+    year: numberValue('tmdb-year')
+  };
+}
+
 function getCollectionErrors(col) {
   var errors = [];
   if (!col.title || !col.title.trim()) errors.push('Missing title');
   if (!col.folders || col.folders.length === 0) errors.push('No folders');
   (col.folders || []).forEach(function(f, fi) {
-    if (!f.catalogSources || f.catalogSources.length === 0) {
+    if (getFolderSources(f).length === 0) {
       errors.push((f.title || 'Folder ' + (fi + 1)) + ': no sources');
     }
   });
@@ -1980,10 +2134,12 @@ function renderCollections() {
     // ── Folders ──
     var foldersHtml = '';
     (col.folders || []).forEach(function(folder, fi) {
+      var activeSources = getFolderSources(folder);
       var sourcesHtml = '';
-      (folder.catalogSources || []).forEach(function(src, si) {
+      activeSources.forEach(function(src, si) {
         var isFirstSrc = (si === 0);
-        var isLastSrc = (si === folder.catalogSources.length - 1);
+        var isLastSrc = (si === activeSources.length - 1);
+        var providerLabel = String(src.provider || 'addon').toLowerCase() === 'tmdb' ? '<span class="source-provider">TMDB</span>' : '';
         sourcesHtml +=
           '<div class="source-item">' +
             '<button class="btn-icon" onclick="moveCatalogSource(' + ci + ',' + fi + ',' + si + ',-1)"' + (isFirstSrc ? ' disabled' : '') + '>' +
@@ -1993,6 +2149,7 @@ function renderCollections() {
               '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>' +
             '</button>' +
             '<span class="source-label">' + escapeHtml(catalogSourceLabel(src)) + '</span>' +
+            providerLabel +
             '<button class="btn-icon danger" onclick="removeCatalogSource(' + ci + ',' + fi + ',' + si + ')">' +
               '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
             '</button>' +
@@ -2009,7 +2166,7 @@ function renderCollections() {
         emojiCellsHtml += '</div>';
       });
 
-      var existingSources = (folder.catalogSources || []);
+      var existingSources = getFolderSources(folder).filter(isAddonSource);
       var sourceListHtml = '';
       availableCatalogs.filter(function(c) { return c.type !== 'collection'; }).forEach(function(c) {
         var val = c.key.split('_')[0] + '::' + c.type + '::' + c.key.split('_').slice(2).join('_');
@@ -2030,7 +2187,7 @@ function renderCollections() {
       });
 
       var isFolderExpanded = (expandedFolder === ci + '-' + fi);
-      var srcCount = (folder.catalogSources || []).length;
+      var srcCount = getFolderSources(folder).length;
       var coverMode = folder._coverMode || (folder.coverEmoji ? 'emoji' : (folder.coverImageUrl ? 'image' : 'none'));
 
       foldersHtml +=
@@ -2135,6 +2292,47 @@ function renderCollections() {
               '<div style="padding:0.5rem 0.75rem">' +
                 '<input class="source-search-input" placeholder="Search catalogs..." oninput="filterCatalogSources(' + ci + ',' + fi + ',this.value)" id="src-search-' + ci + '-' + fi + '">' +
                 '<div id="src-list-' + ci + '-' + fi + '" style="max-height:200px;overflow-y:auto;border:1px solid rgba(255,255,255,0.05);border-radius:8px;margin-top:0.25rem">' + sourceListHtml + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="folder-settings-group" style="margin-top:0.5rem">' +
+              '<div class="folder-settings-group-label">' + i18n.addTmdb + '</div>' +
+              '<div style="padding:0.5rem 0.75rem">' +
+                '<div class="tmdb-source-grid">' +
+                  '<select id="tmdb-type-' + ci + '-' + fi + '">' +
+                    '<option value="DISCOVER">Discover</option>' +
+                    '<option value="LIST">List</option>' +
+                    '<option value="COLLECTION">Movie Collection</option>' +
+                    '<option value="COMPANY">Production Company</option>' +
+                    '<option value="NETWORK">Network</option>' +
+                  '</select>' +
+                  '<select id="tmdb-media-' + ci + '-' + fi + '">' +
+                    '<option value="MOVIE">Movies</option>' +
+                    '<option value="TV">Series</option>' +
+                  '</select>' +
+                  '<input id="tmdb-title-' + ci + '-' + fi + '" placeholder="' + i18n.tmdbTitle + '">' +
+                  '<input id="tmdb-id-' + ci + '-' + fi + '" type="number" min="1" inputmode="numeric" placeholder="' + i18n.tmdbId + '">' +
+                  '<select id="tmdb-sort-' + ci + '-' + fi + '">' +
+                    '<option value="popularity.desc">Popular</option>' +
+                    '<option value="vote_average.desc">Top Rated</option>' +
+                    '<option value="primary_release_date.desc">Recent Movies</option>' +
+                    '<option value="first_air_date.desc">Recent Series</option>' +
+                    '<option value="original">Original Order</option>' +
+                  '</select>' +
+                  '<input id="tmdb-year-' + ci + '-' + fi + '" type="number" min="1900" max="2100" inputmode="numeric" placeholder="Year">' +
+                  '<input id="tmdb-genres-' + ci + '-' + fi + '" placeholder="Genres, e.g. 28,12">' +
+                  '<input id="tmdb-keywords-' + ci + '-' + fi + '" placeholder="Keywords">' +
+                  '<input id="tmdb-release-gte-' + ci + '-' + fi + '" placeholder="Release from YYYY-MM-DD">' +
+                  '<input id="tmdb-release-lte-' + ci + '-' + fi + '" placeholder="Release to YYYY-MM-DD">' +
+                  '<input id="tmdb-vote-gte-' + ci + '-' + fi + '" type="number" step="0.1" min="0" max="10" placeholder="Vote from">' +
+                  '<input id="tmdb-vote-lte-' + ci + '-' + fi + '" type="number" step="0.1" min="0" max="10" placeholder="Vote to">' +
+                  '<input id="tmdb-vote-count-gte-' + ci + '-' + fi + '" type="number" min="0" inputmode="numeric" placeholder="Min votes">' +
+                  '<input id="tmdb-language-' + ci + '-' + fi + '" placeholder="Language, e.g. en">' +
+                  '<input id="tmdb-country-' + ci + '-' + fi + '" placeholder="Country, e.g. US">' +
+                  '<input id="tmdb-companies-' + ci + '-' + fi + '" placeholder="Companies">' +
+                  '<input id="tmdb-networks-' + ci + '-' + fi + '" placeholder="Networks">' +
+                  '<button class="btn tmdb-source-wide" onclick="addTmdbSource(' + ci + ',' + fi + ')" style="padding:0.6rem;font-size:0.8rem">' + i18n.addTmdb + '</button>' +
+                '</div>' +
+                '<div id="tmdb-error-' + ci + '-' + fi + '" style="display:none;color:rgba(207,102,121,0.9);font-size:0.75rem;margin-top:0.5rem"></div>' +
               '</div>' +
             '</div>' +
           '</div>'
@@ -2249,16 +2447,19 @@ async function doImport() {
         if (!f || typeof f !== 'object') { errEl.textContent = 'Collection "' + c.title + '", folder ' + (j+1) + ': invalid format'; errEl.style.display = 'block'; return; }
         if (!f.id || typeof f.id !== 'string') { errEl.textContent = 'Collection "' + c.title + '", folder ' + (j+1) + ': missing "id"'; errEl.style.display = 'block'; return; }
         if (!f.title || typeof f.title !== 'string') { errEl.textContent = 'Collection "' + c.title + '", folder "' + f.id + '": missing "title"'; errEl.style.display = 'block'; return; }
-        if (!Array.isArray(f.catalogSources)) { errEl.textContent = 'Collection "' + c.title + '", folder "' + f.title + '": "catalogSources" must be an array'; errEl.style.display = 'block'; return; }
+        var importedSources = Array.isArray(f.sources) ? f.sources : f.catalogSources;
+        if (!Array.isArray(importedSources)) { errEl.textContent = 'Collection "' + c.title + '", folder "' + f.title + '": "sources" must be an array'; errEl.style.display = 'block'; return; }
         if (f.tileShape && validShapes.indexOf(f.tileShape) < 0) { errEl.textContent = 'Collection "' + c.title + '", folder "' + f.title + '": invalid tileShape "' + f.tileShape + '"'; errEl.style.display = 'block'; return; }
-        for (var k = 0; k < f.catalogSources.length; k++) {
-          var s = f.catalogSources[k];
+        for (var k = 0; k < importedSources.length; k++) {
+          var s = importedSources[k];
           if (!s || typeof s !== 'object') { errEl.textContent = 'Collection "' + c.title + '", folder "' + f.title + '", source ' + (k+1) + ': invalid format'; errEl.style.display = 'block'; return; }
-          if (typeof s.addonId !== 'string' || typeof s.type !== 'string' || typeof s.catalogId !== 'string') { errEl.textContent = 'Collection "' + c.title + '", folder "' + f.title + '", source ' + (k+1) + ': missing required fields (addonId, type, catalogId)'; errEl.style.display = 'block'; return; }
+          var provider = (s.provider || 'addon').toLowerCase();
+          if (provider === 'addon' && (typeof s.addonId !== 'string' || typeof s.type !== 'string' || typeof s.catalogId !== 'string')) { errEl.textContent = 'Collection "' + c.title + '", folder "' + f.title + '", source ' + (k+1) + ': missing required fields (addonId, type, catalogId)'; errEl.style.display = 'block'; return; }
+          if (provider === 'tmdb' && typeof s.tmdbSourceType !== 'string') { errEl.textContent = 'Collection "' + c.title + '", folder "' + f.title + '", source ' + (k+1) + ': missing TMDB source type'; errEl.style.display = 'block'; return; }
         }
       }
     }
-    // Merge: replace existing by id, append new
+    parsed = normalizeCollectionsForEditing(parsed);
     var existingById = {};
     collections.forEach(function(c, idx) { existingById[c.id] = idx; });
     parsed.forEach(function(imported) {
@@ -2278,9 +2479,12 @@ async function doImport() {
   }
 }
 
-document.getElementById('addonUrl').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') addAddon();
-});
+var addonUrlInput = document.getElementById('addonUrl');
+if (addonUrlInput) {
+  addonUrlInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') addAddon();
+  });
+}
 
 loadState();
 </script>

@@ -5,107 +5,26 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import fi.iki.elonen.NanoHTTPD
 import java.io.ByteArrayInputStream
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 class AddonConfigServer(
     private val context: Context,
-    private val webConfigMode: WebConfigMode,
+    private val webConfigMode: AddonWebConfigMode,
     private val currentPageStateProvider: () -> PageState,
     private val onChangeProposed: (PendingAddonChange) -> Unit,
     private val logoProvider: (() -> ByteArray?)? = null,
     port: Int = 8080
 ) : NanoHTTPD(port) {
 
-    enum class WebConfigMode(
-        val allowAddonManagement: Boolean,
-        val allowCatalogManagement: Boolean
-    ) {
-        FULL(
-            allowAddonManagement = true,
-            allowCatalogManagement = true
-        ),
-        COLLECTIONS_ONLY(
-            allowAddonManagement = false,
-            allowCatalogManagement = false
-        )
-    }
-
-    data class AddonInfo(
-        val url: String,
-        val name: String,
-        val description: String?
-    )
-
-    data class CatalogInfo(
-        val key: String,
-        val disableKey: String,
-        val catalogName: String,
-        val addonName: String,
-        val type: String,
-        val isDisabled: Boolean
-    )
-
-    data class CollectionInfo(
-        val id: String,
-        val title: String,
-        val backdropImageUrl: String? = null,
-        val pinToTop: Boolean = false,
-        val focusGlowEnabled: Boolean = true,
-        val viewMode: String = "TABBED_GRID",
-        val showAllTab: Boolean = true,
-        val folders: List<FolderInfo>
-    )
-
-    data class FolderInfo(
-        val id: String,
-        val title: String,
-        val coverImageUrl: String?,
-        val focusGifUrl: String?,
-        val focusGifEnabled: Boolean = true,
-        val coverEmoji: String?,
-        val tileShape: String,
-        val hideTitle: Boolean,
-        val heroBackdropUrl: String? = null,
-        val titleLogoUrl: String? = null,
-        val catalogSources: List<CatalogSourceInfo>
-    )
-
-    data class CatalogSourceInfo(
-        val addonId: String,
-        val type: String,
-        val catalogId: String,
-        val genre: String? = null
-    )
-
-    data class PageState(
-        val addons: List<AddonInfo>,
-        val catalogs: List<CatalogInfo>,
-        val collections: List<CollectionInfo> = emptyList(),
-        val disabledCollectionKeys: List<String> = emptyList()
-    )
-
-    data class PendingAddonChange(
-        val id: String = UUID.randomUUID().toString(),
-        val proposedUrls: List<String>,
-        val proposedCatalogOrderKeys: List<String> = emptyList(),
-        val proposedDisabledCatalogKeys: List<String> = emptyList(),
-        val proposedCollectionsJson: String? = null,
-        val proposedDisabledCollectionKeys: List<String> = emptyList(),
-        var status: ChangeStatus = ChangeStatus.PENDING
-    )
-
-    enum class ChangeStatus { PENDING, CONFIRMED, REJECTED }
-
     private val gson = Gson()
     private val pendingChanges = ConcurrentHashMap<String, PendingAddonChange>()
 
     fun confirmChange(id: String) {
-        pendingChanges[id]?.status = ChangeStatus.CONFIRMED
+        pendingChanges[id]?.status = AddonChangeStatus.CONFIRMED
     }
 
     fun rejectChange(id: String) {
-        pendingChanges[id]?.status = ChangeStatus.REJECTED
+        pendingChanges[id]?.status = AddonChangeStatus.REJECTED
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -167,8 +86,8 @@ class AddonConfigServer(
     private fun handleAddonUpdate(session: IHTTPSession): Response {
         // Auto-reject any stale pending changes so a new request can proceed
         pendingChanges.values
-            .filter { it.status == ChangeStatus.PENDING }
-            .forEach { it.status = ChangeStatus.REJECTED }
+            .filter { it.status == AddonChangeStatus.PENDING }
+            .forEach { it.status = AddonChangeStatus.REJECTED }
 
         // Parse request body
         val bodyMap = HashMap<String, String>()
@@ -230,7 +149,7 @@ class AddonConfigServer(
     companion object {
         fun startOnAvailablePort(
             context: Context,
-            webConfigMode: WebConfigMode = WebConfigMode.FULL,
+            webConfigMode: AddonWebConfigMode = AddonWebConfigMode.FULL,
             currentPageStateProvider: () -> PageState,
             onChangeProposed: (PendingAddonChange) -> Unit,
             logoProvider: (() -> ByteArray?)? = null,
@@ -256,34 +175,4 @@ class AddonConfigServer(
             return null
         }
     }
-}
-
-internal fun sanitizePendingAddonChange(
-    mode: AddonConfigServer.WebConfigMode,
-    proposedChange: AddonConfigServer.PendingAddonChange,
-    currentState: AddonConfigServer.PageState
-): AddonConfigServer.PendingAddonChange {
-    if (mode.allowAddonManagement && mode.allowCatalogManagement) {
-        return proposedChange
-    }
-
-    return proposedChange.copy(
-        proposedUrls = if (mode.allowAddonManagement) {
-            proposedChange.proposedUrls
-        } else {
-            currentState.addons.map { it.url }
-        },
-        proposedCatalogOrderKeys = if (mode.allowCatalogManagement) {
-            proposedChange.proposedCatalogOrderKeys
-        } else {
-            currentState.catalogs.map { it.key }
-        },
-        proposedDisabledCatalogKeys = if (mode.allowCatalogManagement) {
-            proposedChange.proposedDisabledCatalogKeys
-        } else {
-            currentState.catalogs
-                .filter { it.isDisabled }
-                .map { it.disableKey }
-        }
-    )
 }

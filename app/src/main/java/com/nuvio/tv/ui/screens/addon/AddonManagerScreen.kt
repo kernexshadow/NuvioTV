@@ -115,12 +115,12 @@ fun AddonManagerScreen(
             addon.catalogs.any { catalog -> !catalog.isSearchOnlyCatalog() }
         }
     }
-    val manageFromPhoneSubtitle = if (webConfigMode == com.nuvio.tv.core.server.AddonConfigServer.WebConfigMode.COLLECTIONS_ONLY) {
+    val manageFromPhoneSubtitle = if (webConfigMode == com.nuvio.tv.core.server.AddonWebConfigMode.COLLECTIONS_ONLY) {
         stringResource(R.string.addon_manage_collections_from_phone_subtitle)
     } else {
         stringResource(R.string.addon_manage_from_phone_subtitle)
     }
-    val qrInstruction = if (webConfigMode == com.nuvio.tv.core.server.AddonConfigServer.WebConfigMode.COLLECTIONS_ONLY) {
+    val qrInstruction = if (webConfigMode == com.nuvio.tv.core.server.AddonWebConfigMode.COLLECTIONS_ONLY) {
         stringResource(R.string.addon_qr_collections_scan_instruction)
     } else {
         stringResource(R.string.addon_qr_scan_instruction)
