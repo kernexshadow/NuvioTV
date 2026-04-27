@@ -712,6 +712,7 @@ private fun EpisodeCommentPickerDialog(
 @Composable
 fun CommentOverlay(
     review: TraktCommentReview,
+    episode: Video?,
     canNavigatePrevious: Boolean,
     canNavigateNext: Boolean,
     isLoadingNext: Boolean,
@@ -789,6 +790,7 @@ fun CommentOverlay(
                 currentReview ->
                 CommentOverlayContent(
                     review = currentReview,
+                    episode = episode,
                     primaryFocusRequester = primaryFocusRequester,
                     mainContentFocusRequester = mainContentFocusRequester,
                     isLoadingNext = isLoadingNext
@@ -829,6 +831,7 @@ fun CommentOverlay(
 @Composable
 private fun CommentOverlayContent(
     review: TraktCommentReview,
+    episode: Video?,
     primaryFocusRequester: FocusRequester,
     mainContentFocusRequester: FocusRequester,
     isLoadingNext: Boolean
@@ -846,6 +849,7 @@ private fun CommentOverlayContent(
         formatCommentTimestamp(review.createdAt, review.updatedAt)
     }
     val overlayLabels = buildList {
+        episode?.let { add(selectedEpisodeLabel(it)) }
         if (review.review) add(stringResource(R.string.detail_comments_badge_review))
         if (review.hasSpoilerContent) add(stringResource(R.string.detail_comments_badge_spoiler))
         review.rating?.let { add(stringResource(R.string.detail_comments_badge_rating, it)) }

@@ -1936,6 +1936,7 @@ private fun MetaDetailsContent(
         selectedComment?.let { review ->
             CommentOverlay(
                 review = review,
+                episode = if (commentsMode == CommentsMode.EPISODE) commentsEpisodeTarget else null,
                 canNavigatePrevious = selectedCommentIndex > 0,
                 canNavigateNext = selectedCommentIndex >= 0 && (
                     selectedCommentIndex < comments.lastIndex || canLoadMoreComments || isCommentsLoadingMore
