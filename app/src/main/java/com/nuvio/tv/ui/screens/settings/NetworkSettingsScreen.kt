@@ -332,6 +332,23 @@ fun AdvancedSettingsContent(
                         )
                     }
                 )
+                val profileManager = remember {
+                    dagger.hilt.android.EntryPointAccessors.fromApplication(
+                        context.applicationContext,
+                        ProfileManagerEntryPoint::class.java
+                    ).profileManager()
+                }
+                val rememberLastProfileEnabled by profileManager.rememberLastProfileEnabled.collectAsState()
+                SettingsToggleRow(
+                    title = stringResource(R.string.advanced_remember_last_profile),
+                    subtitle = stringResource(R.string.advanced_remember_last_profile_subtitle),
+                    checked = rememberLastProfileEnabled,
+                    onToggle = {
+                        scope.launch {
+                            profileManager.setRememberLastProfileEnabled(!rememberLastProfileEnabled)
+                        }
+                    }
+                )
             }
         }
 
@@ -446,28 +463,6 @@ fun AdvancedSettingsContent(
                                 entryPoint.cwEnrichmentCache().clearAll()
                                 cleared = true
                             }
-                        }
-                    }
-                )
-            }
-        }
-
-        item(key = "remember_last_profile") {
-            val profileManager = remember {
-                dagger.hilt.android.EntryPointAccessors.fromApplication(
-                    context.applicationContext,
-                    ProfileManagerEntryPoint::class.java
-                ).profileManager()
-            }
-            val rememberLastProfileEnabled by profileManager.rememberLastProfileEnabled.collectAsState()
-            SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
-                SettingsToggleRow(
-                    title = stringResource(R.string.advanced_remember_last_profile),
-                    subtitle = stringResource(R.string.advanced_remember_last_profile_subtitle),
-                    checked = rememberLastProfileEnabled,
-                    onToggle = {
-                        scope.launch {
-                            profileManager.setRememberLastProfileEnabled(!rememberLastProfileEnabled)
                         }
                     }
                 )
