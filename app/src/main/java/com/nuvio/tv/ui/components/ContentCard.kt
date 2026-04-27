@@ -57,6 +57,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -182,13 +183,18 @@ fun ContentCard(
         }
     }
     val metaTokens = if (isBackdropExpanded) {
-        remember(item.type, item.genres, item.releaseInfo, item.imdbRating) {
+        remember(item.type, item.rawType, item.genres, item.releaseInfo, item.imdbRating, item.seasonCount) {
             buildList {
                 add(
                     item.apiType
                         .replaceFirstChar { ch -> ch.uppercase() }
                 )
                 item.genres.firstOrNull()?.let { add(it) }
+                if ((item.type == ContentType.SERIES || item.apiType.equals("series", ignoreCase = true)) &&
+                    item.seasonCount != null
+                ) {
+                    add("${item.seasonCount} ${if (item.seasonCount == 1) "season" else "seasons"}")
+                }
                 item.releaseInfo
                     ?.let { YEAR_REGEX.find(it)?.value }
                     ?.let { add(it) }

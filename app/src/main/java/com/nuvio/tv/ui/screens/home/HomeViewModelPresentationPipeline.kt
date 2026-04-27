@@ -623,6 +623,13 @@ internal fun HomeViewModel.updateCatalogItemImdbRating(itemId: String, rating: F
 
 private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) {
     val incomingTrailerYtIds = meta.trailerYtIds
+    val seasonCount = meta.videos
+        .asSequence()
+        .mapNotNull { it.season }
+        .filter { it > 0 }
+        .distinct()
+        .count()
+        .takeIf { it > 0 }
 
     fun mergeItem(currentItem: MetaPreview): MetaPreview = currentItem.copy(
         background = meta.backdropUrl ?: currentItem.backdropUrl,
@@ -635,6 +642,7 @@ private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) 
         ageRating = meta.ageRating ?: currentItem.ageRating,
         language = meta.language ?: currentItem.language,
         country = meta.country ?: currentItem.country,
+        seasonCount = seasonCount ?: currentItem.seasonCount,
         trailerYtIds = if (incomingTrailerYtIds.isNotEmpty()) incomingTrailerYtIds else currentItem.trailerYtIds
     )
 
