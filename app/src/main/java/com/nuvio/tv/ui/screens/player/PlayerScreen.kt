@@ -101,9 +101,8 @@ import androidx.tv.material3.IconButton
 import androidx.tv.material3.IconButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil.compose.rememberAsyncImagePainter
-import coil.decode.SvgDecoder
-import coil.request.ImageRequest
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import com.nuvio.tv.core.player.ExternalPlayerLauncher
@@ -219,7 +218,9 @@ fun PlayerScreen(
                     viewModel.pauseForLifecycle()
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    // Don't auto-resume, let user control
+                    // Re-create the MediaSession so media controls work in foreground.
+                    // Don't auto-resume playback — let the user press play.
+                    viewModel.resumeForLifecycle()
                 }
                 else -> {}
             }
@@ -1267,11 +1268,13 @@ private fun ExoPlayerSurface(
 
     DisposableEffect(playerView) {
         val listener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            playerView.applyExoAspectMode(latestAspectMode)
+            playerView.post {
+                playerView.applyExoAspectMode(latestAspectMode)
+            }
         }
-        playerView.addOnLayoutChangeListener(listener)
+        val removeListener = addExoAspectLayoutChangeListener(playerView, listener)
         onDispose {
-            playerView.removeOnLayoutChangeListener(listener)
+            removeListener()
         }
     }
 
@@ -2343,10 +2346,12 @@ private fun SubtitleDelayOverlay(
 @Composable
 private fun rememberRawSvgPainter(@RawRes iconRes: Int): Painter {
     val context = LocalContext.current
-    val request = remember(iconRes, context) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val sizePx = with(density) { 24.dp.roundToPx() }
+    val request = remember(iconRes, context, sizePx) {
         ImageRequest.Builder(context)
             .data(iconRes)
-            .decoderFactory(SvgDecoder.Factory())
+            .size(sizePx)
             .build()
     }
     return rememberAsyncImagePainter(model = request)

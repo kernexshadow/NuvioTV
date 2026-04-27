@@ -58,7 +58,7 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.CollectionFolder
 import com.nuvio.tv.domain.model.PosterShape
@@ -71,12 +71,11 @@ fun CollectionRowSection(
     onFolderClick: (String, String) -> Unit,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
+    posterCardStyle: PosterCardStyle = PosterCardDefaults.Style,
     focusedItemIndex: Int = -1,
     onItemFocused: (itemIndex: Int) -> Unit = {},
     onFolderFocused: (collection: Collection, folder: CollectionFolder) -> Unit = { _, _ -> },
-    entryFocusRequester: FocusRequester? = null,
-    downEntryFocusRequester: FocusRequester? = null,
-    upEntryFocusRequester: FocusRequester? = null
+    entryFocusRequester: FocusRequester? = null
 ) {
     val currentOnItemFocused by rememberUpdatedState(onItemFocused)
     val currentOnFolderFocused by rememberUpdatedState(onFolderFocused)
@@ -153,12 +152,18 @@ fun CollectionRowSection(
         }
 
         CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalBringIntoViewSpec) {
+        val restoreIdx = lastFocusedItemIndex.coerceIn(0, (collection.folders.size - 1).coerceAtLeast(0))
+        val restoreFolder = collection.folders.getOrNull(restoreIdx)
+        val restoreFocusRequester = if (restoreFolder != null) {
+            itemFocusRequesters.getOrPut(folderFocusKey(restoreIdx, restoreFolder)) { FocusRequester() }
+        } else FocusRequester.Default
+
         LazyRow(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(rowFocusRequester)
-                .focusRestorer()
+                .focusRestorer(restoreFocusRequester)
                 .focusGroup(),
             contentPadding = PaddingValues(start = 48.dp, end = 200.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -168,19 +173,13 @@ fun CollectionRowSection(
                 key = { index, folder -> folderFocusKey(index, folder) },
                 contentType = { _, _ -> "collection_folder" }
             ) { index, folder ->
-                val isWide = folder.tileShape != PosterShape.POSTER
                 val targetIndex = if (lastFocusedItemIndex >= 0) lastFocusedItemIndex else 0
                 val isEntryTarget = entryFocusRequester != null && index == targetIndex
-                val wideFocusModifier = if (isWide && (downEntryFocusRequester != null || upEntryFocusRequester != null)) {
-                    Modifier.focusProperties {
-                        if (downEntryFocusRequester != null) down = downEntryFocusRequester
-                        if (upEntryFocusRequester != null) up = upEntryFocusRequester
-                    }
-                } else Modifier
 
                 FolderCard(
                     folder = folder,
                     collection = collection,
+                    posterCardStyle = posterCardStyle,
                     onClick = { onFolderClick(collection.id, folder.id) },
                     onFocused = {
                         if (lastFocusedItemIndex != index) {
@@ -189,9 +188,7 @@ fun CollectionRowSection(
                         }
                         currentOnFolderFocused(collection, folder)
                     },
-                    modifier = wideFocusModifier.then(
-                        if (isEntryTarget) Modifier.focusRequester(entryFocusRequester!!) else Modifier
-                    ),
+                    modifier = if (isEntryTarget) Modifier.focusRequester(entryFocusRequester!!) else Modifier,
                     focusRequester = itemFocusRequesters.getOrPut(
                         folderFocusKey(index, folder)
                     ) { FocusRequester() }
@@ -207,6 +204,7 @@ fun CollectionRowSection(
 private fun FolderCard(
     folder: CollectionFolder,
     collection: Collection,
+    posterCardStyle: PosterCardStyle,
     onClick: () -> Unit,
     onFocused: () -> Unit,
     modifier: Modifier = Modifier,
@@ -216,12 +214,12 @@ private fun FolderCard(
     val tileHeight: Dp
     var isFocused by remember { mutableStateOf(false) }
     when (folder.tileShape) {
-        PosterShape.POSTER -> { tileWidth = 126.dp; tileHeight = 189.dp }
-        PosterShape.LANDSCAPE -> { tileWidth = 224.dp; tileHeight = 126.dp }
-        PosterShape.SQUARE -> { tileWidth = 150.dp; tileHeight = 150.dp }
+        PosterShape.POSTER -> { tileWidth = posterCardStyle.width; tileHeight = posterCardStyle.height }
+        PosterShape.LANDSCAPE -> { tileWidth = posterCardStyle.width * (16f / 9f); tileHeight = posterCardStyle.width }
+        PosterShape.SQUARE -> { tileWidth = posterCardStyle.width; tileHeight = posterCardStyle.width }
     }
 
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(posterCardStyle.cornerRadius)
     val cardGlow = rememberArtworkBackedCardGlow(
         imageUrl = folder.coverImageUrl,
         fallbackSeed = "${collection.title}:${folder.title}:${folder.coverEmoji.orEmpty()}",
@@ -245,11 +243,11 @@ private fun FolderCard(
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                border = BorderStroke(posterCardStyle.focusedBorderWidth, NuvioColors.FocusRing),
                 shape = shape
             )
         ),
-        scale = CardDefaults.scale(focusedScale = 1.05f),
+        scale = CardDefaults.scale(focusedScale = posterCardStyle.focusedScale),
         glow = cardGlow
     ) {
         Box(modifier = Modifier.fillMaxSize()) {

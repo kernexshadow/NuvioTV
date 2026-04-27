@@ -58,14 +58,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
-import coil.compose.AsyncImage
-import coil.compose.AsyncImagePainter
-import coil.compose.rememberAsyncImagePainter
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.request.crossfade
 import com.nuvio.tv.R
 import com.nuvio.tv.core.tmdb.TmdbEntityBrowseData
 import com.nuvio.tv.core.tmdb.TmdbEntityKind
@@ -127,6 +130,9 @@ fun TmdbEntityBrowseScreen(
                         data = successState.data,
                         sourceType = viewModel.sourceType,
                         onNavigateToDetail = onNavigateToDetail,
+                        onItemLongPress = { item ->
+                            viewModel.posterOptions.show(item, null)
+                        },
                         onLoadMoreRail = { mediaType, railType ->
                             viewModel.loadMoreRail(mediaType = mediaType, railType = railType)
                         }
@@ -134,6 +140,15 @@ fun TmdbEntityBrowseScreen(
                 }
             }
         }
+
+        val posterOptionsState by viewModel.posterOptions.state.collectAsStateWithLifecycle()
+        com.nuvio.tv.ui.components.posteroptions.PosterOptionsHost(
+            state = posterOptionsState,
+            controller = viewModel.posterOptions,
+            onNavigateToDetail = { id, type, addonBaseUrl ->
+                onNavigateToDetail(id, type, addonBaseUrl.takeIf { it.isNotBlank() })
+            }
+        )
     }
 }
 
@@ -143,6 +158,7 @@ private fun TmdbEntityBrowseContent(
     data: TmdbEntityBrowseData,
     sourceType: String,
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit,
+    onItemLongPress: (MetaPreview) -> Unit = {},
     onLoadMoreRail: (TmdbEntityMediaType, TmdbEntityRailType) -> Unit
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -255,6 +271,7 @@ private fun TmdbEntityBrowseContent(
                                     pendingRestoreItemId = item.id
                                     onNavigateToDetail(item.id, item.apiType, null)
                                 },
+                                onItemLongPress = onItemLongPress,
                                 onLoadMore = onLoadMoreRail
                             )
                         }
@@ -368,10 +385,10 @@ private fun TmdbEntityHero(
 
             // Detect dark monochrome logo and tint white if needed
             var logoColorFilter by remember { mutableStateOf<ColorFilter?>(null) }
-            val painterState = logoPainter.state
+            val painterState by logoPainter.state.collectAsState()
             LaunchedEffect(painterState) {
                 if (painterState is AsyncImagePainter.State.Success) {
-                    val bitmap = (painterState.result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                    val bitmap = ((painterState as AsyncImagePainter.State.Success).result.image as? coil3.BitmapImage)?.bitmap
                     if (bitmap != null) {
                         val isDarkMono = isLogoDarkAndMonochrome(bitmap)
                         logoColorFilter = if (isDarkMono) {
@@ -406,6 +423,7 @@ private fun EntityRailRow(
     onRestoreFocusHandled: () -> Unit,
     onFocusedItemIndexChanged: (Int) -> Unit,
     onItemClick: (MetaPreview) -> Unit,
+    onItemLongPress: (MetaPreview) -> Unit = {},
     onLoadMore: (TmdbEntityMediaType, TmdbEntityRailType) -> Unit
 ) {
     val focusRequesters = remember(rail.mediaType, rail.railType) {
@@ -471,6 +489,7 @@ private fun EntityRailRow(
                 GridContentCard(
                     item = item,
                     onClick = { onItemClick(item) },
+                    onLongPress = { onItemLongPress(item) },
                     posterCardStyle = posterCardStyle,
                     showLabel = false,
                     focusRequester = requester,

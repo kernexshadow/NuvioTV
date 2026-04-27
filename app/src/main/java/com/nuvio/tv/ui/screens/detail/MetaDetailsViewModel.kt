@@ -56,7 +56,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import com.nuvio.tv.R
+import com.nuvio.tv.core.build.AppFeaturePolicy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 
@@ -83,6 +86,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
+    val posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val itemId: String = savedStateHandle["itemId"] ?: ""
@@ -123,6 +127,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val _effectiveContentId = MutableStateFlow(itemId)
 
     init {
+        posterOptions.bind(viewModelScope)
         observeMetaViewSettings()
         observeTrailerAutoplaySettings()
         observeTraktCommentsAvailability()
@@ -195,6 +200,8 @@ class MetaDetailsViewModel @Inject constructor(
                                 isCommentsLoadingMore = false,
                                 commentsError = null,
                                 shouldShowCommentsSection = false,
+                                commentsMode = CommentsMode.TITLE,
+                                commentsEpisodeTarget = null,
                                 selectedComment = null
                             )
                         }
@@ -270,6 +277,8 @@ class MetaDetailsViewModel @Inject constructor(
         when (event) {
             is MetaDetailsEvent.OnSeasonSelected -> selectSeason(event.season)
             is MetaDetailsEvent.OnEpisodeClick -> { /* Navigate to stream */ }
+            is MetaDetailsEvent.OnCommentsModeSelected -> selectCommentsMode(event.mode)
+            is MetaDetailsEvent.OnCommentsEpisodeSelected -> selectCommentsEpisode(event.video)
             MetaDetailsEvent.OnPlayClick -> { /* Start playback */ }
             MetaDetailsEvent.OnToggleLibrary -> toggleLibrary()
             MetaDetailsEvent.OnRetry -> loadMeta()
@@ -340,8 +349,21 @@ class MetaDetailsViewModel @Inject constructor(
             }
         }
 
+        // Observe library/watchlist on the *same* (id, type) pair that
+        // `toggleLibrary` writes via `meta.toLibraryEntryInput()`. Falling back
+        // to navigation (itemId, itemType) until meta loads keeps the button
+        // responsive but pre-meta (when toggle is unavailable anyway).
+        val canonicalKey = _uiState
+            .map { state ->
+                val id = state.meta?.id?.takeIf { it.isNotBlank() } ?: itemId
+                val type = state.meta?.apiType?.takeIf { it.isNotBlank() } ?: itemType
+                id to type
+            }
+            .distinctUntilChanged()
+
         viewModelScope.launch {
-            libraryRepository.isInLibrary(itemId = itemId, itemType = itemType)
+            canonicalKey
+                .flatMapLatest { (id, type) -> libraryRepository.isInLibrary(itemId = id, itemType = type) }
                 .distinctUntilChanged()
                 .collectLatest { inLibrary ->
                     _uiState.update { state ->
@@ -351,7 +373,8 @@ class MetaDetailsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            libraryRepository.isInWatchlist(itemId = itemId, itemType = itemType)
+            canonicalKey
+                .flatMapLatest { (id, type) -> libraryRepository.isInWatchlist(itemId = id, itemType = type) }
                 .distinctUntilChanged()
                 .collectLatest { inWatchlist ->
                     _uiState.update { state ->
@@ -494,6 +517,8 @@ class MetaDetailsViewModel @Inject constructor(
                     isCommentsLoadingMore = false,
                     commentsError = null,
                     shouldShowCommentsSection = false,
+                    commentsMode = CommentsMode.TITLE,
+                    commentsEpisodeTarget = null,
                     selectedComment = null,
                     isSharedTrailerOverlayVisible = false,
                     isSharedTrailerLoading = false,
@@ -532,6 +557,8 @@ class MetaDetailsViewModel @Inject constructor(
 
                             if (preferredMeta != null) {
                                 applyMetaWithEnrichment(preferredMeta)
+                            } else if (tryApplyTmdbFallbackMeta()) {
+                                Unit
                             } else {
                                 _uiState.update { it.copy(isLoading = false, error = result.message) }
                             }
@@ -559,7 +586,9 @@ class MetaDetailsViewModel @Inject constructor(
                         when (result) {
                             is NetworkResult.Success -> applyMetaWithEnrichment(result.data)
                             is NetworkResult.Error -> {
-                                _uiState.update { it.copy(isLoading = false, error = result.message) }
+                                if (!tryApplyTmdbFallbackMeta()) {
+                                    _uiState.update { it.copy(isLoading = false, error = result.message) }
+                                }
                             }
                             NetworkResult.Loading -> {
                                 _uiState.update { it.copy(isLoading = true) }
@@ -569,6 +598,53 @@ class MetaDetailsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private suspend fun tryApplyTmdbFallbackMeta(): Boolean {
+        val tmdbId = itemId
+            .takeIf { it.startsWith("tmdb:", ignoreCase = true) }
+            ?.substringAfter(':')
+            ?.substringBefore(':')
+            ?.toIntOrNull()
+            ?: return false
+        val type = ContentType.fromString(itemType)
+        val settings = tmdbSettingsDataStore.settings.first()
+        val enrichment = tmdbMetadataService.fetchEnrichment(
+            tmdbId = tmdbId.toString(),
+            contentType = type,
+            language = settings.language
+        ) ?: return false
+        val meta = Meta(
+            id = itemId,
+            type = type,
+            rawType = itemType,
+            name = enrichment.localizedTitle ?: enrichment.originalTitle ?: "TMDB $tmdbId",
+            poster = enrichment.poster,
+            posterShape = com.nuvio.tv.domain.model.PosterShape.POSTER,
+            background = enrichment.backdrop,
+            logo = enrichment.logo,
+            description = enrichment.description,
+            releaseInfo = enrichment.releaseInfo,
+            status = enrichment.status,
+            imdbRating = enrichment.rating?.toFloat(),
+            genres = enrichment.genres,
+            runtime = enrichment.runtimeMinutes?.toString(),
+            director = enrichment.director,
+            writer = enrichment.writer,
+            cast = enrichment.castMembers.map { it.name },
+            castMembers = enrichment.castMembers,
+            videos = emptyList(),
+            productionCompanies = enrichment.productionCompanies,
+            networks = enrichment.networks,
+            ageRating = enrichment.ageRating,
+            country = enrichment.countries?.joinToString(", "),
+            awards = null,
+            language = enrichment.language,
+            links = emptyList(),
+            trailers = enrichment.trailers
+        )
+        applyMetaWithEnrichment(meta)
+        return true
     }
 
     private suspend fun resolveMetaLookupId(itemId: String, itemType: String): String {
@@ -629,6 +705,7 @@ class MetaDetailsViewModel @Inject constructor(
                 selectedSeason = selectedSeason,
                 episodesForSeason = episodesForSeason,
                 error = null,
+                commentsEpisodeTarget = null,
                 shouldShowCommentsSection = traktCommentsEnabled && traktAuthenticated && supportsComments(meta)
             )
         }
@@ -667,6 +744,8 @@ class MetaDetailsViewModel @Inject constructor(
                     isCommentsLoadingMore = false,
                     commentsError = null,
                     shouldShowCommentsSection = false,
+                    commentsMode = CommentsMode.TITLE,
+                    commentsEpisodeTarget = null,
                     selectedComment = null
                 )
             }
@@ -698,6 +777,7 @@ class MetaDetailsViewModel @Inject constructor(
                     meta = meta,
                     fallbackItemId = itemId,
                     fallbackItemType = itemType,
+                    targetEpisode = currentCommentsEpisodeTarget(meta),
                     page = 1,
                     forceRefresh = forceRefresh
                 )
@@ -774,6 +854,7 @@ class MetaDetailsViewModel @Inject constructor(
                     meta = meta,
                     fallbackItemId = itemId,
                     fallbackItemType = itemType,
+                    targetEpisode = currentCommentsEpisodeTarget(meta),
                     page = nextPage
                 )
 
@@ -1243,7 +1324,8 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun selectSeason(season: Int) {
-        val episodes = _uiState.value.meta?.videos?.let { getEpisodesForSeason(it, season) } ?: emptyList()
+        val meta = _uiState.value.meta ?: return
+        val episodes = getEpisodesForSeason(meta.videos, season)
         _uiState.update {
             it.copy(
                 selectedSeason = season,
@@ -1264,6 +1346,90 @@ class MetaDetailsViewModel @Inject constructor(
             }
         }
         return emptyList()
+    }
+
+    private fun selectCommentsMode(mode: CommentsMode) {
+        val meta = _uiState.value.meta ?: return
+        if (_uiState.value.commentsMode == mode) return
+        val nextTarget = resolveCommentsEpisodeTarget(
+            meta = meta,
+            preferredSeason = _uiState.value.selectedSeason,
+            existingTarget = _uiState.value.commentsEpisodeTarget
+        )
+        _uiState.update {
+            it.copy(
+                commentsMode = mode,
+                commentsEpisodeTarget = nextTarget,
+                selectedComment = null
+            )
+        }
+        if (traktCommentsEnabled && traktAuthenticated && supportsComments(meta)) {
+            loadComments(meta, forceRefresh = true)
+        }
+    }
+
+    private fun selectCommentsEpisode(video: Video) {
+        val meta = _uiState.value.meta ?: return
+        if (_uiState.value.commentsEpisodeTarget?.id == video.id && _uiState.value.commentsMode == CommentsMode.EPISODE) {
+            return
+        }
+        _uiState.update {
+            it.copy(
+                commentsMode = CommentsMode.EPISODE,
+                commentsEpisodeTarget = video,
+                selectedComment = null
+            )
+        }
+        if (traktCommentsEnabled && traktAuthenticated && supportsComments(meta)) {
+            loadComments(meta, forceRefresh = true)
+        }
+    }
+
+    private fun currentCommentsEpisodeTarget(meta: Meta): Video? {
+        val state = _uiState.value
+        if (state.commentsMode != CommentsMode.EPISODE) return null
+        return resolveCommentsEpisodeTarget(
+            meta = meta,
+            preferredSeason = state.selectedSeason,
+            existingTarget = state.commentsEpisodeTarget
+        )
+    }
+
+    private fun resolveCommentsEpisodeTarget(
+        meta: Meta,
+        preferredSeason: Int,
+        existingTarget: Video?
+    ): Video? {
+        val allEpisodes = meta.videos.filter { it.season != null && it.episode != null }
+        if (allEpisodes.isEmpty()) return null
+
+        existingTarget
+            ?.takeIf { target ->
+                allEpisodes.any { episode ->
+                    episode.season == target.season && episode.episode == target.episode
+                }
+            }
+            ?.let { return it }
+
+        val nextToWatch = _uiState.value.nextToWatch
+        nextToWatch?.nextVideoId
+            ?.let { nextVideoId ->
+                allEpisodes.firstOrNull { episode -> episode.id == nextVideoId }
+            }
+            ?.let { return it }
+
+        nextToWatch
+            ?.takeIf { it.nextSeason != null && it.nextEpisode != null }
+            ?.let { target ->
+                allEpisodes.firstOrNull { episode ->
+                    episode.season == target.nextSeason && episode.episode == target.nextEpisode
+                }
+            }
+            ?.let { return it }
+
+        return allEpisodes.firstOrNull { it.season == preferredSeason }
+            ?: allEpisodes.firstOrNull { (it.season ?: 0) > 0 }
+            ?: allEpisodes.first()
     }
 
     private fun reevaluateSeriesWatchedBadge() {
@@ -1963,17 +2129,31 @@ class MetaDetailsViewModel @Inject constructor(
                 null
             }
 
-            val source = trailerService.getTrailerPlaybackSource(
-                title = meta.name,
-                year = year,
-                tmdbId = tmdbId,
-                type = meta.apiType
-            ) ?: meta.trailerYtIds.firstOrNull()?.let { ytId ->
-                trailerService.getTrailerPlaybackSourceFromYouTubeUrl(
-                    youtubeUrl = "https://www.youtube.com/watch?v=$ytId",
+            val source = if (AppFeaturePolicy.inAppTrailerPlaybackEnabled) {
+                trailerService.getTrailerPlaybackSource(
                     title = meta.name,
-                    year = year
-                )
+                    year = year,
+                    tmdbId = tmdbId,
+                    type = meta.apiType
+                ) ?: meta.trailerYtIds.firstOrNull()?.let { ytId ->
+                    trailerService.getTrailerPlaybackSourceFromYouTubeUrl(
+                        youtubeUrl = "https://www.youtube.com/watch?v=$ytId",
+                        title = meta.name,
+                        year = year
+                    )
+                }
+            } else {
+                val externalUrl = if (AppFeaturePolicy.externalTrailerPlaybackEnabled) {
+                    trailerService.getExternalTrailerUrl(
+                        tmdbId = tmdbId,
+                        type = meta.apiType
+                    ) ?: meta.trailerYtIds.firstOrNull()?.let { ytId ->
+                        "https://www.youtube.com/watch?v=$ytId"
+                    }
+                } else {
+                    null
+                }
+                externalUrl?.let { com.nuvio.tv.data.trailer.TrailerPlaybackSource(videoUrl = it) }
             }
             val url = source?.videoUrl
             val audioUrl = source?.audioUrl
@@ -1993,7 +2173,7 @@ class MetaDetailsViewModel @Inject constructor(
                 }
             }
 
-            if (url != null && isPlayButtonFocused) {
+            if (url != null && isPlayButtonFocused && AppFeaturePolicy.inAppTrailerPlaybackEnabled) {
                 startIdleTimer()
             }
         }
@@ -2001,6 +2181,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun startIdleTimer() {
         idleTimerJob?.cancel()
+        if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled) return
 
         val state = _uiState.value
         if (state.trailerUrl == null || state.isTrailerPlaying) return
@@ -2059,6 +2240,10 @@ class MetaDetailsViewModel @Inject constructor(
     private fun handleTrailerButtonClick() {
         val state = _uiState.value
         if (state.trailerUrl.isNullOrBlank()) return
+        if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled) {
+            openExternalTrailer(state.trailerUrl)
+            return
+        }
         idleTimerJob?.cancel()
         isPlayButtonFocused = false
         setTrailerPlaybackState(
@@ -2091,6 +2276,11 @@ class MetaDetailsViewModel @Inject constructor(
                     selectedSharedTrailer = trailer
                 )
             }
+            return
+        }
+
+        if (!AppFeaturePolicy.inAppTrailerPlaybackEnabled && AppFeaturePolicy.externalTrailerPlaybackEnabled) {
+            openExternalTrailer("https://www.youtube.com/watch?v=$ytId")
             return
         }
 
@@ -2143,6 +2333,14 @@ class MetaDetailsViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    private fun openExternalTrailer(url: String) {
+        runCatching {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
         }
     }
 

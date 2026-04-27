@@ -45,8 +45,7 @@ data class LayoutSettingsUiState(
     val detailPageTrailerButtonEnabled: Boolean = false,
     val preferExternalMetaAddonDetail: Boolean = false,
     val hideUnreleasedContent: Boolean = false,
-    val showFullReleaseDate: Boolean = true,
-    val memoryOnlyVerticalScroll: Boolean = false
+    val showFullReleaseDate: Boolean = true
 )
 
 data class CatalogInfo(
@@ -83,7 +82,6 @@ sealed class LayoutSettingsEvent {
     data class SetPreferExternalMetaAddonDetail(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetHideUnreleasedContent(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetShowFullReleaseDate(val enabled: Boolean) : LayoutSettingsEvent()
-    data class SetMemoryOnlyVerticalScroll(val enabled: Boolean) : LayoutSettingsEvent()
     data object ResetPosterCardStyle : LayoutSettingsEvent()
 }
 
@@ -242,11 +240,6 @@ class LayoutSettingsViewModel @Inject constructor(
                 updateUiStateIfChanged { it.copy(showFullReleaseDate = enabled) }
             }
         }
-        viewModelScope.launch {
-            layoutPreferenceDataStore.memoryOnlyVerticalScroll.distinctUntilChanged().collectLatest { enabled ->
-                updateUiStateIfChanged { it.copy(memoryOnlyVerticalScroll = enabled) }
-            }
-        }
         loadAvailableCatalogs()
     }
 
@@ -278,7 +271,6 @@ class LayoutSettingsViewModel @Inject constructor(
             is LayoutSettingsEvent.SetPreferExternalMetaAddonDetail -> setPreferExternalMetaAddonDetail(event.enabled)
             is LayoutSettingsEvent.SetHideUnreleasedContent -> setHideUnreleasedContent(event.enabled)
             is LayoutSettingsEvent.SetShowFullReleaseDate -> setShowFullReleaseDate(event.enabled)
-            is LayoutSettingsEvent.SetMemoryOnlyVerticalScroll -> setMemoryOnlyVerticalScroll(event.enabled)
             LayoutSettingsEvent.ResetPosterCardStyle -> resetPosterCardStyle()
         }
     }
@@ -462,13 +454,6 @@ class LayoutSettingsViewModel @Inject constructor(
         if (_uiState.value.showFullReleaseDate == enabled) return
         viewModelScope.launch {
             layoutPreferenceDataStore.setShowFullReleaseDate(enabled)
-        }
-    }
-
-    private fun setMemoryOnlyVerticalScroll(enabled: Boolean) {
-        if (_uiState.value.memoryOnlyVerticalScroll == enabled) return
-        viewModelScope.launch {
-            layoutPreferenceDataStore.setMemoryOnlyVerticalScroll(enabled)
         }
     }
 

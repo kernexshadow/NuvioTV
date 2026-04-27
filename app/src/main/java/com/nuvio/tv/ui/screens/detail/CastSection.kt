@@ -44,8 +44,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -63,6 +64,7 @@ fun CastSection(
     title: String = "Cast",
     leadingCast: List<MetaCastMember> = emptyList(),
     upFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
     sectionFocusRequester: FocusRequester? = null,
     restorePersonId: Int? = null,
     restoreFocusToken: Int = 0,
@@ -102,6 +104,16 @@ fun CastSection(
     val cardSize = 100.dp
     val hasTitle = title.isNotBlank()
     val currentUpFocusRequester by rememberUpdatedState(upFocusRequester)
+    val currentDownFocusRequester by rememberUpdatedState(downFocusRequester)
+
+    val itemFocusPropertiesModifier = if (currentUpFocusRequester != null || currentDownFocusRequester != null) {
+        Modifier.focusProperties {
+            if (currentUpFocusRequester != null) up = currentUpFocusRequester!!
+            if (currentDownFocusRequester != null) down = currentDownFocusRequester!!
+        }
+    } else {
+        Modifier
+    }
 
     Column(
         modifier = modifier
@@ -153,7 +165,7 @@ fun CastSection(
                             member = member,
                             modifier = Modifier
                                 .focusRequester(focusRequester)
-                                .then(if (currentUpFocusRequester != null) Modifier.focusProperties { up = currentUpFocusRequester!! } else Modifier),
+                                .then(itemFocusPropertiesModifier),
                             itemWidth = itemWidth,
                             cardSize = cardSize,
                             onFocused = {
@@ -205,7 +217,7 @@ fun CastSection(
                         member = member,
                         modifier = Modifier
                             .focusRequester(focusRequester)
-                            .then(if (currentUpFocusRequester != null) Modifier.focusProperties { up = currentUpFocusRequester!! } else Modifier),
+                            .then(itemFocusPropertiesModifier),
                         itemWidth = itemWidth,
                         cardSize = cardSize,
                         onFocused = {

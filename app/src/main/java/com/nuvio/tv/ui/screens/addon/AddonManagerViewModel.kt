@@ -10,15 +10,31 @@ import com.nuvio.tv.core.sync.homeLegacyDisabledCatalogKey
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.qr.QrCodeGenerator
 import com.nuvio.tv.core.server.AddonConfigServer
+import com.nuvio.tv.core.server.AddonInfo
+import com.nuvio.tv.core.server.AddonWebConfigMode
+import com.nuvio.tv.core.server.CatalogInfo
+import com.nuvio.tv.core.server.CatalogSourceInfo
+import com.nuvio.tv.core.server.CollectionInfo
+import com.nuvio.tv.core.server.CollectionSourceInfo
 import com.nuvio.tv.core.server.DeviceIpAddress
+import com.nuvio.tv.core.server.FolderInfo
+import com.nuvio.tv.core.server.PageState
+import com.nuvio.tv.core.server.PendingAddonChange
+import com.nuvio.tv.core.server.TmdbFiltersInfo
+import com.nuvio.tv.core.server.TmdbSourceMetadataInfo
+import com.nuvio.tv.core.server.TmdbSourceMetadataRequest
+import com.nuvio.tv.core.server.TmdbSourceSearchRequest
+import com.nuvio.tv.core.server.TmdbSourceSearchResultInfo
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.tmdb.TmdbCollectionSourceResolver
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.Collection
-import com.nuvio.tv.domain.model.CollectionFolder
-import com.nuvio.tv.domain.model.CollectionCatalogSource
 import com.nuvio.tv.domain.model.CatalogDescriptor
+import com.nuvio.tv.domain.model.AddonCatalogCollectionSource
+import com.nuvio.tv.domain.model.TmdbCollectionSource
+import com.nuvio.tv.domain.model.TmdbCollectionSourceType
 import com.nuvio.tv.domain.repository.AddonRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -31,6 +47,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
@@ -41,6 +58,7 @@ class AddonManagerViewModel @Inject constructor(
     private val collectionsDataStore: CollectionsDataStore,
     private val homeCatalogSettingsSyncService: HomeCatalogSettingsSyncService,
     private val profileManager: ProfileManager,
+    private val tmdbCollectionSourceResolver: TmdbCollectionSourceResolver,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -52,7 +70,7 @@ class AddonManagerViewModel @Inject constructor(
             return AddonManagementAccess.isReadOnly(profileManager.activeProfile)
         }
 
-    val webConfigMode: AddonConfigServer.WebConfigMode
+    val webConfigMode: AddonWebConfigMode
         get() = AddonManagementAccess.webConfigMode(profileManager.activeProfile)
 
     private var server: AddonConfigServer? = null
@@ -219,7 +237,7 @@ class AddonManagerViewModel @Inject constructor(
                 )
                 // Build unified catalog list with collections interleaved
                 val catalogInfos = orderedCatalogs.map { catalog ->
-                    AddonConfigServer.CatalogInfo(
+                    CatalogInfo(
                         key = catalog.key,
                         disableKey = catalog.disableKey,
                         catalogName = catalog.catalogName,
@@ -230,7 +248,7 @@ class AddonManagerViewModel @Inject constructor(
                 }
                 val collectionInfos = currentCollections.map { col ->
                     val colKey = "collection_${col.id}"
-                    AddonConfigServer.CatalogInfo(
+                    CatalogInfo(
                         key = colKey,
                         disableKey = colKey,
                         catalogName = col.title,
@@ -246,9 +264,9 @@ class AddonManagerViewModel @Inject constructor(
                 val unseenKeys = catalogByKey.keys - orderedKeys.toSet()
                 val unifiedCatalogs = (orderedKeys + unseenKeys).mapNotNull { catalogByKey[it] }
 
-                AddonConfigServer.PageState(
+                PageState(
                     addons = addons.map { addon ->
-                        AddonConfigServer.AddonInfo(
+                        AddonInfo(
                             url = addon.baseUrl,
                             name = addon.displayName.ifBlank { addon.baseUrl },
                             description = addon.description
@@ -261,6 +279,8 @@ class AddonManagerViewModel @Inject constructor(
                 )
             },
             onChangeProposed = { change -> handleChangeProposed(change) },
+            tmdbMetadataProvider = { request -> fetchTmdbSourceMetadata(request) },
+            tmdbSearchProvider = { request -> searchTmdbSources(request) },
             logoProvider = { logoBytes }
         )
 
@@ -295,7 +315,7 @@ class AddonManagerViewModel @Inject constructor(
         }
     }
 
-    private suspend fun fetchAddonInfo(url: String): AddonConfigServer.AddonInfo? {
+    private suspend fun fetchAddonInfo(url: String): AddonInfo? {
         return withContext(Dispatchers.IO) {
             try {
                 val result = withTimeoutOrNull(15_000L) {
@@ -303,7 +323,7 @@ class AddonManagerViewModel @Inject constructor(
                 } ?: return@withContext null
 
                 when (result) {
-                    is NetworkResult.Success -> AddonConfigServer.AddonInfo(
+                    is NetworkResult.Success -> AddonInfo(
                         url = result.data.baseUrl,
                         name = result.data.name.ifBlank { url },
                         description = result.data.description
@@ -321,7 +341,55 @@ class AddonManagerViewModel @Inject constructor(
         server = null
     }
 
-    private fun handleChangeProposed(change: AddonConfigServer.PendingAddonChange) {
+    private fun fetchTmdbSourceMetadata(request: TmdbSourceMetadataRequest): TmdbSourceMetadataInfo? {
+        val sourceType = runCatching { TmdbCollectionSourceType.valueOf(request.sourceType.uppercase()) }.getOrNull()
+            ?: return null
+        return runBlocking {
+            runCatching {
+                val metadata = when (sourceType) {
+                    TmdbCollectionSourceType.LIST -> tmdbCollectionSourceResolver.listImportMetadata(request.tmdbId)
+                    TmdbCollectionSourceType.COLLECTION -> tmdbCollectionSourceResolver.collectionImportMetadata(request.tmdbId)
+                    TmdbCollectionSourceType.COMPANY -> tmdbCollectionSourceResolver.companyImportMetadata(request.tmdbId)
+                    TmdbCollectionSourceType.NETWORK -> tmdbCollectionSourceResolver.networkImportMetadata(request.tmdbId)
+                    TmdbCollectionSourceType.DISCOVER -> return@runBlocking null
+                }
+                TmdbSourceMetadataInfo(
+                    title = metadata.title,
+                    coverImageUrl = metadata.coverImageUrl
+                )
+            }.getOrNull()
+        }
+    }
+
+    private fun searchTmdbSources(request: TmdbSourceSearchRequest): List<TmdbSourceSearchResultInfo> {
+        val sourceType = runCatching { TmdbCollectionSourceType.valueOf(request.sourceType.uppercase()) }.getOrNull()
+            ?: return emptyList()
+        return runBlocking {
+            runCatching {
+                when (sourceType) {
+                    TmdbCollectionSourceType.COMPANY -> tmdbCollectionSourceResolver.searchCompanies(request.query)
+                        .map {
+                            TmdbSourceSearchResultInfo(
+                                id = it.id,
+                                title = it.name ?: "TMDB Company ${it.id}",
+                                subtitle = it.originCountry?.takeIf { value -> value.isNotBlank() }
+                            )
+                        }
+                    TmdbCollectionSourceType.COLLECTION -> tmdbCollectionSourceResolver.searchCollections(request.query)
+                        .map {
+                            TmdbSourceSearchResultInfo(
+                                id = it.id,
+                                title = it.name ?: "TMDB Collection ${it.id}",
+                                subtitle = it.overview?.takeIf { value -> value.isNotBlank() }
+                            )
+                        }
+                    else -> emptyList()
+                }
+            }.getOrElse { emptyList() }
+        }
+    }
+
+    private fun handleChangeProposed(change: PendingAddonChange) {
         val currentUrls = _uiState.value.installedAddons.map { normalizeUrlForComparison(it.baseUrl) }.toSet()
         val proposedNormalized = change.proposedUrls.map { normalizeUrlForComparison(it) }.toSet()
         val currentCatalogEntries = buildOrderedCatalogEntries(
@@ -524,9 +592,9 @@ class AddonManagerViewModel @Inject constructor(
         }
     }
 
-    private fun collectionsToServerFormat(cols: List<Collection>): List<AddonConfigServer.CollectionInfo> {
+    private fun collectionsToServerFormat(cols: List<Collection>): List<CollectionInfo> {
         return cols.map { col ->
-            AddonConfigServer.CollectionInfo(
+            CollectionInfo(
                 id = col.id,
                 title = col.title,
                 backdropImageUrl = col.backdropImageUrl,
@@ -535,7 +603,7 @@ class AddonManagerViewModel @Inject constructor(
                 viewMode = col.viewMode.name,
                 showAllTab = col.showAllTab,
                 folders = col.folders.map { folder ->
-                    AddonConfigServer.FolderInfo(
+                    FolderInfo(
                         id = folder.id,
                         title = folder.title,
                         coverImageUrl = folder.coverImageUrl,
@@ -544,13 +612,48 @@ class AddonManagerViewModel @Inject constructor(
                         coverEmoji = folder.coverEmoji,
                         tileShape = folder.tileShape.name,
                         hideTitle = folder.hideTitle,
+                        heroBackdropUrl = folder.heroBackdropUrl,
+                        titleLogoUrl = folder.titleLogoUrl,
                         catalogSources = folder.catalogSources.map { src ->
-                            AddonConfigServer.CatalogSourceInfo(
+                            CatalogSourceInfo(
                                 addonId = src.addonId,
                                 type = src.type,
                                 catalogId = src.catalogId,
                                 genre = src.genre
                             )
+                        },
+                        sources = folder.sources.map { source ->
+                            when (source) {
+                                is AddonCatalogCollectionSource -> CollectionSourceInfo(
+                                    provider = "addon",
+                                    addonId = source.addonId,
+                                    type = source.type,
+                                    catalogId = source.catalogId,
+                                    genre = source.genre
+                                )
+                                is TmdbCollectionSource -> CollectionSourceInfo(
+                                    provider = "tmdb",
+                                    tmdbSourceType = source.sourceType.name,
+                                    title = source.title,
+                                    tmdbId = source.tmdbId,
+                                    mediaType = source.mediaType.name,
+                                    sortBy = source.sortBy,
+                                    filters = TmdbFiltersInfo(
+                                        withGenres = source.filters.withGenres,
+                                        releaseDateGte = source.filters.releaseDateGte,
+                                        releaseDateLte = source.filters.releaseDateLte,
+                                        voteAverageGte = source.filters.voteAverageGte,
+                                        voteAverageLte = source.filters.voteAverageLte,
+                                        voteCountGte = source.filters.voteCountGte,
+                                        withOriginalLanguage = source.filters.withOriginalLanguage,
+                                        withOriginCountry = source.filters.withOriginCountry,
+                                        withKeywords = source.filters.withKeywords,
+                                        withCompanies = source.filters.withCompanies,
+                                        withNetworks = source.filters.withNetworks,
+                                        year = source.filters.year
+                                    )
+                                )
+                            }
                         }
                     )
                 }

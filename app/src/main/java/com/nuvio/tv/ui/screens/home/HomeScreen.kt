@@ -488,6 +488,9 @@ private fun ClassicHomeRoute(
         },
         onSaveFocusState = { vi, vo, ri, ii, m ->
             viewModel.saveFocusState(vi, vo, ri, ii, m)
+        },
+        onRequestLazyCatalogLoad = remember(viewModel) {
+            { catalogKey: String -> viewModel.requestLazyCatalogLoad(catalogKey) }
         }
     )
 }
@@ -551,6 +554,8 @@ private fun ModernHomeRoute(
     val focusState by viewModel.focusState.collectAsStateWithLifecycle()
     val scrollToTopTrigger by viewModel.scrollToTopTrigger.collectAsStateWithLifecycle()
     val enrichingItemId by viewModel.enrichingItemId.collectAsStateWithLifecycle()
+    val lastEnrichedPreview by viewModel.lastEnrichedPreview.collectAsStateWithLifecycle()
+    val enrichedPreviews by viewModel.enrichedPreviews.collectAsStateWithLifecycle()
     val requestTrailerPreview = remember(viewModel) {
         { itemId: String, title: String, releaseInfo: String?, apiType: String ->
             viewModel.requestTrailerPreview(itemId, title, releaseInfo, apiType)
@@ -581,6 +586,8 @@ private fun ModernHomeRoute(
         focusState = focusState,
         scrollToTopTrigger = scrollToTopTrigger,
         enrichingItemId = enrichingItemId,
+        lastEnrichedPreview = lastEnrichedPreview,
+        enrichedPreviews = enrichedPreviews,
         trailerPreviewUrls = viewModel.trailerPreviewUrls,
         trailerPreviewAudioUrls = viewModel.trailerPreviewAudioUrls,
         onNavigateToDetail = onNavigateToDetail,
@@ -598,7 +605,10 @@ private fun ModernHomeRoute(
             { item -> viewModel.onItemFocus(item) }
         },
         onPreloadAdjacentItem = preloadAdjacentItem,
-        onSaveFocusState = saveModernFocusState
+        onSaveFocusState = saveModernFocusState,
+        onRequestLazyCatalogLoad = remember(viewModel) {
+            { catalogKey: String -> viewModel.requestLazyCatalogLoad(catalogKey) }
+        }
     )
 }
 

@@ -591,7 +591,9 @@ class TmdbMetadataService(
                             description = rec.overview?.takeIf { it.isNotBlank() },
                             releaseInfo = releaseInfo,
                             imdbRating = rec.voteAverage?.toFloat(),
-                            genres = emptyList()
+                            genres = emptyList(),
+                            landscapePoster = backdrop,
+                            rawPosterUrl = fallbackPoster
                         )
                     }
                 }.awaitAll().filterNotNull()
@@ -658,7 +660,9 @@ class TmdbMetadataService(
                             description = part.overview?.takeIf { it.isNotBlank() },
                             releaseInfo = releaseInfo,
                             imdbRating = part.voteAverage?.toFloat(),
-                            genres = emptyList()
+                            genres = emptyList(),
+                            landscapePoster = backdrop,
+                            rawPosterUrl = fallbackPoster
                         )
                     }
                 }.awaitAll().filterNotNull()
@@ -849,8 +853,9 @@ class TmdbMetadataService(
                         sortBy = tvSortBy(railType),
                         withCompanies = if (entityKind == TmdbEntityKind.COMPANY) entityId.toString() else null,
                         withNetworks = if (entityKind == TmdbEntityKind.NETWORK) entityId.toString() else null,
-                        firstAirDateLte = if (railType == TmdbEntityRailType.RECENT) today else null,
-                        voteCountGte = voteCountFloor
+                        firstAirDateLte = if (railType == TmdbEntityRailType.RECENT || entityKind == TmdbEntityKind.NETWORK) today else null,
+                        voteCountGte = voteCountFloor,
+                        withStatus = if (entityKind == TmdbEntityKind.NETWORK) "0|3|4" else null
                     ).body()
                 }
             }

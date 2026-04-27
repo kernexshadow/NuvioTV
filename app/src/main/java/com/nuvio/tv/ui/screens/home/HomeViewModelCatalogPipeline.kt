@@ -218,7 +218,6 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         }
 
         val allCatalogsToLoad = catalogsToLoad + heroOnlyCatalogs
-        pendingCatalogLoads = allCatalogsToLoad.size
         if (allCatalogsToLoad.isEmpty()) {
             // No home catalogs and no hero catalogs to load —
             // but collections may still exist to render.
@@ -230,9 +229,80 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             }
             return
         }
-        allCatalogsToLoad.forEach { (addon, catalog) ->
+
+        // ── Lazy loading: split into eager and deferred ──
+        val heroOnlyKeys = heroOnlyCatalogs.map { (addon, catalog) ->
+            catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
+        }.toSet()
+
+        // Build display title helper (respects custom titles)
+        val titlesSnapshot = customCatalogTitles
+        val showTypeSuffix = _uiState.value.catalogTypeSuffixEnabled
+        val strTypeMovie = appContext.getString(R.string.type_movie)
+        val strTypeSeries = appContext.getString(R.string.type_series)
+        fun displayTitle(addon: Addon, catalog: CatalogDescriptor): String {
+            val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
+            val custom = titlesSnapshot[key]
+            val baseName = if (!custom.isNullOrBlank()) custom else catalog.name
+            val catalogName = baseName.replaceFirstChar { it.uppercase() }
+            if (!showTypeSuffix) return catalogName
+            val typeLabel = when (catalog.apiType.lowercase()) {
+                "movie" -> strTypeMovie.ifBlank { catalog.apiType.replaceFirstChar { it.uppercase() } }
+                "series" -> strTypeSeries.ifBlank { catalog.apiType.replaceFirstChar { it.uppercase() } }
+                else -> catalog.apiType.replaceFirstChar { it.uppercase() }
+            }
+            return "$catalogName - $typeLabel"
+        }
+
+        // Determine which home catalogs to load eagerly vs lazily.
+        val eagerHomeCatalogs = catalogsToLoad.take(eagerCatalogLoadCount)
+        val lazyHomeCatalogs = catalogsToLoad.drop(eagerCatalogLoadCount)
+
+        // Build placeholder descriptors for lazy catalogs
+        synchronized(catalogStateLock) {
+            pendingLazyCatalogs.clear()
+            placeholderDescriptors.clear()
+        }
+        lazyLoadRequestedKeys.clear()
+
+        (eagerHomeCatalogs + lazyHomeCatalogs).forEach { (addon, catalog) ->
+            val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
+            synchronized(catalogStateLock) {
+                placeholderDescriptors.add(
+                    HomeViewModel.PlaceholderDescriptor(
+                        catalogKey = key,
+                        addonId = addon.id,
+                        addonName = addon.displayName,
+                        addonBaseUrl = addon.baseUrl,
+                        catalogId = catalog.id,
+                        catalogName = catalog.name,
+                        apiType = catalog.apiType,
+                        displayTitle = displayTitle(addon, catalog)
+                    )
+                )
+            }
+        }
+
+        lazyHomeCatalogs.forEach { (addon, catalog) ->
+            val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
+            synchronized(catalogStateLock) {
+                pendingLazyCatalogs[key] = addon to catalog
+            }
+        }
+
+        Log.d(HomeViewModel.TAG,
+            "Lazy loading: eager=${eagerHomeCatalogs.size} lazy=${lazyHomeCatalogs.size}"
+        )
+
+        val eagerCatalogs = eagerHomeCatalogs + heroOnlyCatalogs
+        pendingCatalogLoads = eagerCatalogs.size
+        eagerCatalogs.forEach { (addon, catalog) ->
             loadCatalogPipeline(addon, catalog, generation)
         }
+
+        // Immediately schedule an update so placeholder rows appear in the UI
+        // while catalogs are still loading.
+        scheduleUpdateCatalogRows()
     } catch (e: Exception) {
         catalogsLoadInProgress = false
         _uiState.update { it.copy(isLoading = false, error = e.message) }
@@ -316,6 +386,10 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             catalogId = catalog.id
                         )
                         replaceCatalogRow(key, result.data)
+                        // Remove placeholder descriptor now that real data is available
+                        synchronized(catalogStateLock) {
+                            placeholderDescriptors.removeAll { it.catalogKey == key }
+                        }
                         if (!hasCountedCompletion) {
                             pendingCatalogLoads = (pendingCatalogLoads - 1).coerceAtLeast(0)
                             hasCountedCompletion = true
@@ -330,6 +404,15 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         scheduleUpdateCatalogRows()
                     }
                     is NetworkResult.Error -> {
+                        val errorKey = catalogKey(
+                            addonId = addon.id,
+                            type = catalog.apiType,
+                            catalogId = catalog.id
+                        )
+                        // Remove placeholder on error so it doesn't show forever
+                        synchronized(catalogStateLock) {
+                            placeholderDescriptors.removeAll { it.catalogKey == errorKey }
+                        }
                         if (!hasCountedCompletion) {
                             pendingCatalogLoads = (pendingCatalogLoads - 1).coerceAtLeast(0)
                             hasCountedCompletion = true
@@ -548,6 +631,10 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
 
     val computedHomeRows = buildList {
         val displayRowsByKey = displayRows.associateBy { "${it.addonId}_${it.apiType}_${it.catalogId}" }
+        // Build a lookup of placeholder descriptors by key for lazy catalogs
+        val placeholdersByKey = synchronized(catalogStateLock) {
+            placeholderDescriptors.associateBy { it.catalogKey }
+        }
         collectionsCache.forEach { collection ->
             val key = "collection_${collection.id}"
             if (collection.pinToTop && key !in disabledHomeCatalogKeys) {
@@ -565,6 +652,51 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 val catalogRow = displayRowsByKey[key]
                 if (catalogRow != null && catalogRow.items.isNotEmpty()) {
                     add(HomeRow.Catalog(catalogRow))
+                } else {
+                    val placeholder = placeholdersByKey[key]
+                    if (placeholder != null) {
+                        if (currentLayout == HomeLayout.MODERN) {
+                            add(HomeRow.PlaceholderCatalog(
+                                catalogKey = placeholder.catalogKey,
+                                addonId = placeholder.addonId,
+                                addonName = placeholder.addonName,
+                                addonBaseUrl = placeholder.addonBaseUrl,
+                                catalogId = placeholder.catalogId,
+                                catalogName = placeholder.catalogName,
+                                apiType = placeholder.apiType,
+                                displayTitle = placeholder.displayTitle
+                            ))
+                        } else {
+                            val fakeItems = (0 until 8).map { i ->
+                                MetaPreview(
+                                    id = "__placeholder_${placeholder.catalogKey}_$i",
+                                    type = com.nuvio.tv.domain.model.ContentType.fromString(placeholder.apiType),
+                                    rawType = placeholder.apiType,
+                                    name = " ",
+                                    poster = "placeholder://empty",
+                                    posterShape = com.nuvio.tv.domain.model.PosterShape.POSTER,
+                                    background = null,
+                                    logo = null,
+                                    description = null,
+                                    releaseInfo = " ",
+                                    imdbRating = null,
+                                    genres = emptyList()
+                                )
+                            }
+                            add(HomeRow.Catalog(CatalogRow(
+                                addonId = placeholder.addonId,
+                                addonName = placeholder.addonName,
+                                addonBaseUrl = placeholder.addonBaseUrl,
+                                catalogId = placeholder.catalogId,
+                                catalogName = placeholder.catalogName,
+                                type = com.nuvio.tv.domain.model.ContentType.fromString(placeholder.apiType),
+                                rawType = placeholder.apiType,
+                                items = fakeItems,
+                                isLoading = true,
+                                hasMore = false
+                            )))
+                        }
+                    }
                 }
             }
         }
@@ -628,6 +760,9 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                                 folder = folder
                             ))
                         }
+                    }
+                    is HomeRow.PlaceholderCatalog -> {
+                        // Grid layout: skip placeholders (grid loads all at once)
                     }
                 }
             }

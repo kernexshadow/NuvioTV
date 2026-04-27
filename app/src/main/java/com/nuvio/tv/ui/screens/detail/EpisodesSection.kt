@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -38,6 +39,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -67,14 +73,17 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import coil3.request.transformations
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
 import android.text.format.DateFormat
+import androidx.compose.ui.draw.clipToBounds
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -141,7 +150,8 @@ fun SeasonTabs(
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .focusRestorer(selectedTabFocusRequester),
+            .focusRestorer(selectedTabFocusRequester)
+            .focusGroup(),
         state = lazyListState,
         contentPadding = PaddingValues(horizontal = 48.dp, vertical = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -240,6 +250,8 @@ fun EpisodesRow(
     onMarkSeasonUnwatched: (Int) -> Unit = {},
     isSeasonFullyWatched: Boolean = false,
     selectedSeason: Int = 1,
+    onOpenEpisodeComments: (Video) -> Unit = {},
+    showOpenEpisodeComments: Boolean = false,
     onMarkPreviousEpisodesWatched: (Video) -> Unit = {},
     upFocusRequester: FocusRequester,
     downFocusRequester: FocusRequester? = null,
@@ -392,6 +404,11 @@ fun EpisodesRow(
                 onEpisodeClick(selectedEpisode)
                 optionsEpisode = null
             },
+            onOpenEpisodeComments = {
+                onOpenEpisodeComments(selectedEpisode)
+                optionsEpisode = null
+            },
+            showOpenEpisodeComments = showOpenEpisodeComments,
             onPlayManually = {
                 onEpisodeManualPlayClick(selectedEpisode)
                 optionsEpisode = null
@@ -609,22 +626,24 @@ private fun EpisodeCard(
             modifier = Modifier
                 .width(cardMetrics.cardWidth)
                 .height(cardMetrics.cardHeight)
+                .clipToBounds()
         ) {
             val bgPainter = remember(cardBgColor) { androidx.compose.ui.graphics.painter.ColorPainter(cardBgColor) }
             AsyncImage(
                 model = thumbnailRequest,
                 contentDescription = episode.title.localizeEpisodeTitle(context),
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                placeholder = bgPainter,
-                error = bgPainter,
-                fallback = bgPainter
-            )
-
-            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .drawWithCache {
+                    .graphicsLayer {
+                        compositingStrategy =
+                            CompositingStrategy.Offscreen
+                    }
+                    .clipToBounds()
+
+                    //Gradient for text legibility
+                    .drawWithContent {
+                        drawContent()
+
                         val startY = size.height * 0.40f
                         val localBrush = Brush.verticalGradient(
                             colorStops = arrayOf(
@@ -638,15 +657,20 @@ private fun EpisodeCard(
                             startY = startY,
                             endY = size.height
                         )
-                        onDrawBehind {
-                            drawRect(
-                                brush = localBrush,
-                                topLeft = androidx.compose.ui.geometry.Offset(0f, startY),
-                                size = androidx.compose.ui.geometry.Size(size.width, size.height - startY),
-                                alpha = if (isFocusedState.value) 1f else 0.94f
-                            )
-                        }
-                    }
+                        drawRect(
+                            brush = localBrush,
+                            topLeft = androidx.compose.ui.geometry.Offset(0f, startY),
+                            size = androidx.compose.ui.geometry.Size(
+                                size.width,
+                                size.height - startY
+                            ),
+                            alpha = if (isFocusedState.value) 1f else 0.94f
+                        )
+                    },
+                contentScale = ContentScale.Crop,
+                placeholder = bgPainter,
+                error = bgPainter,
+                fallback = bgPainter
             )
 
             Column(
@@ -871,6 +895,8 @@ private fun EpisodeOptionsDialog(
     hasPreviousEpisodes: Boolean = false,
     onDismiss: () -> Unit,
     onPlay: () -> Unit,
+    onOpenEpisodeComments: () -> Unit = {},
+    showOpenEpisodeComments: Boolean = false,
     onPlayManually: () -> Unit = {},
     showPlayManually: Boolean = false,
     onToggleWatched: () -> Unit,
@@ -937,6 +963,19 @@ private fun EpisodeOptionsDialog(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(stringResource(R.string.episodes_play))
+        }
+
+        if (showOpenEpisodeComments) {
+            Button(
+                onClick = onOpenEpisodeComments,
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioColors.BackgroundCard,
+                    contentColor = NuvioColors.TextPrimary
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.episodes_open_comments))
+            }
         }
 
         if (showPlayManually) {

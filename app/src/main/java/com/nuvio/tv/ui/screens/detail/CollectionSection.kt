@@ -31,12 +31,14 @@ fun CollectionSection(
     items: List<MetaPreview>,
     title: String? = null,
     upFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
     sectionFocusRequester: FocusRequester? = null,
     restoreItemId: String? = null,
     restoreFocusToken: Int = 0,
     onRestoreFocusHandled: () -> Unit = {},
     onItemFocused: (MetaPreview) -> Unit = {},
-    onItemClick: (MetaPreview) -> Unit
+    onItemClick: (MetaPreview) -> Unit,
+    onItemLongPress: (MetaPreview) -> Unit = {}
 ) {
     if (items.isEmpty()) return
 
@@ -103,11 +105,13 @@ fun CollectionSection(
                     GridContentCard(
                         item = item,
                         onClick = { onItemClick(item) },
+                        onLongPress = { onItemLongPress(item) },
                         posterCardStyle = landscapeStyle,
                         showLabel = true,
                         imageCrossfade = true,
                         focusRequester = focusRequester,
                         upFocusRequester = upFocusRequester,
+                        downFocusRequester = downFocusRequester,
                         onFocused = {
                             onItemFocused(item)
                             if (isRestoreTarget && restoreFocusToken > 0) {

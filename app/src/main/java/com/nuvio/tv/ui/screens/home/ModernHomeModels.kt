@@ -23,6 +23,7 @@ internal const val MODERN_HERO_MEDIA_WIDTH_FRACTION = 0.72f
 internal const val MODERN_TRAILER_OVERSCAN_ZOOM = 1.35f
 internal const val MODERN_HERO_FOCUS_DEBOUNCE_MS = 90L
 internal val MODERN_ROW_HEADER_FOCUS_INSET = 40.dp
+internal const val MODERN_CONTINUE_WATCHING_ROW_KEY = "continue_watching"
 internal val MODERN_LANDSCAPE_LOGO_GRADIENT = Brush.verticalGradient(
     colorStops = arrayOf(
         0.0f to Color.Transparent,
@@ -78,7 +79,9 @@ sealed class ModernPayload {
         val posterShape: PosterShape,
         val focusGlowEnabled: Boolean,
         val focusGifEnabled: Boolean,
-        val focusGifUrl: String?
+        val focusGifUrl: String?,
+        val heroBackdropUrl: String?,
+        val titleLogoUrl: String?
     ) : ModernPayload()
 }
 
@@ -162,7 +165,6 @@ internal data class ModernCatalogRowBuildCacheEntry(
 
 internal data class ModernCollectionRowBuildCacheEntry(
     val source: Collection,
-    val useLandscapePosters: Boolean,
     val mappedRow: HeroCarouselRow
 )
 
@@ -488,7 +490,6 @@ internal fun buildCatalogItem(
 internal fun buildCollectionFolderItem(
     collection: Collection,
     folder: CollectionFolder,
-    useLandscapePosters: Boolean,
     occurrence: Int = 0
 ): ModernCarouselItem {
     val title = if (!folder.coverEmoji.isNullOrBlank()) {
@@ -497,28 +498,24 @@ internal fun buildCollectionFolderItem(
         folder.title
     }
     val imageUrl = firstNonBlank(folder.coverImageUrl, collection.backdropImageUrl)
-    val heroImageUrl = if (useLandscapePosters) {
-        firstNonBlank(folder.coverImageUrl, collection.backdropImageUrl)
-    } else {
-        imageUrl
-    }
+    val heroBackdrop = firstNonBlank(folder.heroBackdropUrl, folder.coverImageUrl, collection.backdropImageUrl)
 
     return ModernCarouselItem(
         key = "collection_${collection.id}_${folder.id}_$occurrence",
         title = if (folder.hideTitle) "" else folder.title,
         subtitle = if (folder.hideTitle) null else collection.title,
-        imageUrl = heroImageUrl,
+        imageUrl = imageUrl,
         heroPreview = HeroPreview(
             title = if (folder.hideTitle) "" else title,
-            logo = null,
+            logo = folder.titleLogoUrl,
             description = null,
             contentTypeText = null,
             yearText = null,
             imdbText = null,
             genres = emptyList(),
             poster = imageUrl,
-            backdrop = firstNonBlank(folder.coverImageUrl, collection.backdropImageUrl),
-            imageUrl = heroImageUrl
+            backdrop = heroBackdrop,
+            imageUrl = imageUrl
         ),
         payload = ModernPayload.CollectionFolder(
             focusKey = "collection_${collection.id}::${folder.id}",
@@ -528,7 +525,9 @@ internal fun buildCollectionFolderItem(
             posterShape = folder.tileShape,
             focusGlowEnabled = collection.focusGlowEnabled,
             focusGifEnabled = folder.focusGifEnabled,
-            focusGifUrl = folder.focusGifUrl
+            focusGifUrl = folder.focusGifUrl,
+            heroBackdropUrl = folder.heroBackdropUrl,
+            titleLogoUrl = folder.titleLogoUrl
         )
     )
 }

@@ -44,8 +44,9 @@ import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.platform.LocalContext
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -55,10 +56,11 @@ fun GridContentCard(
     modifier: Modifier = Modifier,
     posterCardStyle: PosterCardStyle = PosterCardDefaults.Style,
     showLabel: Boolean = true,
-    imageCrossfade: Boolean = false,
+    imageCrossfade: Boolean = true,
     isWatched: Boolean = false,
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
     onLongPress: (() -> Unit)? = null,
     onFocused: () -> Unit = {}
 ) {
@@ -89,8 +91,15 @@ fun GridContentCard(
                     else Modifier
                 )
                 .then(
-                    if (upFocusRequester != null) {
-                        Modifier.focusProperties { up = upFocusRequester }
+                    if (upFocusRequester != null || downFocusRequester != null) {
+                        Modifier.focusProperties {
+                            if (upFocusRequester != null) {
+                                up = upFocusRequester
+                            }
+                            if (downFocusRequester != null) {
+                                down = downFocusRequester
+                            }
+                        }
                     } else {
                         Modifier
                     }

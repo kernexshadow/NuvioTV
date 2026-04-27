@@ -181,6 +181,17 @@ interface TraktApi {
         @Query("limit") limit: Int = 10
     ): Response<List<TraktCommentDto>>
 
+    @GET("shows/{id}/seasons/{season}/episodes/{episode}/comments/{sort}")
+    suspend fun getEpisodeComments(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+        @Path("season") season: Int,
+        @Path("episode") episode: Int,
+        @Path("sort") sort: String = "likes",
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 10
+    ): Response<List<TraktCommentDto>>
+
     @GET("movies/{id}/related")
     suspend fun getMovieRelated(
         @Header("Authorization") authorization: String? = null,

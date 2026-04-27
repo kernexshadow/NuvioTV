@@ -3,8 +3,6 @@ package com.nuvio.tv.ui.components
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -47,6 +45,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.BringIntoViewSpec
@@ -62,14 +63,15 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Text
-import androidx.compose.ui.window.Dialog
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.transformations
+import coil3.request.crossfade
 import kotlin.math.roundToInt
 import java.util.concurrent.TimeUnit
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
@@ -97,7 +99,9 @@ fun ContinueWatchingSection(
     focusedItemIndex: Int = -1,
     onItemFocused: (itemIndex: Int) -> Unit = {},
     blurUnwatchedEpisodes: Boolean = false,
-    downFocusRequester: FocusRequester? = null
+    downFocusRequester: FocusRequester? = null,
+    cardWidth: Dp = 288.dp,
+    imageHeight: Dp = 162.dp
 ) {
     if (items.isEmpty()) return
 
@@ -197,6 +201,8 @@ fun ContinueWatchingSection(
                     onClick = { onItemClick(progress) },
                     onLongPress = { optionsItem = progress },
                     blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                    cardWidth = cardWidth,
+                    imageHeight = imageHeight,
                     modifier = Modifier
                         .onFocusChanged { focusState ->
                             if (focusState.isFocused && lastFocusedIndex != index) {
@@ -377,7 +383,7 @@ fun ContinueWatchingCard(
     val imageRequest = remember(effectiveImageModel, requestWidthPx, requestHeightPx, shouldBlur) {
         ImageRequest.Builder(context)
             .data(effectiveImageModel)
-            .crossfade(false)
+            .crossfade(true)
             .memoryCacheKey("${effectiveImageModel}_${requestWidthPx}x${requestHeightPx}_blur${shouldBlur}")
             .size(width = requestWidthPx, height = requestHeightPx)
             .apply {
@@ -457,7 +463,35 @@ fun ContinueWatchingCard(
                     AsyncImage(
                         model = imageRequest,
                         contentDescription = titleText,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                compositingStrategy =
+                                    CompositingStrategy.Offscreen
+                            }
+                            .clip(CwClipShape)
+
+                            // Gradient overlay for text legibility
+                            .drawWithContent {
+                                drawContent()
+
+                                val startYPos = size.height * 0.45f
+                                val gradient = Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.0f to Color.Transparent,
+                                        0.6f to bgColor.copy(alpha = 0.7f),
+                                        1.0f to bgColor.copy(alpha = 0.95f)
+                                    ),
+                                    startY = startYPos,
+                                    endY = size.height
+                                )
+
+                                drawRect(
+                                    brush = gradient,
+                                    topLeft = Offset(-2f, startYPos),
+                                    size = Size(size.width + 4f, (size.height - startYPos) + 4f)
+                                )
+                            },
                         placeholder = backgroundPainter,
                         error = backgroundPainter,
                         fallback = backgroundPainter,
@@ -473,31 +507,6 @@ fun ContinueWatchingCard(
                         }
                     )
                 }
-
-                // Gradient overlay for text readability - Optimized bounding to avoid transparent overdraw
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .drawWithCache {
-                            val startYPos = size.height * 0.5f // Skip top 50%
-                            val gradient = Brush.verticalGradient(
-                                colorStops = arrayOf(
-                                    0.0f to Color.Transparent,
-                                    0.6f to bgColor.copy(alpha = 0.7f), // Mapped from original 0.8
-                                    1.0f to bgColor.copy(alpha = 0.95f)
-                                ),
-                                startY = startYPos,
-                                endY = size.height
-                            )
-                            onDrawBehind { 
-                                drawRect(
-                                    brush = gradient,
-                                    topLeft = Offset(0f, startYPos),
-                                    size = Size(size.width, size.height - startYPos)
-                                ) 
-                            }
-                        }
-                )
 
                 // Content info at bottom
                 Column(

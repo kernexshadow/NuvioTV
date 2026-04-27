@@ -35,6 +35,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,7 +48,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Tab
 import androidx.tv.material3.TabRow
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import com.nuvio.tv.domain.model.FolderViewMode
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.ui.components.CatalogRowSection
@@ -99,6 +100,7 @@ fun FolderDetailScreen(
     }
 
     val enrichingItemId by viewModel.enrichingItemId.collectAsStateWithLifecycle()
+    val enrichedPreviews by viewModel.enrichedPreviews.collectAsStateWithLifecycle()
     val trailerPreviewUrls by viewModel.trailerPreviewUrls.collectAsStateWithLifecycle()
     val trailerPreviewAudioUrls by viewModel.trailerPreviewAudioUrls.collectAsStateWithLifecycle()
 
@@ -107,6 +109,7 @@ fun FolderDetailScreen(
             uiState = uiState,
             focusState = followLayoutFocusState,
             enrichingItemId = enrichingItemId,
+            enrichedPreviews = enrichedPreviews,
             onNavigateToDetail = onNavigateToDetail,
             onLoadMoreCatalog = viewModel::loadMoreForCatalog,
             onSaveFocusState = viewModel::saveFollowLayoutFocusState,
@@ -138,6 +141,9 @@ fun FolderDetailScreen(
                             verticalScrollOffset = verticalOffset,
                             focusedItemKey = focusedItemKey
                         )
+                    },
+                    onItemLongPress = { item, addonBaseUrl ->
+                        viewModel.posterOptions.show(item, addonBaseUrl)
                     }
                 )
                 FolderViewMode.ROWS -> {
@@ -148,13 +154,26 @@ fun FolderDetailScreen(
                         onNavigateToDetail = onNavigateToDetail,
                         isItemWatched = isItemWatched,
                         onLoadMoreCatalog = viewModel::loadMoreForCatalog,
-                        onSaveFocusState = viewModel::saveRowsFocusState
+                        onSaveFocusState = viewModel::saveRowsFocusState,
+                        onItemFocus = viewModel::onItemFocused,
+                        onItemLongPress = { item, addonBaseUrl ->
+                            viewModel.posterOptions.show(item, addonBaseUrl)
+                        }
                     )
                 }
                 FolderViewMode.FOLLOW_LAYOUT -> {} // handled above
             }
         }
     }
+
+    val posterOptionsState by viewModel.posterOptions.state.collectAsStateWithLifecycle()
+    com.nuvio.tv.ui.components.posteroptions.PosterOptionsHost(
+        state = posterOptionsState,
+        controller = viewModel.posterOptions,
+        onNavigateToDetail = { id, type, addonBaseUrl ->
+            onNavigateToDetail(id, type, addonBaseUrl)
+        }
+    )
 }
 
 @Composable
@@ -209,7 +228,8 @@ private fun TabbedGridContent(
     onNavigateToDetail: (String, String, String) -> Unit,
     onSaveFocusState: (Int, Int, String?) -> Unit,
     onLoadMore: () -> Unit = {},
-    isItemWatched: (MetaPreview) -> Boolean = { false }
+    isItemWatched: (MetaPreview) -> Boolean = { false },
+    onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> }
 ) {
     val tabFocusRequesters = remember(uiState.tabs.size) { uiState.tabs.indices.map { FocusRequester() } }
 
@@ -386,7 +406,8 @@ private fun TabbedGridContent(
                     .fillMaxSize()
                     .focusRestorer {
                         lastFocusedItemKey?.let { itemFocusRequesters[it] } ?: FocusRequester.Default
-                    },
+                    }
+                    .dpadRepeatThrottle(),
                 contentPadding = PaddingValues(
                     start = 48.dp,
                     end = 48.dp,
@@ -414,6 +435,10 @@ private fun TabbedGridContent(
                                 item.apiType,
                                 currentTab.catalogRow.addonBaseUrl
                             )
+                        },
+                        onLongPress = {
+                            lastFocusedItemKey = itemKey
+                            onItemLongPress(item, currentTab.catalogRow.addonBaseUrl)
                         }
                     )
                 }
@@ -444,7 +469,9 @@ private fun RowsContent(
     onNavigateToDetail: (String, String, String) -> Unit,
     onLoadMoreCatalog: (String, String, String) -> Unit = { _, _, _ -> },
     onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>) -> Unit,
-    isItemWatched: (MetaPreview) -> Boolean = { false }
+    isItemWatched: (MetaPreview) -> Boolean = { false },
+    onItemFocus: (MetaPreview) -> Unit = {},
+    onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> }
 ) {
     val sourceTabs = uiState.tabs.filter { !it.isAllTab }
     val columnListState = rememberLazyListState(
@@ -452,6 +479,7 @@ private fun RowsContent(
         initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset
     )
     val rowStates = remember { mutableMapOf<String, LazyListState>() }
+    val rowFocusedItemIndex = remember { mutableMapOf<String, Int>() }
     val currentFocusedRowIndex = remember { intArrayOf(focusState.focusedRowIndex) }
     val currentFocusedItemIndex = remember { intArrayOf(focusState.focusedItemIndex) }
 
@@ -554,6 +582,7 @@ private fun RowsContent(
                         CatalogRowSection(
                             catalogRow = catalogRow,
                             onItemClick = onNavigateToDetail,
+                            onItemLongPress = onItemLongPress,
                             onSeeAll = {
                                 onLoadMoreCatalog(
                                     catalogRow.catalogId,
@@ -567,6 +596,7 @@ private fun RowsContent(
                             showAddonName = false,
                             showCatalogTypeSuffix = true,
                             isItemWatched = isItemWatched,
+                            onItemFocus = onItemFocus,
                             listState = listState,
                             focusedItemIndex = if (
                                 focusState.hasSavedFocus &&
@@ -576,9 +606,11 @@ private fun RowsContent(
                             } else {
                                 -1
                             },
+                            restorerFocusedIndex = -1,
                             onItemFocused = { itemIndex ->
                                 currentFocusedRowIndex[0] = index
                                 currentFocusedItemIndex[0] = itemIndex
+                                rowFocusedItemIndex[rowKey] = itemIndex
                             }
                         )
                     }
@@ -593,6 +625,7 @@ private fun FollowLayoutContent(
     uiState: FolderDetailUiState,
     focusState: HomeScreenFocusState,
     enrichingItemId: String? = null,
+    enrichedPreviews: Map<String, MetaPreview> = emptyMap(),
     onNavigateToDetail: (String, String, String) -> Unit,
     onLoadMoreCatalog: (String, String, String) -> Unit = { _, _, _ -> },
     onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>) -> Unit,
@@ -643,6 +676,7 @@ private fun FollowLayoutContent(
             onRequestTrailerPreview = { item ->
                 onRequestTrailerPreview(item.id, item.name, item.releaseInfo, item.apiType)
             },
+            onItemFocus = onItemFocus,
             onSaveFocusState = onSaveFocusState
         )
         HomeLayout.GRID -> GridHomeContent(
@@ -662,6 +696,7 @@ private fun FollowLayoutContent(
             uiState = homeState,
             focusState = focusState,
             enrichingItemId = enrichingItemId,
+            enrichedPreviews = enrichedPreviews,
             trailerPreviewUrls = trailerPreviewUrls,
             trailerPreviewAudioUrls = trailerPreviewAudioUrls,
             onNavigateToDetail = onNavigateToDetail,
