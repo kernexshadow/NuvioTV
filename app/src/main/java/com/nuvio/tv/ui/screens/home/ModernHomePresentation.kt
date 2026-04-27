@@ -168,8 +168,7 @@ internal fun buildModernHomePresentation(
                     val cached = cache.collectionRows[rowKey]
                     val canReuseMappedRow =
                         cached != null &&
-                            cached.source == collection &&
-                            cached.useLandscapePosters == input.useLandscapePosters
+                            cached.source == collection
 
                     val mappedRow = if (canReuseMappedRow) {
                         val cachedMappedRow = checkNotNull(cached).mappedRow
@@ -190,7 +189,6 @@ internal fun buildModernHomePresentation(
                                 buildCollectionFolderItem(
                                     collection = collection,
                                     folder = folder,
-                                    useLandscapePosters = input.useLandscapePosters,
                                     occurrence = occurrence
                                 )
                             }
@@ -199,7 +197,6 @@ internal fun buildModernHomePresentation(
 
                     cache.collectionRows[rowKey] = ModernCollectionRowBuildCacheEntry(
                         source = collection,
-                        useLandscapePosters = input.useLandscapePosters,
                         mappedRow = mappedRow
                     )
                     add(mappedRow)

@@ -107,6 +107,10 @@
     <!-- ThemeSettingsScreen -->
     <string name="appearance_title">Wygląd</string>
     <string name="appearance_subtitle">Wybierz motyw kolorystyczny i język</string>
+    <string name="appearance_color_theme">Motyw kolorystyczny</string>
+    <string name="appearance_color_theme_subtitle">Wybierz kolor akcentu używany w aplikacji</string>
+    <string name="appearance_font_and_language">Czcionka i język</string>
+    <string name="appearance_font_and_language_subtitle">Wybierz krój pisma i ustawienia regionalne używane w aplikacji</string>
     <string name="cd_selected">Zaznaczono</string>
 
     <!-- AboutScreen -->
@@ -155,6 +159,7 @@
     <string name="cd_decrease">Zmniejsz</string>
     <string name="cd_increase">Zwiększ</string>
     <string name="action_cancel">Anuluj</string>
+    <string name="action_apply">Zastosuj</string>
     <string name="action_none">Brak</string>
 
     <!-- PlaybackSettingsSections -->
@@ -257,6 +262,7 @@
     <string name="sub_outline">Obrys</string>
     <string name="sub_outline_sub">Dodaj obrys wokół tekstu napisów dla lepszej widoczności</string>
     <string name="sub_outline_color">Kolor obrysu</string>
+    <string name="sub_opacity">Krycie</string>
     <string name="sub_advanced_section">Zaawansowane renderowanie napisów</string>
     <string name="sub_libass">Używaj libass dla napisów ASS/SSA</string>
     <string name="sub_libass_sub">Tymczasowo wyłączone z powodu konserwacji</string>
@@ -753,6 +759,7 @@
     <string name="subtitle_style_font_size">Rozmiar czcionki</string>
     <string name="subtitle_style_bold">Pogrubienie</string>
     <string name="subtitle_style_text_color">Kolor tekstu</string>
+    <string name="subtitle_style_text_opacity">Krycie tekstu</string>
     <string name="subtitle_style_outline">Obramowanie</string>
     <string name="subtitle_style_bottom_offset">Przesunięcie od dołu</string>
     <string name="subtitle_style_defaults">Domyślne</string>
@@ -1542,6 +1549,15 @@
     <string name="advanced_clear_cw_cache">Wyczyść pamięć podręczną Kontynuuj oglądanie</string>
     <string name="advanced_clear_cw_cache_done">Pamięć podręczna wyczyszczona</string>
     <string name="advanced_clear_cw_cache_subtitle">Usuń zapisane miniatury, tytuły i dane wzbogacania dla Kontynuuj oglądanie</string>
+    <string name="advanced_section_performance">Wydajność i nawigacja</string>
+    <string name="advanced_section_diagnostics">Diagnostyka</string>
+    <string name="advanced_section_cache">Pamięć podręczna</string>
+    <string name="advanced_fast_horizontal_navigation">Szybka nawigacja pozioma</string>
+    <string name="advanced_fast_horizontal_navigation_subtitle">Zwiększ prędkość powtarzania D-pad w wierszach przy zachowaniu ograniczania powtórzeń.</string>
+    <string name="advanced_nuvio_focus_scroll">Przewijanie fokusa Nuvio</string>
+    <string name="advanced_nuvio_focus_scroll_subtitle">Używaj niestandardowej globalnej animacji przewijania i pozycjonowania fokusa Nuvio.</string>
+    <string name="advanced_memory_only_vertical_scroll">Przewijanie pionowe tylko z pamięci</string>
+    <string name="advanced_memory_only_vertical_scroll_subtitle">Pomijaj żądania obrazów z dysku i sieci podczas pionowego przewijania wierszy strony głównej.</string>
     <string name="detail_tab_trailer">Zwiastun</string>
     <string name="detail_trailer_error">Nie udało się załadować zwiastuna.</string>
     <string name="detail_trailer_loading">Ładowanie zwiastuna…</string>
