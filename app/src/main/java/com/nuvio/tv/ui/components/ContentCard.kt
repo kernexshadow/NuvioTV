@@ -57,6 +57,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -127,7 +128,9 @@ fun ContentCard(
     val needsFocusState = focusedPosterBackdropExpandEnabled || focusedPosterBackdropTrailerEnabled
     val lastFocusedRef = remember { booleanArrayOf(false) }
 
-    if (focusedPosterBackdropExpandEnabled) {
+    val isPlaceholderItem = item.poster?.startsWith("placeholder://") == true
+
+    if (focusedPosterBackdropExpandEnabled && !isPlaceholderItem) {
         LaunchedEffect(
             focusedPosterBackdropExpandDelaySeconds,
             isFocused,
@@ -142,7 +145,8 @@ fun ContentCard(
             val delaySeconds = focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0)
 
             isBackdropExpanded = false
-            val backdropDelayMs = delaySeconds * 1000L
+            // Minimum debounce so rapid D-pad scrolling doesn't expand every card.
+            val backdropDelayMs = if (delaySeconds == 0) 370L else delaySeconds * 1000L
             delay(backdropDelayMs)
             if (isFocused && focusedPosterBackdropExpandEnabled &&
                 lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
@@ -179,13 +183,18 @@ fun ContentCard(
         }
     }
     val metaTokens = if (isBackdropExpanded) {
-        remember(item.type, item.genres, item.releaseInfo, item.imdbRating) {
+        remember(item.type, item.rawType, item.genres, item.releaseInfo, item.imdbRating, item.seasonCount) {
             buildList {
                 add(
                     item.apiType
                         .replaceFirstChar { ch -> ch.uppercase() }
                 )
                 item.genres.firstOrNull()?.let { add(it) }
+                if ((item.type == ContentType.SERIES || item.apiType.equals("series", ignoreCase = true)) &&
+                    item.seasonCount != null
+                ) {
+                    add("${item.seasonCount} ${if (item.seasonCount == 1) "season" else "seasons"}")
+                }
                 item.releaseInfo
                     ?.let { YEAR_REGEX.find(it)?.value }
                     ?.let { add(it) }
@@ -500,56 +509,55 @@ fun ContentCard(
             }
         }
 
-        if (isBackdropExpanded) {
+        // When backdrop expand is enabled, both the labels state and the
+        // expanded state share a single Column with a fixed minimum height
+        // so the row never shifts vertically during the expand transition.
+        if (showLabels) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
             ) {
-                if (metaTokens.isNotEmpty()) {
+                if (isBackdropExpanded) {
+                    if (metaTokens.isNotEmpty()) {
+                        Text(
+                            text = metaTokens.joinToString("  •  "),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NuvioTheme.extendedColors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    item.description?.takeIf { it.isNotBlank() }?.let { description ->
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NuvioColors.TextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else {
                     Text(
-                        text = metaTokens.joinToString("  •  "),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = NuvioTheme.extendedColors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                item.description?.takeIf { it.isNotBlank() }?.let { description ->
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = description,
-                        style = MaterialTheme.typography.bodySmall,
+                        text = item.name,
+                        style = MaterialTheme.typography.titleMedium,
                         color = NuvioColors.TextPrimary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-
-        if (showLabels && !isBackdropExpanded) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp)
-            ) {
-                Text(
-                    text = item.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = NuvioColors.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                item.releaseInfo?.let { info ->
-                    Text(
-                        text = info,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = NuvioTheme.extendedColors.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    item.releaseInfo?.let { info ->
+                        Text(
+                            text = info,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NuvioTheme.extendedColors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (focusedPosterBackdropExpandEnabled) {
+                        Spacer(modifier = Modifier.height(15.dp))
+                    }
                 }
             }
         }
@@ -558,7 +566,6 @@ fun ContentCard(
 
 private fun shouldResetBackdropTimer(nativeEvent: AndroidKeyEvent): Boolean {
     if (nativeEvent.action != AndroidKeyEvent.ACTION_DOWN) return false
-    if (nativeEvent.repeatCount > 0 || nativeEvent.isLongPress) return false
 
     return when (nativeEvent.keyCode) {
         AndroidKeyEvent.KEYCODE_DPAD_UP,

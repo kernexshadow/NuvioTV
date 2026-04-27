@@ -131,7 +131,7 @@
     <string name="hero_director">Director: %1$s</string>
     <string name="hero_writer">Escritor: %1$s</string>
     <string name="hero_play">Reproducir</string>
-    <string name="hero_play_episode">Reproducir T%1$d, E%2$d</string>
+    <string name="hero_play_episode">Reproducir T%1$d E%2$d</string>
     <string name="hero_add_to_library">Agregar a la biblioteca</string>
     <string name="hero_remove_from_library">Eliminar de la biblioteca</string>
     <string name="hero_mark_watched">Marcar como visto</string>
@@ -173,9 +173,9 @@
     <!-- MetaDetailsScreen -->
     <string name="detail_btn_play">Reproducir</string>
     <string name="detail_btn_resume">Reanudar</string>
-    <string name="detail_btn_play_episode">Reproducir T%1$dE%2$d</string>
-    <string name="detail_btn_resume_episode">Reanudar T%1$dE%2$d</string>
-    <string name="detail_btn_next_episode">Siguiente T%1$dE%2$d</string>
+    <string name="detail_btn_play_episode">Reproducir T%1$d E%2$d</string>
+    <string name="detail_btn_resume_episode">Reanudar T%1$d E%2$d</string>
+    <string name="detail_btn_next_episode">Siguiente T%1$d E%2$d</string>
     <string name="detail_tab_cast">Creadores y Elenco</string>
     <string name="cast_role_creator">Creador</string>
     <string name="cast_role_director">Director</string>
@@ -938,7 +938,7 @@
     <string name="player_ends_at">Termina a las %1$s</string>
     <string name="player_via">vía %1$s</string>
     <!-- Season/episode code shown in player UI (e.g. S01E02). %1$d = season, %2$d = episode. -->
-    <string name="season_episode_format">T%1$02dE%2$02d</string>
+    <string name="season_episode_format">T%1$d E%2$d</string>
     <string name="player_subtitle_delay">Retraso de Subtítulos</string>
     <string name="player_error_title">Error de Reproducción</string>
     <string name="player_go_back">Volver</string>

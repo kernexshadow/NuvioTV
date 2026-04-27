@@ -165,7 +165,6 @@ internal data class ModernCatalogRowBuildCacheEntry(
 
 internal data class ModernCollectionRowBuildCacheEntry(
     val source: Collection,
-    val useLandscapePosters: Boolean,
     val mappedRow: HeroCarouselRow
 )
 
@@ -491,7 +490,6 @@ internal fun buildCatalogItem(
 internal fun buildCollectionFolderItem(
     collection: Collection,
     folder: CollectionFolder,
-    useLandscapePosters: Boolean,
     occurrence: Int = 0
 ): ModernCarouselItem {
     val title = if (!folder.coverEmoji.isNullOrBlank()) {
@@ -501,17 +499,12 @@ internal fun buildCollectionFolderItem(
     }
     val imageUrl = firstNonBlank(folder.coverImageUrl, collection.backdropImageUrl)
     val heroBackdrop = firstNonBlank(folder.heroBackdropUrl, folder.coverImageUrl, collection.backdropImageUrl)
-    val heroImageUrl = if (useLandscapePosters) {
-        firstNonBlank(folder.heroBackdropUrl, folder.coverImageUrl, collection.backdropImageUrl)
-    } else {
-        imageUrl
-    }
 
     return ModernCarouselItem(
         key = "collection_${collection.id}_${folder.id}_$occurrence",
         title = if (folder.hideTitle) "" else folder.title,
         subtitle = if (folder.hideTitle) null else collection.title,
-        imageUrl = heroImageUrl,
+        imageUrl = imageUrl,
         heroPreview = HeroPreview(
             title = if (folder.hideTitle) "" else title,
             logo = folder.titleLogoUrl,
@@ -522,7 +515,7 @@ internal fun buildCollectionFolderItem(
             genres = emptyList(),
             poster = imageUrl,
             backdrop = heroBackdrop,
-            imageUrl = heroImageUrl
+            imageUrl = imageUrl
         ),
         payload = ModernPayload.CollectionFolder(
             focusKey = "collection_${collection.id}::${folder.id}",

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,6 +76,12 @@ import java.net.URL
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
 private interface ClearCwCacheEntryPoint {
     fun cwEnrichmentCache(): com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
+}
+
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+private interface ProfileManagerEntryPoint {
+    fun profileManager(): com.nuvio.tv.core.profile.ProfileManager
 }
 
 private enum class NetworkTestState { Idle, TestingLatency, TestingDownload, Done, Error }
@@ -323,6 +330,23 @@ fun AdvancedSettingsContent(
                                 !uiState.memoryOnlyVerticalScroll
                             )
                         )
+                    }
+                )
+                val profileManager = remember {
+                    dagger.hilt.android.EntryPointAccessors.fromApplication(
+                        context.applicationContext,
+                        ProfileManagerEntryPoint::class.java
+                    ).profileManager()
+                }
+                val rememberLastProfileEnabled by profileManager.rememberLastProfileEnabled.collectAsState()
+                SettingsToggleRow(
+                    title = stringResource(R.string.advanced_remember_last_profile),
+                    subtitle = stringResource(R.string.advanced_remember_last_profile_subtitle),
+                    checked = rememberLastProfileEnabled,
+                    onToggle = {
+                        scope.launch {
+                            profileManager.setRememberLastProfileEnabled(!rememberLastProfileEnabled)
+                        }
                     }
                 )
             }

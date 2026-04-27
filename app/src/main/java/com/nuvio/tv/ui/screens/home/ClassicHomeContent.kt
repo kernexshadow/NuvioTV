@@ -1,7 +1,10 @@
 package com.nuvio.tv.ui.screens.home
 
 import com.nuvio.tv.LocalContentFocusRequester
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.platform.LocalDensity
 import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -49,6 +53,10 @@ private class FocusSnapshot(
     var itemIndex: Int,
     var rowKey: String? = null
 )
+
+private const val CLASSIC_CATALOG_POSTER_SCALE = 1.35f
+private const val CLASSIC_SECONDARY_ROW_POSTER_SCALE = 1.2f
+private val CLASSIC_ROW_HEADER_FOCUS_INSET = 85.dp
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -75,6 +83,40 @@ fun ClassicHomeContent(
     scrollToTopTrigger: Int = 0,
     onRequestLazyCatalogLoad: (String) -> Unit = {}
 ) {
+    val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
+    val density = LocalDensity.current
+    val verticalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec) {
+        val topInsetPx = with(density) { CLASSIC_ROW_HEADER_FOCUS_INSET.toPx() }
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+        object : BringIntoViewSpec {
+            override val scrollAnimationSpec: AnimationSpec<Float> =
+                defaultBringIntoViewSpec.scrollAnimationSpec
+
+            override fun calculateScrollDistance(
+                offset: Float,
+                size: Float,
+                containerSize: Float
+            ): Float = offset - topInsetPx
+        }
+    }
+    val classicCatalogPosterCardStyle = remember(posterCardStyle) {
+        posterCardStyle.copy(
+            width = posterCardStyle.width * CLASSIC_CATALOG_POSTER_SCALE,
+            height = posterCardStyle.height * CLASSIC_CATALOG_POSTER_SCALE
+        )
+    }
+    val classicSecondaryPosterCardStyle = remember(posterCardStyle) {
+        posterCardStyle.copy(
+            width = posterCardStyle.width * CLASSIC_SECONDARY_ROW_POSTER_SCALE,
+            height = posterCardStyle.height * CLASSIC_SECONDARY_ROW_POSTER_SCALE
+        )
+    }
+    val classicContinueWatchingCardWidth = remember(classicSecondaryPosterCardStyle) {
+        classicSecondaryPosterCardStyle.width * (16f / 9f)
+    }
+    val classicContinueWatchingImageHeight = remember(classicSecondaryPosterCardStyle) {
+        classicSecondaryPosterCardStyle.width
+    }
 
     // Nested prefetch: when LazyColumn prefetches a row ahead of scrolling,
     // pre-compose up to 2 ContentCards in its nested LazyRow across multiple frames.
@@ -250,6 +292,7 @@ fun ClassicHomeContent(
     }
 
     CompositionLocalProvider(
+        LocalBringIntoViewSpec provides verticalBringIntoViewSpec,
         LocalVerticalScrollSuppressImages provides (uiState.memoryOnlyVerticalScroll && isVerticalScrollingState.value),
         LocalFastScrollActive provides isFastScrolling
     ) {
@@ -379,7 +422,9 @@ fun ClassicHomeContent(
                         currentFocusSnapshot.itemIndex = itemIndex
                     },
                     blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
-                    downFocusRequester = cwDownRequester
+                    downFocusRequester = cwDownRequester,
+                    cardWidth = classicContinueWatchingCardWidth,
+                    imageHeight = classicContinueWatchingImageHeight
                 )
             }
         }
@@ -431,7 +476,7 @@ fun ClassicHomeContent(
 
                     CatalogRowSection(
                         catalogRow = catalogRow,
-                        posterCardStyle = posterCardStyle,
+                        posterCardStyle = classicCatalogPosterCardStyle,
                         showPosterLabels = uiState.posterLabelsEnabled,
                         showAddonName = uiState.catalogAddonNameEnabled,
                         showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,
@@ -492,6 +537,7 @@ fun ClassicHomeContent(
                         collection = homeRow.collection,
                         onFolderClick = onNavigateToFolderDetail,
                         listState = listState,
+                        posterCardStyle = classicSecondaryPosterCardStyle,
                         focusedItemIndex = collectionFocusedItemIndex,
                         entryFocusRequester = rowEntryFocusRequesters.getOrPut(collectionKey) { FocusRequester() },
                         onItemFocused = { itemIndex ->

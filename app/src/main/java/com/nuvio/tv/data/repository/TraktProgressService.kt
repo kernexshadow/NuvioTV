@@ -177,6 +177,11 @@ class TraktProgressService @Inject constructor(
     private val inFlightEpisodeProgressKeys = mutableSetOf<String>()
     private val episodeProgressLastAttemptAtMs = mutableMapOf<String, Long>()
     private val serviceStartedAtMs = SystemClock.elapsedRealtime()
+    /** Grace period after service creation before we allow an empty emission from
+     *  [observeAllProgress]. Gives the first Trakt fetch time to complete so the
+     *  CW pipeline doesn't flash an empty state. After this window, an empty list
+     *  is emitted so the pipeline can fall back to the disk cache. */
+    private val initialLoadGracePeriodMs = 8_000L
     private var cachedMoviesPlayback: TimedCache<List<TraktPlaybackItemDto>>? = null
     private var cachedEpisodesPlayback: TimedCache<List<TraktPlaybackItemDto>>? = null
     private var cachedUserStats: TimedCache<TraktCachedStats>? = null
@@ -399,11 +404,23 @@ class TraktProgressService @Inject constructor(
     }
 
     fun observeAllProgress(): Flow<List<WatchProgress>> {
+        val gracePeriodExpired = flow {
+            emit(false)
+            val remaining = initialLoadGracePeriodMs - (SystemClock.elapsedRealtime() - serviceStartedAtMs)
+            if (remaining > 0) delay(remaining)
+            emit(true)
+        }.distinctUntilChanged()
+
+        val effectiveLoaded = combine(
+            hasLoadedRemoteProgress,
+            gracePeriodExpired
+        ) { loaded, expired -> loaded || expired }
+
         return combine(
             remoteProgress,
             optimisticProgress,
             metadataState,
-            hasLoadedRemoteProgress,
+            effectiveLoaded,
             hiddenProgressShowIds
         ) { remote, optimistic, metadata, loaded, hiddenIds ->
             val now = System.currentTimeMillis()
@@ -411,7 +428,10 @@ class TraktProgressService @Inject constructor(
                 .filterValues { it.expiresAtMs > now }
                 .mapValues { it.value.progress }
 
-            // Avoid emitting a transient empty state before first remote fetch completes.
+            // Avoid emitting a transient empty state before first remote fetch
+            // completes. Once the grace period expires, emit an empty list so
+            // the CW pipeline can fall back to its disk cache instead of
+            // blocking indefinitely.
             if (!loaded && remote.isEmpty() && validOptimistic.isEmpty()) {
                 return@combine null
             }

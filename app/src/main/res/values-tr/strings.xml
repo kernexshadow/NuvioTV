@@ -130,7 +130,7 @@
     <string name="hero_director">Yönetmen: %1$s</string>
     <string name="hero_writer">Yazar: %1$s</string>
     <string name="hero_play">Oynat</string>
-    <string name="hero_play_episode">Oynat S%1$d, B%2$d</string>
+    <string name="hero_play_episode">Oynat S%1$d B%2$d</string>
     <string name="hero_add_to_library">Kütüphaneye ekle</string>
     <string name="hero_remove_from_library">Kütüphaneden kaldır</string>
     <string name="hero_mark_watched">İzlendi olarak işaretle</string>
@@ -172,9 +172,9 @@
     <!-- MetaDetailsScreen -->
     <string name="detail_btn_play">Oynat</string>
     <string name="detail_btn_resume">Devam Et</string>
-    <string name="detail_btn_play_episode">Oynat S%1$dB%2$d</string>
-    <string name="detail_btn_resume_episode">Devam Et S%1$dB%2$d</string>
-    <string name="detail_btn_next_episode">Sıradaki S%1$dB%2$d</string>
+    <string name="detail_btn_play_episode">Oynat S%1$d B%2$d</string>
+    <string name="detail_btn_resume_episode">Devam Et S%1$d B%2$d</string>
+    <string name="detail_btn_next_episode">Sıradaki S%1$d B%2$d</string>
     <string name="detail_tab_cast">Oyuncular</string>
     <string name="cast_role_creator">Yapımcı</string>
     <string name="cast_role_director">Yönetmen</string>

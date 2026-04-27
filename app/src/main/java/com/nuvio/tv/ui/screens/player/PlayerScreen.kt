@@ -218,7 +218,9 @@ fun PlayerScreen(
                     viewModel.pauseForLifecycle()
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    // Don't auto-resume, let user control
+                    // Re-create the MediaSession so media controls work in foreground.
+                    // Don't auto-resume playback — let the user press play.
+                    viewModel.resumeForLifecycle()
                 }
                 else -> {}
             }
@@ -1264,11 +1266,13 @@ private fun ExoPlayerSurface(
 
     DisposableEffect(playerView) {
         val listener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            playerView.applyExoAspectMode(latestAspectMode)
+            playerView.post {
+                playerView.applyExoAspectMode(latestAspectMode)
+            }
         }
-        playerView.addOnLayoutChangeListener(listener)
+        val removeListener = addExoAspectLayoutChangeListener(playerView, listener)
         onDispose {
-            playerView.removeOnLayoutChangeListener(listener)
+            removeListener()
         }
     }
 

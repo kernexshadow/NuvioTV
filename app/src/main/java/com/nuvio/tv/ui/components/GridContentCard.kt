@@ -60,6 +60,7 @@ fun GridContentCard(
     isWatched: Boolean = false,
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
     onLongPress: (() -> Unit)? = null,
     onFocused: () -> Unit = {}
 ) {
@@ -90,8 +91,15 @@ fun GridContentCard(
                     else Modifier
                 )
                 .then(
-                    if (upFocusRequester != null) {
-                        Modifier.focusProperties { up = upFocusRequester }
+                    if (upFocusRequester != null || downFocusRequester != null) {
+                        Modifier.focusProperties {
+                            if (upFocusRequester != null) {
+                                up = upFocusRequester
+                            }
+                            if (downFocusRequester != null) {
+                                down = downFocusRequester
+                            }
+                        }
                     } else {
                         Modifier
                     }

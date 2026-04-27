@@ -210,15 +210,19 @@ private fun ModernCatalogRowItem(
     val latestOnCatalogSelectionFocused by rememberUpdatedState(onCatalogSelectionFocused)
 
     LaunchedEffect(focusEventId, isCardFocused, focusKey) {
-        if (focusEventId == 0 || !isCardFocused) return@LaunchedEffect
+        if (focusEventId == 0 || !isCardFocused) {
+            return@LaunchedEffect
+        }
         val targetEventId = focusEventId
         delay(MODERN_HORIZONTAL_FOCUS_DEBOUNCE_MS)
-        if (!isCardFocused || focusEventId != targetEventId) return@LaunchedEffect
+        if (!isCardFocused || focusEventId != targetEventId) {
+            return@LaunchedEffect
+        }
 
         latestOnFocused()
         item.metaPreview?.let { latestOnItemFocus(it) }
         latestOnPreloadAdjacentItem()
-        if (payload is ModernPayload.Catalog) {
+        if (payload is ModernPayload.Catalog && !payload.itemId.startsWith("__placeholder_")) {
             latestOnCatalogSelectionFocused(
                 FocusedCatalogSelection(
                     focusKey = focusKey,
@@ -434,12 +438,27 @@ internal fun ModernRowSection(
             }
             // Use index-based key matching the LazyRow key scheme
             val targetStableKey = "${row.key}_0"
-            repeat(15) {
+            var focusRestored = false
+            repeat(15) { attempt ->
                 val requester = uiCaches.itemFocusRequesters[row.key]?.get(targetStableKey)
                 if (requester != null) {
                     val ok = runCatching { requester.requestFocus(); true }.getOrDefault(false)
                     if (ok) {
                         blockingFocusExit.value = false
+                        focusRestored = true
+                        // Directly notify selection since the new composable's
+                        // focusEventId resets to 0 and won't fire on its own.
+                        onRowItemFocused(row.key, 0, false)
+                        val firstItem = row.items.firstOrNull()
+                        val firstPayload = firstItem?.payload as? ModernPayload.Catalog
+                        if (firstPayload != null && !firstPayload.itemId.startsWith("__placeholder_")) {
+                            onCatalogSelectionFocused(
+                                FocusedCatalogSelection(
+                                    focusKey = firstPayload.focusKey,
+                                    payload = firstPayload
+                                )
+                            )
+                        }
                         return@LaunchedEffect
                     }
                 }
@@ -693,7 +712,8 @@ internal fun ModernRowSection(
         }
 
         CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalBringIntoViewSpec) {
-            val lastFocusedIdx = focusedItemByRow[rowKey] ?: 0
+            val initialIdx = remember(rowKey) { focusedItemByRow[rowKey] ?: 0 }
+            var lastFocusedIdx by remember { mutableIntStateOf(initialIdx)}
             val restoreIdx = lastFocusedIdx.coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
             val restoreStableKey = "${row.key}_$restoreIdx"
             val restoreFocusRequester = uiCaches.requesterFor(rowKey, restoreStableKey)
@@ -735,7 +755,9 @@ internal fun ModernRowSection(
                     val requester = uiCaches.requesterFor(row.key, stableItemKey)
                     val isContinueWatchingRow = row.key == MODERN_CONTINUE_WATCHING_ROW_KEY
                     val onFocused = remember(row.key, index, isContinueWatchingRow) {
-                        { onRowItemFocused(row.key, index, isContinueWatchingRow) }
+                        { onRowItemFocused(row.key, index, isContinueWatchingRow)
+                            lastFocusedIdx = index
+                            focusedItemByRow[row.key] = index }
                     }
                     val isCwPayload = item.payload is ModernPayload.ContinueWatching
 

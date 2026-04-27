@@ -99,7 +99,9 @@ fun ContinueWatchingSection(
     focusedItemIndex: Int = -1,
     onItemFocused: (itemIndex: Int) -> Unit = {},
     blurUnwatchedEpisodes: Boolean = false,
-    downFocusRequester: FocusRequester? = null
+    downFocusRequester: FocusRequester? = null,
+    cardWidth: Dp = 288.dp,
+    imageHeight: Dp = 162.dp
 ) {
     if (items.isEmpty()) return
 
@@ -199,6 +201,8 @@ fun ContinueWatchingSection(
                     onClick = { onItemClick(progress) },
                     onLongPress = { optionsItem = progress },
                     blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                    cardWidth = cardWidth,
+                    imageHeight = imageHeight,
                     modifier = Modifier
                         .onFocusChanged { focusState ->
                             if (focusState.isFocused && lastFocusedIndex != index) {

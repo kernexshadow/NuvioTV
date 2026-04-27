@@ -131,7 +131,7 @@
     <string name="hero_director">Director: %1$s</string>
     <string name="hero_writer">Writer: %1$s</string>
     <string name="hero_play">Play</string>
-    <string name="hero_play_episode">Play S%1$d, E%2$d</string>
+    <string name="hero_play_episode">Play S%1$d E%2$d</string>
     <string name="hero_add_to_library">Add to library</string>
     <string name="hero_remove_from_library">Remove from library</string>
     <string name="hero_mark_watched">Mark as watched</string>
@@ -152,6 +152,7 @@
     <string name="episodes_mark_season_unwatched">Mark season as unwatched</string>
     <string name="episodes_mark_previous_watched">Mark previous in this season as watched</string>
     <string name="episodes_play">Play</string>
+    <string name="episodes_open_comments">Open episode comments</string>
     <string name="play_manually">Play manually</string>
     <string name="episodes_season_actions">Season actions</string>
 
@@ -173,9 +174,9 @@
     <!-- MetaDetailsScreen -->
     <string name="detail_btn_play">Play</string>
     <string name="detail_btn_resume">Resume</string>
-    <string name="detail_btn_play_episode">Play S%1$dE%2$d</string>
-    <string name="detail_btn_resume_episode">Resume S%1$dE%2$d</string>
-    <string name="detail_btn_next_episode">Next S%1$dE%2$d</string>
+    <string name="detail_btn_play_episode">Play S%1$d E%2$d</string>
+    <string name="detail_btn_resume_episode">Resume S%1$d E%2$d</string>
+    <string name="detail_btn_next_episode">Next S%1$d E%2$d</string>
     <string name="detail_tab_cast">Creator and Cast</string>
     <string name="cast_role_creator">Creator</string>
     <string name="cast_role_director">Director</string>
@@ -187,6 +188,12 @@
     <string name="detail_more_like_this_powered_by_trakt">Powered by Trakt</string>
     <string name="detail_comments_title">Comments</string>
     <string name="detail_comments_subtitle">Reviews from Trakt</string>
+    <string name="detail_comments_subtitle_episode">Reviews from Trakt for S%1$dE%2$d</string>
+    <string name="detail_comments_mode_show">Show</string>
+    <string name="detail_comments_mode_episode">Episode</string>
+    <string name="detail_comments_mode_episode_change">Change Episode (%1$s)</string>
+    <string name="detail_comments_episode_picker_title">Choose Episode</string>
+    <string name="detail_comments_episode_picker_subtitle">Pick an episode to view its Trakt reviews</string>
     <string name="detail_section_network">Network</string>
     <string name="detail_section_production">Production</string>
     <string name="detail_comments_empty">No Trakt reviews available yet.</string>
@@ -310,6 +317,8 @@
     <string name="advanced_clear_cw_cache">Clear Continue Watching Cache</string>
     <string name="advanced_clear_cw_cache_subtitle">Remove cached thumbnails, titles, and enrichment data for Continue Watching</string>
     <string name="advanced_clear_cw_cache_done">Cache cleared</string>
+    <string name="advanced_remember_last_profile">Remember Last Profile</string>
+    <string name="advanced_remember_last_profile_subtitle">Remember last selected profile at startup</string>
     <string name="settings_debug">Debug</string>
     <string name="settings_debug_subtitle">Developer tools and feature flags</string>
     <string name="settings_plugins_section_subtitle">Manage repositories, providers, and plugin states</string>
@@ -331,6 +340,8 @@
     <string name="cd_decrease">Decrease</string>
     <string name="cd_increase">Increase</string>
     <string name="action_cancel">Cancel</string>
+    <string name="action_apply">Apply</string>
+    <string name="sub_opacity">Opacity</string>
     <string name="action_none">None</string>
     <string name="action_close">Close</string>
 
@@ -970,7 +981,7 @@
     <string name="player_ends_at">Ends at %1$s</string>
     <string name="player_via">via %1$s</string>
     <!-- Season/episode code shown in player UI (e.g. S01E02). %1$d = season, %2$d = episode. -->
-    <string name="season_episode_format">S%1$02dE%2$02d</string>
+    <string name="season_episode_format">S%1$d E%2$d</string>
     <string name="player_subtitle_delay">Subtitles Delay</string>
     <string name="player_error_title">Playback Error</string>
     <string name="player_go_back">Go Back</string>
@@ -1069,6 +1080,7 @@
     <string name="subtitle_style_font_size">Font Size</string>
     <string name="subtitle_style_bold">Bold</string>
     <string name="subtitle_style_text_color">Text Color</string>
+    <string name="subtitle_style_text_opacity">Text Opacity</string>
     <string name="subtitle_style_outline">Outline</string>
     <string name="subtitle_style_bottom_offset">Bottom Offset</string>
     <string name="subtitle_style_defaults">Defaults</string>
