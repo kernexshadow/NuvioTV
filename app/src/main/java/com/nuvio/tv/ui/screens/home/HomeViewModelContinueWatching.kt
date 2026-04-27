@@ -303,13 +303,22 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 // have been fully unmarked as watched.
                 val activeSeedContentIds = nextUpSeeds
                     .mapTo(mutableSetOf()) { it.contentId }
+                // When Trakt seeds haven't loaded yet (empty seeds + empty items),
+                // we can't tell which shows were truly unmarked vs simply not
+                // fetched yet. Skip the seed-based eviction so cached next-up
+                // items survive until real data arrives.
+                val seedsNotYetLoaded = useTraktProgress && activeSeedContentIds.isEmpty() && items.isEmpty()
 
                 // Evict in-memory next-up caches for series that lost all seeds
                 // (e.g. user unmarked all episodes as watched).
-                synchronized(discoveredOlderNextUpItems) {
-                    discoveredOlderNextUpItems.removeAll { it.info.contentId !in activeSeedContentIds }
+                // Skip eviction when seeds haven't loaded yet to avoid wiping
+                // valid cached items before Trakt responds.
+                if (!seedsNotYetLoaded) {
+                    synchronized(discoveredOlderNextUpItems) {
+                        discoveredOlderNextUpItems.removeAll { it.info.contentId !in activeSeedContentIds }
+                    }
+                    cwEnrichedNextUpOverlay.keys.removeAll { it !in activeSeedContentIds }
                 }
-                cwEnrichedNextUpOverlay.keys.removeAll { it !in activeSeedContentIds }
 
                 debug.logStart(
                     snapshot = snapshot,
@@ -440,7 +449,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     if (!cached.hasAired && !showUnairedNextUp) return@mapNotNull null
                     // Drop if the series no longer has any watched-episode seeds
                     // (e.g. user unmarked all episodes as watched).
-                    if (cached.contentId !in activeSeedContentIds) return@mapNotNull null
+                    if (!seedsNotYetLoaded && cached.contentId !in activeSeedContentIds) return@mapNotNull null
                     ContinueWatchingItem.NextUp(
                         info = NextUpInfo(
                             contentId = cached.contentId,
@@ -858,8 +867,9 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 }
                 // Preserve cached next-up items from disk until async inject re-verifies them.
                 // Drop items whose series no longer has any watched-episode seeds.
+                // When seeds haven't loaded yet, keep all cached items.
                 val cachedOlderNextUp = cachedNextUp
-                    .filter { it.contentId in activeSeedContentIds }
+                    .filter { seedsNotYetLoaded || it.contentId in activeSeedContentIds }
                     .map { cached ->
                         ContinueWatchingItem.NextUp(
                             info = NextUpInfo(
@@ -903,7 +913,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     .filter {
                         val isCachedFromDisk = cachedOlderNextUp.any { c -> c.info.contentId == it.info.contentId }
                         val pass =
-                            (it.info.contentId in activeSeedContentIds || isCachedFromDisk) &&
+                            (seedsNotYetLoaded || it.info.contentId in activeSeedContentIds || isCachedFromDisk) &&
                             it.info.contentId !in recentIds &&
                             it.info.contentId !in inProgressIds &&
                             // Reject items the fresh pipeline evaluated but produced no
