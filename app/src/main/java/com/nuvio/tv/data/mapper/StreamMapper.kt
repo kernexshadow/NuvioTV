@@ -6,9 +6,11 @@ import com.nuvio.tv.data.remote.dto.StreamClientResolveParsedDto
 import com.nuvio.tv.data.remote.dto.StreamClientResolveRawDto
 import com.nuvio.tv.data.remote.dto.StreamClientResolveStreamDto
 import com.nuvio.tv.data.remote.dto.StreamClientResolveDto
+import com.nuvio.tv.data.remote.dto.StreamArchiveSourceDto
 import com.nuvio.tv.data.remote.dto.StreamDto
 import com.nuvio.tv.domain.model.ProxyHeaders
 import com.nuvio.tv.domain.model.Stream
+import com.nuvio.tv.domain.model.StreamArchiveSource
 import com.nuvio.tv.domain.model.StreamBehaviorHints
 import com.nuvio.tv.domain.model.StreamClientResolve
 import com.nuvio.tv.domain.model.StreamClientResolveParsed
@@ -28,7 +30,20 @@ fun StreamDto.toDomain(addonName: String, addonLogo: String?): Stream = Stream(
     addonName = addonName,
     addonLogo = addonLogo,
     sources = sources,
-    clientResolve = clientResolve?.toDomain()
+    clientResolve = clientResolve?.toDomain(),
+    nzbUrl = nzbUrl,
+    servers = servers,
+    fileMustInclude = fileMustInclude,
+    rarUrls = rarUrls?.map { it.toDomain() },
+    zipUrls = zipUrls?.map { it.toDomain() },
+    sevenZipUrls = sevenZipUrls?.map { it.toDomain() },
+    tgzUrls = tgzUrls?.map { it.toDomain() },
+    tarUrls = tarUrls?.map { it.toDomain() }
+)
+
+fun StreamArchiveSourceDto.toDomain(): StreamArchiveSource = StreamArchiveSource(
+    url = url,
+    bytes = bytes
 )
 
 fun StreamClientResolveDto.toDomain(): StreamClientResolve = StreamClientResolve(

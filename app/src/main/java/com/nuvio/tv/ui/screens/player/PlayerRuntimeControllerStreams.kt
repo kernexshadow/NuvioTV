@@ -622,6 +622,7 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
     headers: Map<String, String>
 ) {
     if (!streamReuseLastLinkEnabled) return
+    if (nntpService.ownsLocalUrl(url)) return
 
     val key = streamCacheKey ?: return
     val streamName = (stream.name?.takeIf { it.isNotBlank() } ?: stream.addonName)?.takeIf { it.isNotBlank() }
@@ -736,6 +737,16 @@ internal fun PlayerRuntimeController.switchToSourceStream(
         return
     }
 
+    if (stream.isNzb()) {
+        launchNntpSourceStream(
+            stream = stream,
+            season = currentSeason,
+            episode = currentEpisode,
+            fromEpisodePanel = false
+        )
+        return
+    }
+
     if (stream.isTorrent()) {
         debridResolveJob?.cancel()
         _uiState.update { it.copy(isLoadingSourceStreams = true, sourceStreamsError = null) }
@@ -784,8 +795,9 @@ internal fun PlayerRuntimeController.switchToSourceStream(
         return
     }
 
-    // Stop any active torrent before switching to HTTP stream
+    // Stop local engines that do not own the selected HTTP stream.
     stopTorrentStream()
+    if (!nntpService.ownsLocalUrl(url)) stopNntpStream()
 
     nextEpisodeAutoPlayJob?.cancel()
     nextEpisodeAutoPlayJob = null
@@ -1264,6 +1276,20 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
         return
     }
 
+    if (stream.isNzb()) {
+        val resolveSeason = forcedTargetVideo?.season ?: _uiState.value.episodeStreamsSeason ?: currentSeason
+        val resolveEpisode = forcedTargetVideo?.episode ?: _uiState.value.episodeStreamsEpisode ?: currentEpisode
+        launchNntpSourceStream(
+            stream = stream,
+            season = resolveSeason,
+            episode = resolveEpisode,
+            fromEpisodePanel = true,
+            forcedTargetVideo = forcedTargetVideo,
+            isAutoPlay = isAutoPlay
+        )
+        return
+    }
+
     if (stream.isTorrent()) {
         val resolveSeason = forcedTargetVideo?.season ?: _uiState.value.episodeStreamsSeason ?: currentSeason
         val resolveEpisode = forcedTargetVideo?.episode ?: _uiState.value.episodeStreamsEpisode ?: currentEpisode
@@ -1321,8 +1347,9 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
         isAutoPlay = isAutoPlay,
     )
 
-    // Stop any active torrent before switching to HTTP stream
+    // Stop local engines that do not own the selected HTTP stream.
     stopTorrentStream()
+    if (!nntpService.ownsLocalUrl(url)) stopNntpStream()
 
     nextEpisodeAutoPlayJob?.cancel()
     nextEpisodeAutoPlayJob = null
