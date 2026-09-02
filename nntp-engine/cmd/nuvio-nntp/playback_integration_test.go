@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -10,13 +11,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestLoopbackStreamServesRangeFromNNTPArticle(t *testing.T) {
 	media := append([]byte{0x1a, 0x45, 0xdf, 0xa3}, bytes.Repeat([]byte("nuvio-nntp"), 256)...)
-	nntpAddress, stopNNTP := startFakeNNTPServer(t, media)
+	nntpAddress, _, stopNNTP := startFakeNNTPServer(t, media)
 	defer stopNNTP()
 
 	nzbServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -67,12 +69,57 @@ func TestLoopbackStreamServesRangeFromNNTPArticle(t *testing.T) {
 	}
 }
 
-func startFakeNNTPServer(t *testing.T, media []byte) (string, func()) {
+func TestSessionCacheReusesDownloadedArticle(t *testing.T) {
+	media := append([]byte{0x1a, 0x45, 0xdf, 0xa3}, bytes.Repeat([]byte("cached-nntp"), 128)...)
+	nntpAddress, bodyRequests, stopNNTP := startFakeNNTPServer(t, media)
+	defer stopNNTP()
+
+	nzbServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+  <file poster="test" date="1" subject="&quot;video.mkv&quot; yEnc">
+    <groups><group>alt.binaries.test</group></groups>
+    <segments><segment bytes="%d" number="1">article@test</segment></segments>
+  </file>
+</nzb>`, len(media)))
+	}))
+	defer nzbServer.Close()
+
+	host, port, err := net.SplitHostPort(nntpAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := newSessionRegistry(1, time.Minute)
+	defer registry.closeAll()
+	session, err := registry.create(createSessionRequest{
+		NZBURL:  nzbServer.URL,
+		Servers: []string{fmt.Sprintf("nntp://user:password@%s:%s/2", host, port)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		got, downloadErr := session.files[0].DownloadSegment(context.Background(), 0)
+		if downloadErr != nil {
+			t.Fatal(downloadErr)
+		}
+		if !bytes.Equal(got, media) {
+			t.Fatalf("attempt %d returned different media", attempt+1)
+		}
+	}
+	if got := bodyRequests(); got != 1 {
+		t.Fatalf("BODY requests = %d, want 1 (second read must use session cache)", got)
+	}
+}
+
+func startFakeNNTPServer(t *testing.T, media []byte) (string, func() int64, func()) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
+	var bodyCount atomic.Int64
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -81,16 +128,16 @@ func startFakeNNTPServer(t *testing.T, media []byte) (string, func()) {
 			if acceptErr != nil {
 				return
 			}
-			go serveFakeNNTPConnection(connection, media)
+			go serveFakeNNTPConnection(connection, media, &bodyCount)
 		}
 	}()
-	return listener.Addr().String(), func() {
+	return listener.Addr().String(), bodyCount.Load, func() {
 		_ = listener.Close()
 		<-done
 	}
 }
 
-func serveFakeNNTPConnection(connection net.Conn, media []byte) {
+func serveFakeNNTPConnection(connection net.Conn, media []byte, bodyCount *atomic.Int64) {
 	defer connection.Close()
 	reader := bufio.NewReader(connection)
 	writer := bufio.NewWriter(connection)
@@ -112,6 +159,7 @@ func serveFakeNNTPConnection(connection net.Conn, media []byte) {
 		case strings.HasPrefix(command, "STAT"):
 			_, _ = writer.WriteString("223 1 <article@test>\r\n")
 		case strings.HasPrefix(command, "BODY"):
+			bodyCount.Add(1)
 			_, _ = writer.WriteString("222 1 <article@test>\r\n")
 			_, _ = writer.Write(encodeYEncArticle(media))
 		case strings.HasPrefix(command, "QUIT"):

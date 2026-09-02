@@ -22,7 +22,10 @@ import (
 	usenetpool "streamnzb/pkg/usenet/pool"
 )
 
-const maxNZBSize = 64 << 20
+const (
+	maxNZBSize            = 64 << 20
+	sessionSegmentCacheMB = 64
+)
 
 type createSessionRequest struct {
 	NZBURL          string   `json:"nzbUrl"`
@@ -41,6 +44,7 @@ type engineSession struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	clients  []*nntp.ClientPool
+	cache    usenetpool.SegmentCache
 	files    []*loader.File
 	document *nzb.NZB
 	target   unpack.EpisodeTarget
@@ -95,7 +99,13 @@ func newEngineSession(request createSessionRequest, httpClient *http.Client) (*e
 			ClientPool: client,
 		})
 	}
-	pool, err := usenetpool.NewPool(&usenetpool.Config{Providers: providerConfigs})
+	segmentCache := usenetpool.NewMemorySegmentCacheWithBudget(
+		usenetpool.NewSegmentCacheBudget(sessionSegmentCacheMB),
+	)
+	pool, err := usenetpool.NewPool(&usenetpool.Config{
+		Providers:    providerConfigs,
+		SegmentCache: segmentCache,
+	})
 	if err != nil {
 		shutdownClients(clients)
 		return nil, fmt.Errorf("failed to initialize NNTP providers")
@@ -137,6 +147,7 @@ func newEngineSession(request createSessionRequest, httpClient *http.Client) (*e
 		ctx:      ctx,
 		cancel:   cancel,
 		clients:  clients,
+		cache:    segmentCache,
 		files:    files,
 		document: document,
 		target:   target,
@@ -203,6 +214,9 @@ func (s *engineSession) close() {
 	s.closeOnce.Do(func() {
 		s.cancel()
 		shutdownClients(s.clients)
+		if s.cache != nil {
+			s.cache.Purge()
+		}
 	})
 }
 
