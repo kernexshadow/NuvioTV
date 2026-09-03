@@ -372,6 +372,7 @@
     <string name="licenses_attributions_section_app">APP LICENSE</string>
     <string name="licenses_attributions_section_data">DATA &amp; SERVICES</string>
     <string name="licenses_attributions_section_playback">ANDROID PLAYBACK LICENSES</string>
+    <string name="licenses_attributions_section_usenet">USENET ENGINE LICENSES</string>
     <string name="licenses_attributions_nuvio_title">Nuvio TV</string>
     <string name="licenses_attributions_nuvio_body">Source code and license terms are available in the project repository. Licensed under the GNU General Public License v3.0.</string>
     <string name="licenses_attributions_tmdb_title">The Movie Database (TMDB)</string>
@@ -394,6 +395,10 @@
     <string name="licenses_attributions_exoplayer_body">Used as an Android playback engine. Licensed under the Apache License, Version 2.0.</string>
     <string name="licenses_attributions_libmpv_title">libmpv / libmpv-android</string>
     <string name="licenses_attributions_libmpv_body">Used as an Android playback engine. The libmpv-android wrapper is licensed under the MIT license; mpv/libmpv and bundled native components retain their upstream license terms.</string>
+    <string name="licenses_attributions_streamnzb_title">StreamNZB</string>
+    <string name="licenses_attributions_streamnzb_body">Modified and embedded as Nuvio\'s local NNTP/NZB streaming engine. StreamNZB-derived code and the Nuvio wrapper are distributed under GNU GPL v3.0. The complete license and modification notice are bundled with the app.</string>
+    <string name="licenses_attributions_rardecode_title">rardecode</string>
+    <string name="licenses_attributions_rardecode_body">Vendored archive decoder used by the NNTP engine. Copyright 2015 Nicholas Waples. Licensed under the BSD 2-Clause License; the complete notice is bundled with the app.</string>
 
     <!-- SettingsScreen categories -->
     <string name="settings_experience">Experience</string>
