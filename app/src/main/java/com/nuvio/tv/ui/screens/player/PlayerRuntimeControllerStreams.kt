@@ -597,6 +597,7 @@ private fun PlayerRuntimeController.applyStreamMetadata(stream: Stream) {
     currentStreamBingeGroup = stream.behaviorHints?.bingeGroup
     currentVideoHash = stream.behaviorHints?.videoHash
     currentVideoSize = stream.behaviorHints?.videoSize
+    streamSubtitles = stream.subtitles
     currentAddonName = stream.addonName
     currentAddonLogo = stream.addonLogo
     currentStreamDescription = stream.description
@@ -1433,6 +1434,7 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
             postPlayMode = null,
             postPlayDismissedForCurrentEpisode = true,
             playbackEnded = false,
+            isNextEpisodeMetadataResolved = false,
         )
     }
     showStreamSourceIndicator(stream)
@@ -1544,6 +1546,7 @@ private fun PlayerRuntimeController.switchToEpisodeStreamCommon(
             postPlayMode = null,
             postPlayDismissedForCurrentEpisode = true,
             playbackEnded = false,
+            isNextEpisodeMetadataResolved = false,
         )
     }
     showStreamSourceIndicator(stream)
@@ -1642,6 +1645,7 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 nextEpisode = episodeForMode,
                 searching = true,
             ),
+            playbackEnded = false,
         )
     }
 

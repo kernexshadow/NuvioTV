@@ -13,7 +13,7 @@ Module versions used to build the native executable are pinned in `go.mod` and
 
 ## NuvioTV modifications
 
-NuvioTV modifications began on 2026-09-01 and were last updated on 2026-09-03.
+NuvioTV modifications began on 2026-09-01 and were last updated on 2026-09-07.
 They comprise:
 
 - a loopback HTTP API and Android entry point under `cmd/nuvio-nntp/`;

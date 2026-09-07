@@ -22,6 +22,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -158,6 +161,11 @@ class StartupSyncService @Inject constructor(
         )
     }
 
+    private val _manualAddonRefreshes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /** Emits after a manual addon refresh, so screens holding catalogs can re-request them. */
+    val manualAddonRefreshes: SharedFlow<Unit> = _manualAddonRefreshes.asSharedFlow()
+
     fun requestAddonSyncNow() {
         val profileId = profileManager.activeProfileId.value
         Log.d(TAG, "Manual addon sync enqueued for profile $profileId")
@@ -178,6 +186,9 @@ class StartupSyncService @Inject constructor(
                 Log.e(TAG, "Manual addon sync failed for profile $profileId", e)
             } finally {
                 addonRepository.isSyncingFromRemote = false
+                // The user asked for a refresh, so let screens holding catalogs re-request them
+                // even when the addon list itself came back unchanged.
+                _manualAddonRefreshes.tryEmit(Unit)
             }
         }
     }
@@ -196,7 +207,6 @@ class StartupSyncService @Inject constructor(
                 "plugins" -> pullRealtimePlugins(profileId)
                 "library" -> pullNuvioLibrary(profileId)
                 "watch_progress" -> {
-                    watchProgressSyncService.restoreLastPushTimestamp(profileId)
                     syncWatchProgressDelta(
                         profileId = profileId,
                         pushUnsynced = false,
@@ -204,8 +214,7 @@ class StartupSyncService @Inject constructor(
                     )
                 }
                 "watched_items" -> {
-                    watchedItemsSyncService.restoreLastPushTimestamp(profileId)
-                    if (watchProgressSyncService.shouldUseSupabaseWatchProgressSync()) {
+                    if (watchProgressSyncService.shouldUseSupabaseWatchProgressSync(profileId)) {
                         pullWatchedItemsDelta(profileId = profileId, pushUnsynced = false)
                     } else {
                         watchProgressRepository.hasCompletedInitialWatchedItemsPull = true
@@ -298,9 +307,7 @@ class StartupSyncService @Inject constructor(
         if (authManager.authState.value !is AuthState.FullAccount) return false
 
         val profileId = profileManager.activeProfileId.value
-        val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync()
-        watchProgressSyncService.restoreLastPushTimestamp(profileId)
-        watchedItemsSyncService.restoreLastPushTimestamp(profileId)
+        val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync(profileId)
         Log.d(
             TAG,
             "Periodic watch state pull: profile=$profileId shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
@@ -444,9 +451,7 @@ class StartupSyncService @Inject constructor(
             Log.d(TAG, "Pulling remote data for profile $profileId")
             pullBroadRemoteData(profileId, includeProfileSettings)
 
-            val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync()
-            watchProgressSyncService.restoreLastPushTimestamp(profileId)
-            watchedItemsSyncService.restoreLastPushTimestamp(profileId)
+            val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync(profileId)
             Log.d(
                 TAG,
                 "Watch progress sync: shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
@@ -488,9 +493,7 @@ class StartupSyncService @Inject constructor(
         try {
             Log.d(TAG, "Running warm remote sync for profile $profileId")
             pullBroadRemoteData(profileId, includeProfileSettings)
-            val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync()
-            watchProgressSyncService.restoreLastPushTimestamp(profileId)
-            watchedItemsSyncService.restoreLastPushTimestamp(profileId)
+            val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync(profileId)
             Log.d(
                 TAG,
                 "Warm watch progress sync: shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"

@@ -219,6 +219,12 @@ fun PlaybackSettingsContent(
                 onShowStreamRegexDialog = { openDialog { showStreamRegexDialog = true } },
                 onShowNextEpisodeThresholdModeDialog = { openDialog { showNextEpisodeThresholdModeDialog = true } },
                 onShowReuseLastLinkCacheDialog = { openDialog { showReuseLastLinkCacheDialog = true } },
+                onSetPostPlayRecommendationsEnabled = { enabled ->
+                    coroutineScope.launch { viewModel.setPostPlayRecommendationsEnabled(enabled) }
+                },
+                onSetPostPlayMovieThresholdPercent = { percent ->
+                    coroutineScope.launch { viewModel.setPostPlayMovieThresholdPercent(percent) }
+                },
                 onSetStreamAutoPlayNextEpisodeEnabled = { enabled ->
                     coroutineScope.launch { viewModel.setStreamAutoPlayNextEpisodeEnabled(enabled) }
                 },
@@ -309,6 +315,11 @@ fun PlaybackSettingsContent(
                 },
                 onSetStripHdr10PlusSei = { enabled ->
                     coroutineScope.launch { viewModel.setStripHdr10PlusSei(enabled) }
+                },
+                onSetMpvHi10pGnextSoftwareFallbackEnabled = { enabled ->
+                    coroutineScope.launch {
+                        viewModel.setMpvHi10pGnextSoftwareFallbackEnabled(enabled)
+                    }
                 },
                 onSetBufferEngineEnabled = { enabled ->
                     coroutineScope.launch { viewModel.setBufferEngineEnabled(enabled) }
@@ -1245,12 +1256,17 @@ internal fun LanguageSelectionDialog(
         val baseList = if (title == tmdbTitle) AVAILABLE_TMDB_LANGUAGES else AVAILABLE_SUBTITLE_LANGUAGES
         baseList.sortedBy { it.displayName.lowercase() }
     }
+    val originalHint = stringResource(R.string.audio_lang_original_hint)
     val languageOptions: List<SettingsPickerOption<String?>> = buildList {
         if (showNoneOption) {
             add(SettingsPickerOption(null, stringResource(R.string.action_none)))
         }
         extraOptions.forEach { (code, name) ->
-            add(SettingsPickerOption(code, name, trailing = code.uppercase()))
+            add(SettingsPickerOption(
+                code, name,
+                description = if (code == AudioLanguageOption.ORIGINAL) originalHint else null,
+                trailing = if (code == AudioLanguageOption.ORIGINAL) null else code.uppercase()
+            ))
         }
         sortedLanguages.forEach { language ->
             add(SettingsPickerOption(language.code, language.displayName, trailing = language.code.uppercase()))
@@ -1300,11 +1316,14 @@ internal fun ColorSelectionDialog(
                 .heightIn(max = 360.dp)
         ) {
             // Color grid using LazyRow for proper TV focus
+            val firstColorFocusRequester = remember { FocusRequester() }
             LazyRow(
                 state = colorListState,
                 horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
                 contentPadding = PaddingValues(horizontal = NuvioTheme.spacing.sm),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .settingsOptionRow(firstColorFocusRequester)
             ) {
                 items(
                     count = colors.size,
@@ -1325,7 +1344,13 @@ internal fun ColorSelectionDialog(
                             Modifier.focusRequester(focusRequester)
                         } else {
                             Modifier
-                        }
+                        }.then(
+                            if (index == 0) {
+                                Modifier.focusRequester(firstColorFocusRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
                     )
                 }
             }

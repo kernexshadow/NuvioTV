@@ -268,6 +268,7 @@ fun LibraryScreen(
         state = gridState,
         modifier = Modifier
             .fillMaxSize()
+            .background(NuvioTheme.colors.Background)
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
                 if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount > 0) {
@@ -362,6 +363,7 @@ fun LibraryScreen(
                     selectedYear = uiState.selectedYear,
                     selectedWatchedFilter = uiState.selectedWatchedFilter,
                     primaryFocusRequester = selectorFocusRequester,
+                    upFocusRequester = primaryFocusRequester,
                     expandedPicker = expandedPicker,
                     onExpandedChange = { picker, shouldExpand ->
                         expandedPicker = if (shouldExpand) picker else null
@@ -465,6 +467,7 @@ fun LibraryScreen(
                     typeOptions = uiState.availableCloudTypes,
                     selectedProviderId = uiState.selectedCloudProviderId,
                     selectedType = uiState.selectedCloudType,
+                    upFocusRequester = primaryFocusRequester,
                     expandedPicker = expandedPicker,
                     onExpandedChange = { picker, shouldExpand ->
                         expandedPicker = if (shouldExpand) picker else null
@@ -663,12 +666,12 @@ private fun LibraryViewModeRow(
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)) {
-            LibraryViewMode.entries.forEachIndexed { index, mode ->
+            LibraryViewMode.entries.forEach { mode ->
                 val selected = mode == selectedMode
                 Button(
                     onClick = { onSelected(mode) },
                     modifier = Modifier
-                        .then(if (index == 0) Modifier.focusRequester(primaryFocusRequester) else Modifier),
+                        .then(if (selected) Modifier.focusRequester(primaryFocusRequester) else Modifier),
                     colors = ButtonDefaults.colors(
                         containerColor = if (selected) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
                         contentColor = NuvioTheme.colors.TextPrimary
@@ -694,6 +697,7 @@ private fun CloudLibrarySelectorsRow(
     typeOptions: List<FilterOption>,
     selectedProviderId: String?,
     selectedType: CloudLibraryItemType?,
+    upFocusRequester: FocusRequester,
     expandedPicker: String?,
     onExpandedChange: (String, Boolean) -> Unit,
     onSelectProvider: (String?) -> Unit,
@@ -710,6 +714,7 @@ private fun CloudLibrarySelectorsRow(
     ) {
         LibraryDropdownPicker(
             modifier = Modifier.weight(1f),
+            upFocusRequester = upFocusRequester,
             title = stringResource(R.string.cloud_library_select_provider),
             value = selectedProviderLabel,
             selectedValue = selectedProviderId ?: "__all__",
@@ -725,6 +730,7 @@ private fun CloudLibrarySelectorsRow(
 
         LibraryDropdownPicker(
             modifier = Modifier.weight(1f),
+            upFocusRequester = upFocusRequester,
             title = stringResource(R.string.cloud_library_select_type),
             value = selectedTypeLabel,
             selectedValue = selectedType?.name ?: "__all__",
@@ -1079,6 +1085,7 @@ private fun LibrarySelectorsRow(
     selectedYear: String?,
     selectedWatchedFilter: LibraryWatchedFilter,
     primaryFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester,
     expandedPicker: String?,
     onExpandedChange: (String, Boolean) -> Unit,
     onSelectList: (String) -> Unit,
@@ -1111,6 +1118,7 @@ private fun LibrarySelectorsRow(
                     modifier = Modifier
                         .weight(1f)
                         .focusRequester(primaryFocusRequester),
+                    upFocusRequester = upFocusRequester,
                     title = stringResource(R.string.library_filter_list),
                     value = selectedListLabel,
                     selectedValue = selectedListKey,
@@ -1129,6 +1137,7 @@ private fun LibrarySelectorsRow(
                         .weight(1f)
                         .focusRequester(primaryFocusRequester)
                 },
+                upFocusRequester = upFocusRequester,
                 title = stringResource(R.string.library_filter_type),
                 value = selectedTypeLabel,
                 selectedValue = selectedTypeTab?.key,
@@ -1150,6 +1159,7 @@ private fun LibrarySelectorsRow(
             if (sortOptions.isNotEmpty()) {
                 LibraryDropdownPicker(
                     modifier = Modifier.weight(1f),
+                    upFocusRequester = upFocusRequester,
                     title = stringResource(R.string.library_filter_sort),
                     value = selectedSortLabel,
                     selectedValue = selectedSortOption.key,
@@ -1227,6 +1237,7 @@ private fun LibrarySelectorsRow(
 @Composable
 private fun LibraryDropdownPicker(
     modifier: Modifier = Modifier,
+    upFocusRequester: FocusRequester? = null,
     title: String,
     value: String,
     selectedValue: String?,
@@ -1271,6 +1282,13 @@ private fun LibraryDropdownPicker(
             onClick = { onExpandedChange(!expanded) },
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    if (upFocusRequester != null) {
+                        Modifier.focusProperties { up = upFocusRequester }
+                    } else {
+                        Modifier
+                    }
+                )
                 .onSizeChanged { anchorSize = it }
                 .onFocusChanged { isFocused = it.isFocused },
             shape = CardDefaults.shape(shape = RoundedCornerShape(14.dp)),
