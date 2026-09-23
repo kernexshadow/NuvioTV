@@ -29,8 +29,10 @@ internal object SubtitleAutoSyncTargetedValidation {
     private const val MIN_CONFIRMATION_SIGMA = 1.25
     private const val MIN_CONFIRMATION_AGREEMENT = 0.25
     private const val MIN_CONFIRMATION_WINDOWS = 2
-    private const val CONFIRMATION_OFFSET_TOLERANCE_MS = 2_000
-    private const val MAX_CONFIRMATION_SPREAD_MS = 1_800
+    // The search itself is +/-8 s, so allowing the historical +/-3 s timing variation cannot
+    // self-confirm a result pinned to the search boundary. Two confirmations must still agree.
+    private const val CONFIRMATION_OFFSET_TOLERANCE_MS = 3_000
+    private const val MAX_CONFIRMATION_SPREAD_MS = 2_500
 
     fun shouldStart(
         candidate: SubtitleAutoSyncResult,

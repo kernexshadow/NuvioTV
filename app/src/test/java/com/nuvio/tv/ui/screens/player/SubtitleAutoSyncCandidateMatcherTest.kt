@@ -2,8 +2,10 @@ package com.nuvio.tv.ui.screens.player
 
 import com.nuvio.tv.domain.model.Subtitle
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SubtitleAutoSyncCandidateMatcherTest {
@@ -137,6 +139,110 @@ class SubtitleAutoSyncCandidateMatcherTest {
         assertSame(winner, actual)
     }
 
+    @Test
+    fun `stable strong near miss is nominated for independent validation`() {
+        val previous = candidate(
+            "stable",
+            result(
+                confidence = 0.721,
+                success = false,
+                offsetMs = 2_200,
+                margin = 0.119,
+                sigma = 3.53,
+                agreement = 0.50,
+                windows = 12
+            )
+        )
+        val latest = candidate(
+            "stable",
+            result(
+                confidence = 0.689,
+                success = false,
+                offsetMs = 2_200,
+                margin = 0.108,
+                sigma = 3.16,
+                agreement = 0.43,
+                windows = 14
+            )
+        )
+
+        val actual = SubtitleAutoSyncCandidateMatcher.stableNearMiss(
+            listOf(listOf(previous), listOf(latest))
+        )
+
+        assertSame(latest, actual)
+    }
+
+    @Test
+    fun `near miss must repeat the same offset and pass quality floors`() {
+        val previous = candidate(
+            "unstable",
+            result(confidence = 0.72, success = false, offsetMs = -196_800)
+        )
+        val jumped = candidate(
+            "unstable",
+            result(confidence = 0.72, success = false, offsetMs = 2_200)
+        )
+        val weakPrevious = candidate(
+            "weak",
+            result(confidence = 0.61, success = false, offsetMs = 58_600)
+        )
+        val weakLatest = candidate(
+            "weak",
+            result(confidence = 0.68, success = false, offsetMs = 58_600)
+        )
+
+        assertNull(
+            SubtitleAutoSyncCandidateMatcher.stableNearMiss(
+                listOf(listOf(previous), listOf(jumped))
+            )
+        )
+        assertNull(
+            SubtitleAutoSyncCandidateMatcher.stableNearMiss(
+                listOf(listOf(weakPrevious), listOf(weakLatest))
+            )
+        )
+    }
+
+    @Test
+    fun `excluded stable winner allows next stable subtitle to be validated`() {
+        val firstPrevious = candidate(
+            "first",
+            result(confidence = 0.72, success = false, offsetMs = 2_200, windows = 12)
+        )
+        val firstLatest = candidate(
+            "first",
+            result(confidence = 0.69, success = false, offsetMs = 2_200, windows = 14)
+        )
+        val secondPrevious = candidate(
+            "second",
+            result(confidence = 0.68, success = false, offsetMs = 58_600, windows = 12)
+        )
+        val secondLatest = candidate(
+            "second",
+            result(confidence = 0.67, success = false, offsetMs = 58_600, windows = 14)
+        )
+
+        val actual = SubtitleAutoSyncCandidateMatcher.stableNearMiss(
+            evaluationRounds = listOf(
+                listOf(firstPrevious, secondPrevious),
+                listOf(firstLatest, secondLatest)
+            ),
+            excludedTrackKeys = setOf("first|https://subs/first.srt")
+        )
+
+        assertSame(secondLatest, actual)
+    }
+
+    @Test
+    fun `alternatives are evaluated on first and final two probes`() {
+        assertTrue(SubtitleAutoSyncCandidateMatcher.shouldEvaluateAlternativesAtProbe(0, 5))
+        assertFalse(SubtitleAutoSyncCandidateMatcher.shouldEvaluateAlternativesAtProbe(1, 5))
+        assertFalse(SubtitleAutoSyncCandidateMatcher.shouldEvaluateAlternativesAtProbe(2, 5))
+        assertTrue(SubtitleAutoSyncCandidateMatcher.shouldEvaluateAlternativesAtProbe(3, 5))
+        assertTrue(SubtitleAutoSyncCandidateMatcher.shouldEvaluateAlternativesAtProbe(4, 5))
+    }
+
     private fun subtitle(id: String, url: String, lang: String = "en") = Subtitle(
         id = id,
         url = url,
@@ -151,13 +257,21 @@ class SubtitleAutoSyncCandidateMatcherTest {
             result = result
         )
 
-    private fun result(confidence: Double, success: Boolean) = SubtitleAutoSyncResult(
-        offsetMs = 0,
+    private fun result(
+        confidence: Double,
+        success: Boolean,
+        offsetMs: Int = 0,
+        margin: Double = 0.10,
+        sigma: Double = 6.0,
+        agreement: Double = 0.80,
+        windows: Int = 3
+    ) = SubtitleAutoSyncResult(
+        offsetMs = offsetMs,
         confidence = confidence,
-        scoreMargin = 0.10,
-        sigma = 6.0,
-        windowAgreement = 0.80,
-        evidenceWindows = 3,
+        scoreMargin = margin,
+        sigma = sigma,
+        windowAgreement = agreement,
+        evidenceWindows = windows,
         rejection = if (success) SubtitleAutoSyncRejection.NONE else SubtitleAutoSyncRejection.LOW_CONFIDENCE
     )
 }

@@ -1,6 +1,8 @@
 package com.nuvio.tv.ui.screens.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SubtitleFastAudioProbePolicyTest {
@@ -35,6 +37,13 @@ class SubtitleFastAudioProbePolicyTest {
 
         assertEquals(8f, plan.playbackSpeed)
         assertEquals(20_000L, plan.activeDecodeTimeoutMs)
+    }
+
+    @Test
+    fun `short scout gets a timeout proportional to its target`() {
+        val plan = SubtitleFastAudioProbePolicy.planForSpeed(4f)
+
+        assertEquals(7_000L, SubtitleFastAudioProbePolicy.timeoutForTarget(plan, 12_000L))
     }
 
     @Test
@@ -89,4 +98,85 @@ class SubtitleFastAudioProbePolicyTest {
 
         assertEquals(2f, SubtitleFastAudioProbePolicy.afterProbe(initial, result).playbackSpeed)
     }
+
+    @Test
+    fun `successful two times probe trials four times with the proven timeout budget`() {
+        val initial = SubtitleFastAudioProbePolicy.planForSpeed(2f)
+        val result = completedProbe(activeDecodeDurationMs = 30_000L)
+
+        val next = SubtitleFastAudioProbePolicy.afterProbe(initial, result)
+
+        assertEquals(4f, next.playbackSpeed)
+        assertEquals(40_000L, next.activeDecodeTimeoutMs)
+        assertTrue(next.isUpshiftTrial)
+    }
+
+    @Test
+    fun `fast successful trial becomes the normal four times plan`() {
+        val trial = SubtitleFastAudioProbePolicy.planForSpeed(4f).copy(
+            activeDecodeTimeoutMs = 40_000L,
+            isUpshiftTrial = true
+        )
+
+        val next = SubtitleFastAudioProbePolicy.afterProbe(
+            trial,
+            completedProbe(activeDecodeDurationMs = 15_000L)
+        )
+
+        assertEquals(4f, next.playbackSpeed)
+        assertEquals(25_000L, next.activeDecodeTimeoutMs)
+        assertFalse(next.isUpshiftTrial)
+    }
+
+    @Test
+    fun `slow successful trial returns to two times`() {
+        val trial = SubtitleFastAudioProbePolicy.planForSpeed(4f).copy(
+            activeDecodeTimeoutMs = 40_000L,
+            isUpshiftTrial = true
+        )
+
+        val next = SubtitleFastAudioProbePolicy.afterProbe(
+            trial,
+            completedProbe(activeDecodeDurationMs = 30_000L)
+        )
+
+        assertEquals(2f, next.playbackSpeed)
+        assertFalse(next.isUpshiftTrial)
+    }
+
+    @Test
+    fun `incomplete speed trial returns to the previous tier`() {
+        val trial = SubtitleFastAudioProbePolicy.planForSpeed(4f).copy(
+            activeDecodeTimeoutMs = 40_000L,
+            isUpshiftTrial = true
+        )
+        val result = SubtitleFastAudioProbeResult(
+            snapshot = SubtitleSpeechSnapshot(
+                speechSpans = emptyList(),
+                observedSpans = listOf(SubtitleSyncSpan(0L, 20_000L)),
+                pcmAvailable = true
+            ),
+            decodedStartMs = 0L,
+            decodedEndMs = 20_000L,
+            termination = SubtitleFastAudioProbeTermination.WALL_TIMEOUT,
+            activeDecodeDurationMs = 40_000L
+        )
+
+        val next = SubtitleFastAudioProbePolicy.afterProbe(trial, result)
+
+        assertEquals(2f, next.playbackSpeed)
+        assertFalse(next.isUpshiftTrial)
+    }
+
+    private fun completedProbe(activeDecodeDurationMs: Long) = SubtitleFastAudioProbeResult(
+        snapshot = SubtitleSpeechSnapshot(
+            speechSpans = emptyList(),
+            observedSpans = listOf(SubtitleSyncSpan(0L, 60_000L)),
+            pcmAvailable = true
+        ),
+        decodedStartMs = 0L,
+        decodedEndMs = 60_000L,
+        termination = SubtitleFastAudioProbeTermination.TARGET_REACHED,
+        activeDecodeDurationMs = activeDecodeDurationMs
+    )
 }

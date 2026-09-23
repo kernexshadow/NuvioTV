@@ -43,6 +43,12 @@ internal data class SubtitleFastAudioProbeRequest(
     val mediaDurationMs: Long,
     val selectedAudioTrack: TrackInfo?,
     val playbackSpeed: Float = 8f,
+    /** Amount of decoded media-time PCM to collect before completing this probe. */
+    val targetAudioDurationMs: Long = 60_000L,
+    /** Window used for EOF clamping; scouts keep the same start as the later full probe. */
+    val windowDurationMs: Long = targetAudioDurationMs,
+    /** PCM already decoded by a short scout at the same position. */
+    val seedSnapshot: SubtitleSpeechSnapshot? = null,
     /** Time allowed after the first PCM frame, excluding stream/index startup. */
     val maxWallClockMs: Long = DEFAULT_FAST_AUDIO_PROBE_MAX_WALL_CLOCK_MS,
     val startupTimeoutMs: Long = DEFAULT_FAST_AUDIO_PROBE_STARTUP_TIMEOUT_MS
@@ -60,7 +66,10 @@ internal data class SubtitleFastAudioProbeResult(
     val decodedStartMs: Long?,
     val decodedEndMs: Long?,
     val failureReason: String? = null,
-    val termination: SubtitleFastAudioProbeTermination = SubtitleFastAudioProbeTermination.ERROR
+    val termination: SubtitleFastAudioProbeTermination = SubtitleFastAudioProbeTermination.ERROR,
+    val wallClockMs: Long = 0L,
+    val startupDurationMs: Long = 0L,
+    val activeDecodeDurationMs: Long = 0L
 ) {
     val decodedDurationMs: Long
         get() = if (decodedStartMs != null && decodedEndMs != null) {
@@ -95,7 +104,6 @@ internal class SubtitleFastAudioProbe(
 
     private companion object {
         const val TAG = "SubtitleFastProbe"
-        const val TARGET_AUDIO_MS = 60_000L
         const val PRE_ROLL_MS = 5_000L
         const val POLL_INTERVAL_MS = 40L
         const val RELEASE_TIMEOUT_MS = 2_000L
@@ -125,7 +133,21 @@ internal class SubtitleFastAudioProbe(
                 return@withContext errorResult("Missing stream URL")
             }
 
-            val requestedStartMs = resolveWindowStartMs(request)
+            val seedSnapshot = request.seedSnapshot?.takeIf { it.pcmAvailable }
+            val seedObservedMs = seedSnapshot?.observedDurationMs() ?: 0L
+            val totalTargetMs = request.targetAudioDurationMs.coerceAtLeast(1L)
+            val completeSeed = seedSnapshot?.takeIf { seedObservedMs >= totalTargetMs }
+            if (completeSeed != null) {
+                return@withContext completeSeed.toProbeResult(
+                    termination = SubtitleFastAudioProbeTermination.TARGET_REACHED,
+                    failureReason = null
+                )
+            }
+            val requestedStartMs = seedSnapshot
+                ?.observedSpans
+                ?.maxOfOrNull { it.endMs }
+                ?: resolveWindowStartMs(request)
+            val remainingTargetMs = (totalTargetMs - seedObservedMs).coerceAtLeast(1L)
             val startedAtMs = SystemClock.elapsedRealtime()
             var firstPcmAtMs: Long? = null
             var activeSession: ProbeSession? = null
@@ -196,7 +218,12 @@ internal class SubtitleFastAudioProbe(
                         // (notably with large MKV cue tables). An absolute end timestamp therefore
                         // cannot prove that a full window was decoded. Count the union of PCM that
                         // the collector actually observed instead.
-                        if (hasReachedSubtitleFastAudioTarget(snapshot.observedSpans)) {
+                        if (
+                            hasReachedSubtitleFastAudioTarget(
+                                observedSpans = snapshot.observedSpans,
+                                targetDurationMs = remainingTargetMs
+                            )
+                        ) {
                             return@withTimeoutOrNull SubtitleFastAudioProbeTermination.TARGET_REACHED
                         }
                         if (currentSession.playbackEnded) {
@@ -216,7 +243,16 @@ internal class SubtitleFastAudioProbe(
                     SubtitleFastAudioProbeTermination.ERROR
                 } ?: SubtitleFastAudioProbeTermination.WALL_TIMEOUT
 
-                val snapshot = collector.snapshot()
+                val collectedSnapshot = collector.snapshot()
+                val snapshot = mergeSubtitleFastAudioProbeSnapshots(seedSnapshot, collectedSnapshot)
+                val finishedAtMs = SystemClock.elapsedRealtime()
+                val startupDurationMs = firstPcmAtMs
+                    ?.minus(playbackStartedAtMs)
+                    ?.coerceAtLeast(0L)
+                    ?: (finishedAtMs - playbackStartedAtMs).coerceAtLeast(0L)
+                val activeDecodeDurationMs = firstPcmAtMs
+                    ?.let { (finishedAtMs - it).coerceAtLeast(0L) }
+                    ?: 0L
                 val failureReason = when {
                     currentSession.playerError != null -> currentSession.playerError?.message
                     currentSession.trackSelectionFailure != null ->
@@ -235,11 +271,18 @@ internal class SubtitleFastAudioProbe(
                 Log.i(
                     TAG,
                     "Exo audio probe finished: termination=$termination speed=${playbackSpeed}x " +
-                        "wall=${SystemClock.elapsedRealtime() - startedAtMs}ms " +
+                        "wall=${finishedAtMs - startedAtMs}ms " +
                         "firstPcm=${firstPcmAtMs?.minus(playbackStartedAtMs) ?: -1L}ms " +
-                        "decoded=${snapshot.observedDurationMs()}ms"
+                        "decoded=${snapshot.observedDurationMs()}ms " +
+                        "reused=${seedObservedMs}ms target=${totalTargetMs}ms"
                 )
-                snapshot.toProbeResult(termination, failureReason)
+                snapshot.toProbeResult(
+                    termination = termination,
+                    failureReason = failureReason,
+                    wallClockMs = finishedAtMs - startedAtMs,
+                    startupDurationMs = startupDurationMs,
+                    activeDecodeDurationMs = activeDecodeDurationMs
+                )
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -389,9 +432,8 @@ internal class SubtitleFastAudioProbe(
         }
 
         current.audioOverrideResolved = true
-        // Track discovery may already have decoded default-track PCM while collection was paused.
-        // Re-seek before enabling the collector so the requested window is not silently shortened.
-        current.player.seekTo(current.requestedStartMs)
+        // probe() already sought before resolving the track. If an override was required, the
+        // branch above also sought after applying it. A third seek here only repeats startup work.
         current.collector.startCollecting(clearExisting = true)
         Log.i(
             TAG,
@@ -412,7 +454,10 @@ internal class SubtitleFastAudioProbe(
     private fun resolveWindowStartMs(request: SubtitleFastAudioProbeRequest): Long {
         val preferred = (request.preferredStartMs - PRE_ROLL_MS).coerceAtLeast(0L)
         if (request.mediaDurationMs <= 0L) return preferred
-        return preferred.coerceAtMost((request.mediaDurationMs - TARGET_AUDIO_MS).coerceAtLeast(0L))
+        val windowDurationMs = request.windowDurationMs.coerceAtLeast(1L)
+        return preferred.coerceAtMost(
+            (request.mediaDurationMs - windowDurationMs).coerceAtLeast(0L)
+        )
     }
 
     private fun errorResult(reason: String) = SubtitleFastAudioProbeResult(
@@ -524,14 +569,39 @@ private fun audioTrackMatchScore(candidate: ProbeAudioTrack, selected: TrackInfo
 
 private fun SubtitleSpeechSnapshot.toProbeResult(
     termination: SubtitleFastAudioProbeTermination,
-    failureReason: String?
+    failureReason: String?,
+    wallClockMs: Long = 0L,
+    startupDurationMs: Long = 0L,
+    activeDecodeDurationMs: Long = 0L
 ): SubtitleFastAudioProbeResult = SubtitleFastAudioProbeResult(
     snapshot = takeIf { it.pcmAvailable },
     decodedStartMs = observedSpans.minOfOrNull { it.startMs },
     decodedEndMs = observedSpans.maxOfOrNull { it.endMs },
     failureReason = failureReason,
-    termination = termination
+    termination = termination,
+    wallClockMs = wallClockMs,
+    startupDurationMs = startupDurationMs,
+    activeDecodeDurationMs = activeDecodeDurationMs
 )
+
+internal fun mergeSubtitleFastAudioProbeSnapshots(
+    seed: SubtitleSpeechSnapshot?,
+    collected: SubtitleSpeechSnapshot
+): SubtitleSpeechSnapshot {
+    if (seed == null || !seed.pcmAvailable) return collected
+    return SubtitleSpeechSnapshot(
+        speechSpans = SubtitleAutoSyncEngine.mergeSpans(
+            seed.speechSpans + collected.speechSpans,
+            allowedGapMs = 300L
+        ),
+        observedSpans = SubtitleAutoSyncEngine.mergeSpans(
+            seed.observedSpans + collected.observedSpans,
+            allowedGapMs = 120L
+        ),
+        pcmAvailable = seed.pcmAvailable || collected.pcmAvailable,
+        failureReason = collected.failureReason ?: seed.failureReason
+    )
+}
 
 private fun SubtitleSpeechSnapshot.observedDurationMs(): Long =
     mergedObservedDurationMs(observedSpans)

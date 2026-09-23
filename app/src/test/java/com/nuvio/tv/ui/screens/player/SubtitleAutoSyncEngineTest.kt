@@ -339,6 +339,68 @@ class SubtitleAutoSyncEngineTest {
     }
 
     @Test
+    fun `splitting one utterance across subtitle lines does not lower its match`() {
+        val unsplit = mutableListOf<SubtitleSyncCue>()
+        val split = mutableListOf<SubtitleSyncCue>()
+        var startMs = 1_500L
+        repeat(14) { index ->
+            val durationMs = 2_800L + (index % 4) * 350L
+            val endMs = startMs + durationMs
+            val middleMs = startMs + durationMs / 2L
+            unsplit += SubtitleSyncCue(startMs, endMs, "Complete spoken sentence $index")
+            split += SubtitleSyncCue(startMs, middleMs, "First sentence part $index")
+            split += SubtitleSyncCue(middleMs, endMs, "Second sentence part $index")
+            startMs = endMs + 900L + (index % 3) * 400L
+        }
+        val expectedOffsetMs = 2_400
+        val snapshot = speechSnapshot(unsplit, expectedOffsetMs)
+
+        val unsplitResult = SubtitleAutoSyncEngine.findBestOffset(
+            cues = unsplit,
+            snapshot = snapshot,
+            minimumOffsetMs = -10_000,
+            maximumOffsetMs = 10_000
+        )
+        val splitResult = SubtitleAutoSyncEngine.findBestOffset(
+            cues = split,
+            snapshot = snapshot,
+            minimumOffsetMs = -10_000,
+            maximumOffsetMs = 10_000
+        )
+
+        assertTrue(abs(unsplitResult.offsetMs - expectedOffsetMs) <= 200)
+        assertEquals(unsplitResult, splitResult)
+    }
+
+    @Test
+    fun `window agreement accepts a nearby virtually flat peak`() {
+        assertTrue(
+            SubtitleAutoSyncEngine.windowSupportsCandidate(
+                candidateOffsetMs = 50_000,
+                localBestOffsetMs = 51_600,
+                candidateScore = 0.61,
+                localBestScore = 0.63
+            )
+        )
+        assertFalse(
+            SubtitleAutoSyncEngine.windowSupportsCandidate(
+                candidateOffsetMs = 50_000,
+                localBestOffsetMs = 51_600,
+                candidateScore = 0.57,
+                localBestScore = 0.63
+            )
+        )
+        assertFalse(
+            SubtitleAutoSyncEngine.windowSupportsCandidate(
+                candidateOffsetMs = 50_000,
+                localBestOffsetMs = 53_000,
+                candidateScore = 0.629,
+                localBestScore = 0.63
+            )
+        )
+    }
+
+    @Test
     fun `wide search does not turn periodic no overlap candidates into confidence`() {
         val cues = (0 until 180).map { index ->
             val start = 500_000L + index * 4_000L

@@ -68,10 +68,13 @@ internal object SubtitleAutoSyncEngine {
     private const val COMPETING_PEAK_DISTANCE_MS = 2_000
     private const val AGREEMENT_SEARCH_RADIUS_MS = 5_000
     private const val AGREEMENT_TOLERANCE_MS = 700
+    private const val AGREEMENT_FLAT_PEAK_TOLERANCE_MS = 2_500
+    private const val AGREEMENT_MAX_SCORE_LOSS = 0.025
     private const val ONSET_FULL_MATCH_MS = 250L
     private const val ONSET_MAX_MATCH_MS = 1_800L
     private const val ONSET_SCORE_WEIGHT = 0.18
     private const val MIN_ONSET_CUES = 3
+    private const val ONSET_DIALOGUE_BLOCK_GAP_MS = 300L
     private const val MIN_WINDOW_SPEECH_MS = 600L
     private const val MIN_WINDOW_F1 = 0.20
     private const val MIN_WINDOW_LOCAL_MARGIN = 0.005
@@ -135,13 +138,14 @@ internal object SubtitleAutoSyncEngine {
         }
         val dialogueSpans = dialogueSpans(cueFeatures)
         val subtitleSpans = mergeSpans(dialogueSpans, allowedGapMs = BIN_MS)
-        val scoringContext = ScoringContext(
+        val subtitleOnsets = dialogueOnsets(cueFeatures)
+        val scoringContext = scoringContext(
             sampleTimes = sampleTimes,
             speechMask = speechMask,
             subtitleSpans = subtitleSpans,
             windows = windows,
             speechOnsets = speech.map { it.startMs }.toLongArray(),
-            cueFeatures = cueFeatures
+            subtitleOnsets = subtitleOnsets
         )
 
         val derivedMinimumOffsetMs = windows.minOf { it.startMs } - subtitleSpans.maxOf { it.endMs }
@@ -175,7 +179,7 @@ internal object SubtitleAutoSyncEngine {
                 windows = windows,
                 speech = speech,
                 subtitleSpans = subtitleSpans,
-                cueFeatures = cueFeatures,
+                subtitleOnsets = subtitleOnsets,
                 searchMinimumOffsetMs = searchMinimumOffsetMs,
                 searchMaximumOffsetMs = searchMaximumOffsetMs,
                 acceptance = SearchAcceptance.standard
@@ -197,7 +201,7 @@ internal object SubtitleAutoSyncEngine {
                 windows = windows,
                 speech = speech,
                 subtitleSpans = subtitleSpans,
-                cueFeatures = cueFeatures,
+                subtitleOnsets = subtitleOnsets,
                 searchMinimumOffsetMs = localMinimumOffsetMs,
                 searchMaximumOffsetMs = localMaximumOffsetMs,
                 acceptance = SearchAcceptance.standard
@@ -224,7 +228,7 @@ internal object SubtitleAutoSyncEngine {
             windows = windows,
             speech = speech,
             subtitleSpans = subtitleSpans,
-            cueFeatures = cueFeatures,
+            subtitleOnsets = subtitleOnsets,
             searchMinimumOffsetMs = searchMinimumOffsetMs,
             searchMaximumOffsetMs = searchMaximumOffsetMs,
             acceptance = SearchAcceptance.global
@@ -237,7 +241,7 @@ internal object SubtitleAutoSyncEngine {
         windows: List<SubtitleSyncSpan>,
         speech: List<SubtitleSyncSpan>,
         subtitleSpans: List<SubtitleSyncSpan>,
-        cueFeatures: List<SubtitleAutoSyncCueFeature>,
+        subtitleOnsets: List<SubtitleOnset>,
         searchMinimumOffsetMs: Int,
         searchMaximumOffsetMs: Int,
         acceptance: SearchAcceptance
@@ -245,14 +249,16 @@ internal object SubtitleAutoSyncEngine {
         val candidates = search.candidates
         val best = candidates.maxByOrNull { it.score }
             ?: return rejected(SubtitleAutoSyncRejection.LOW_CONFIDENCE)
-        // Confidence statistics must come from a uniformly sampled population. Fine candidates
-        // are deliberately concentrated around the strongest coarse peaks and would otherwise
-        // bias both the competing-peak margin and the robust spread estimate.
+        // The robust spread needs a uniformly sampled population. The competing peak, however,
+        // must include refined candidates or a second fine peak could inflate the margin.
         val statisticsCandidates = search.statisticsCandidates
             .filter { it.hasSubtitleOverlap }
-        val competing = statisticsCandidates
+        val competing = candidates
             .asSequence()
-            .filter { abs(it.offsetMs - best.offsetMs) >= COMPETING_PEAK_DISTANCE_MS }
+            .filter {
+                it.hasSubtitleOverlap &&
+                    abs(it.offsetMs - best.offsetMs) >= COMPETING_PEAK_DISTANCE_MS
+            }
             .maxByOrNull { it.score }
         val margin = (best.score - (competing?.score ?: 0.0)).coerceAtLeast(0.0)
         val sigma = robustSigma(best.score, statisticsCandidates.map { it.score })
@@ -272,7 +278,7 @@ internal object SubtitleAutoSyncEngine {
                 .coerceAtLeast(searchMinimumOffsetMs)
             val localMaximum = (best.offsetMs + AGREEMENT_SEARCH_RADIUS_MS)
                 .coerceAtMost(searchMaximumOffsetMs)
-            val windowContext = ScoringContext(
+            val windowContext = scoringContext(
                 sampleTimes = windowTimes,
                 speechMask = windowSpeech,
                 subtitleSpans = subtitleSpans,
@@ -282,7 +288,7 @@ internal object SubtitleAutoSyncEngine {
                     .filter { it in window.startMs until window.endMs }
                     .toList()
                     .toLongArray(),
-                cueFeatures = cueFeatures
+                subtitleOnsets = subtitleOnsets
             )
             val localScores = scoreRange(
                 minimumOffsetMs = localMinimum,
@@ -306,7 +312,12 @@ internal object SubtitleAutoSyncEngine {
             val informative = scoreAtGlobal.hasSubtitleOverlap &&
                 scoreAtGlobal.f1 >= MIN_WINDOW_F1 &&
                 (localMargin >= MIN_WINDOW_LOCAL_MARGIN || scoreAtGlobal.score >= 0.15)
-            informative && abs(localBest.offsetMs - best.offsetMs) <= AGREEMENT_TOLERANCE_MS
+            informative && windowSupportsCandidate(
+                candidateOffsetMs = best.offsetMs,
+                localBestOffsetMs = localBest.offsetMs,
+                candidateScore = scoreAtGlobal.score,
+                localBestScore = localBest.score
+            )
         }
         val agreeingWindows = agreementEvidence.count { it }
         val agreement = if (agreementEvidence.isEmpty()) {
@@ -354,6 +365,18 @@ internal object SubtitleAutoSyncEngine {
         )
     }
 
+    internal fun windowSupportsCandidate(
+        candidateOffsetMs: Int,
+        localBestOffsetMs: Int,
+        candidateScore: Double,
+        localBestScore: Double
+    ): Boolean {
+        val offsetDifferenceMs = abs(candidateOffsetMs.toLong() - localBestOffsetMs.toLong())
+        if (offsetDifferenceMs <= AGREEMENT_TOLERANCE_MS) return true
+        return offsetDifferenceMs <= AGREEMENT_FLAT_PEAK_TOLERANCE_MS &&
+            localBestScore - candidateScore <= AGREEMENT_MAX_SCORE_LOSS
+    }
+
     private data class CandidateScore(
         val offsetMs: Int,
         val score: Double,
@@ -361,13 +384,21 @@ internal object SubtitleAutoSyncEngine {
         val hasSubtitleOverlap: Boolean
     )
 
-    private data class ScoringContext(
+    private class ScoringContext(
         val sampleTimes: LongArray,
         val speechMask: BooleanArray,
-        val subtitleSpans: List<SubtitleSyncSpan>,
-        val windows: List<SubtitleSyncSpan>,
+        val subtitleStarts: LongArray,
+        val subtitleEnds: LongArray,
+        val windowStarts: LongArray,
+        val windowEnds: LongArray,
         val speechOnsets: LongArray,
-        val cueFeatures: List<SubtitleAutoSyncCueFeature>
+        val subtitleOnsetTimes: LongArray,
+        val subtitleOnsetWeights: DoubleArray
+    )
+
+    private data class SubtitleOnset(
+        val startMs: Long,
+        val weight: Double
     )
 
     private data class CandidateSearch(
@@ -500,19 +531,26 @@ internal object SubtitleAutoSyncEngine {
         var falsePositive = 0
         var falseNegative = 0
         var trueNegative = 0
-        var subtitleIndex = 0
+        var subtitleIndex = if (context.sampleTimes.isEmpty()) {
+            0
+        } else {
+            firstGreaterThan(
+                sortedValues = context.subtitleEnds,
+                target = context.sampleTimes.first() - offsetMs.toLong()
+            )
+        }
 
         context.sampleTimes.forEachIndexed { index, mediaTimeMs ->
             val subtitleTimeMs = mediaTimeMs - offsetMs.toLong()
             while (
-                subtitleIndex < context.subtitleSpans.size &&
-                context.subtitleSpans[subtitleIndex].endMs <= subtitleTimeMs
+                subtitleIndex < context.subtitleEnds.size &&
+                context.subtitleEnds[subtitleIndex] <= subtitleTimeMs
             ) {
                 subtitleIndex++
             }
-            val subtitleActive = subtitleIndex < context.subtitleSpans.size &&
-                context.subtitleSpans[subtitleIndex].startMs <= subtitleTimeMs &&
-                subtitleTimeMs < context.subtitleSpans[subtitleIndex].endMs
+            val subtitleActive = subtitleIndex < context.subtitleStarts.size &&
+                context.subtitleStarts[subtitleIndex] <= subtitleTimeMs &&
+                subtitleTimeMs < context.subtitleEnds[subtitleIndex]
             when {
                 context.speechMask[index] && subtitleActive -> truePositive++
                 !context.speechMask[index] && subtitleActive -> falsePositive++
@@ -555,36 +593,133 @@ internal object SubtitleAutoSyncEngine {
     }
 
     private fun onsetAlignmentQuality(offsetMs: Int, context: ScoringContext): Double? {
-        if (context.speechOnsets.size < MIN_ONSET_CUES) return null
+        if (
+            context.speechOnsets.size < MIN_ONSET_CUES ||
+            context.subtitleOnsetTimes.size < MIN_ONSET_CUES
+        ) {
+            return null
+        }
         var weightedScore = 0.0
         var totalWeight = 0.0
         var cueCount = 0
-        context.cueFeatures.forEach { cue ->
-            val predictedMediaMs = cue.startMs + offsetMs.toLong()
-            if (context.windows.none { predictedMediaMs in it.startMs until it.endMs }) return@forEach
-            val nearestDistanceMs = nearestDistance(predictedMediaMs, context.speechOnsets)
-            val match = when {
-                nearestDistanceMs <= ONSET_FULL_MATCH_MS -> 1.0
-                nearestDistanceMs >= ONSET_MAX_MATCH_MS -> 0.0
-                else -> 1.0 -
-                    (nearestDistanceMs - ONSET_FULL_MATCH_MS).toDouble() /
-                    (ONSET_MAX_MATCH_MS - ONSET_FULL_MATCH_MS).toDouble()
+        context.windowStarts.indices.forEach { windowIndex ->
+            val firstOnset = lowerBound(
+                sortedValues = context.subtitleOnsetTimes,
+                target = context.windowStarts[windowIndex] - offsetMs.toLong()
+            )
+            var onsetIndex = firstOnset
+            val subtitleWindowEnd = context.windowEnds[windowIndex] - offsetMs.toLong()
+            while (
+                onsetIndex < context.subtitleOnsetTimes.size &&
+                context.subtitleOnsetTimes[onsetIndex] < subtitleWindowEnd
+            ) {
+                val predictedMediaMs =
+                    context.subtitleOnsetTimes[onsetIndex] + offsetMs.toLong()
+                val nearestDistanceMs = nearestDistance(predictedMediaMs, context.speechOnsets)
+                val match = when {
+                    nearestDistanceMs <= ONSET_FULL_MATCH_MS -> 1.0
+                    nearestDistanceMs >= ONSET_MAX_MATCH_MS -> 0.0
+                    else -> 1.0 -
+                        (nearestDistanceMs - ONSET_FULL_MATCH_MS).toDouble() /
+                        (ONSET_MAX_MATCH_MS - ONSET_FULL_MATCH_MS).toDouble()
+                }
+                val weight = context.subtitleOnsetWeights[onsetIndex]
+                weightedScore += match * weight
+                totalWeight += weight
+                cueCount++
+                onsetIndex++
             }
-            weightedScore += match * cue.weight
-            totalWeight += cue.weight
-            cueCount++
         }
         if (cueCount < MIN_ONSET_CUES || totalWeight <= 0.0) return null
         return weightedScore / totalWeight
     }
 
     private fun nearestDistance(targetMs: Long, sortedTimes: LongArray): Long {
-        val index = sortedTimes.binarySearch(targetMs)
-        if (index >= 0) return 0L
-        val insertion = -index - 1
-        val before = sortedTimes.getOrNull(insertion - 1)?.let { abs(targetMs - it) }
-        val after = sortedTimes.getOrNull(insertion)?.let { abs(it - targetMs) }
-        return listOfNotNull(before, after).minOrNull() ?: Long.MAX_VALUE
+        val insertion = lowerBound(sortedTimes, targetMs)
+        var distance = Long.MAX_VALUE
+        if (insertion > 0) distance = targetMs - sortedTimes[insertion - 1]
+        if (insertion < sortedTimes.size) {
+            distance = minOf(distance, sortedTimes[insertion] - targetMs)
+        }
+        return distance
+    }
+
+    private fun scoringContext(
+        sampleTimes: LongArray,
+        speechMask: BooleanArray,
+        subtitleSpans: List<SubtitleSyncSpan>,
+        windows: List<SubtitleSyncSpan>,
+        speechOnsets: LongArray,
+        subtitleOnsets: List<SubtitleOnset>
+    ): ScoringContext = ScoringContext(
+        sampleTimes = sampleTimes,
+        speechMask = speechMask,
+        subtitleStarts = subtitleSpans.mapToLongArray { it.startMs },
+        subtitleEnds = subtitleSpans.mapToLongArray { it.endMs },
+        windowStarts = windows.mapToLongArray { it.startMs },
+        windowEnds = windows.mapToLongArray { it.endMs },
+        speechOnsets = speechOnsets,
+        subtitleOnsetTimes = subtitleOnsets.mapToLongArray { it.startMs },
+        subtitleOnsetWeights = DoubleArray(subtitleOnsets.size) { index ->
+            subtitleOnsets[index].weight
+        }
+    )
+
+    /**
+     * Cue boundaries inside uninterrupted dialogue are layout decisions, not new utterances.
+     * Group them before comparing subtitle starts with VAD speech starts.
+     */
+    private fun dialogueOnsets(
+        cueFeatures: List<SubtitleAutoSyncCueFeature>
+    ): List<SubtitleOnset> = buildList {
+        if (cueFeatures.isEmpty()) return@buildList
+        var blockStartMs = cueFeatures.first().startMs
+        var blockEndMs = cueFeatures.first().endMs
+        var blockWeight = cueFeatures.first().weight
+        cueFeatures.drop(1).forEach { cue ->
+            if (cue.startMs <= blockEndMs + ONSET_DIALOGUE_BLOCK_GAP_MS) {
+                blockEndMs = maxOf(blockEndMs, cue.endMs)
+                blockWeight = maxOf(blockWeight, cue.weight)
+            } else {
+                add(SubtitleOnset(blockStartMs, blockWeight))
+                blockStartMs = cue.startMs
+                blockEndMs = cue.endMs
+                blockWeight = cue.weight
+            }
+        }
+        add(SubtitleOnset(blockStartMs, blockWeight))
+    }
+
+    private inline fun <T> List<T>.mapToLongArray(transform: (T) -> Long): LongArray =
+        LongArray(size) { index -> transform(this[index]) }
+
+    private fun lowerBound(sortedValues: LongArray, target: Long): Int {
+        var low = 0
+        var high = sortedValues.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (sortedValues[middle] < target) {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
+    }
+
+    /** Returns the first index whose value is strictly greater than [target]. */
+    private fun firstGreaterThan(sortedValues: LongArray, target: Long): Int {
+        var low = 0
+        var high = sortedValues.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (sortedValues[middle] <= target) {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
     }
 
     private fun dialogueSpans(

@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.player
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,4 +68,28 @@ class SubtitleFastAudioProbeProgressTest {
             )
         )
     }
+
+    @Test
+    fun `scout seed and continuation form one full probe without double counting`() {
+        val seed = SubtitleSpeechSnapshot(
+            speechSpans = listOf(SubtitleSyncSpan(10_000L, 16_000L)),
+            observedSpans = listOf(SubtitleSyncSpan(10_000L, 22_000L)),
+            pcmAvailable = true
+        )
+        val continuation = SubtitleSpeechSnapshot(
+            speechSpans = listOf(SubtitleSyncSpan(23_000L, 42_000L)),
+            observedSpans = listOf(SubtitleSyncSpan(22_000L, 70_000L)),
+            pcmAvailable = true
+        )
+
+        val merged = mergeSubtitleFastAudioProbeSnapshots(seed, continuation)
+
+        assertEquals(60_000L, mergedObservedDuration(merged))
+        assertTrue(hasReachedSubtitleFastAudioTarget(merged.observedSpans))
+        assertEquals(2, merged.speechSpans.size)
+    }
+
+    private fun mergedObservedDuration(snapshot: SubtitleSpeechSnapshot): Long =
+        SubtitleAutoSyncEngine.mergeSpans(snapshot.observedSpans, allowedGapMs = 120L)
+            .sumOf { it.endMs - it.startMs }
 }

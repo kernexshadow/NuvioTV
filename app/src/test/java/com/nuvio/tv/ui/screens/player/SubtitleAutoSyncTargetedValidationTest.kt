@@ -195,6 +195,16 @@ class SubtitleAutoSyncTargetedValidationTest {
     }
 
     @Test
+    fun `confirmation allows a plausible offset within three seconds`() {
+        assertTrue(
+            SubtitleAutoSyncTargetedValidation.confirms(
+                candidateOffsetMs = 50_000,
+                result = result(offsetMs = 52_800, sigma = 3.23, windows = 2)
+            )
+        )
+    }
+
+    @Test
     fun `one confirmation or a distant result cannot apply`() {
         val candidate = result(offsetMs = 49_500)
         assertNull(
