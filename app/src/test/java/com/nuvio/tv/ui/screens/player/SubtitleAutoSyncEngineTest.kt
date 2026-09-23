@@ -8,6 +8,28 @@ import kotlin.math.abs
 
 class SubtitleAutoSyncEngineTest {
     @Test
+    fun `fifteen seconds can nominate but never directly apply even with a perfect match`() {
+        val cues = irregularCues(baseMs = 80_000L)
+        val speech = speechSnapshot(cues, 50_000)
+        val short = speech.copy(observedSpans = listOf(SubtitleSyncSpan(129_000L, 144_000L)))
+        val prepared = SubtitleAutoSyncEngine.prepareCues(cues)
+        val result = SubtitleAutoSyncEngine.findBestOffset(prepared, short, allowShortHypothesis = true)
+        assertFalse(result.shouldApply)
+        assertEquals(SubtitleAutoSyncRejection.LOW_CONFIDENCE, result.rejection)
+        assertTrue(abs(result.offsetMs - 50_000) <= 200)
+        assertEquals(SubtitleAutoSyncRejection.NOT_ENOUGH_AUDIO,
+            SubtitleAutoSyncEngine.findBestOffset(cues, short).rejection)
+    }
+
+    @Test
+    fun `prepared cue profile preserves the original full search result`() {
+        val cues = irregularCues()
+        val snapshot = speechSnapshot(cues, 2_400)
+        assertEquals(SubtitleAutoSyncEngine.findBestOffset(cues, snapshot),
+            SubtitleAutoSyncEngine.findBestOffset(SubtitleAutoSyncEngine.prepareCues(cues), snapshot))
+    }
+
+    @Test
     fun `audio evidence is ready at thirty seconds across two windows`() {
         val evidence = SubtitleAutoSyncEngine.measureAudioEvidence(
             SubtitleSpeechSnapshot(

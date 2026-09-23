@@ -20,9 +20,9 @@ internal data class SubtitlePcmTimelineRange(
 /**
  * Maps decoded PCM onto the public media timeline.
  *
- * Some renderers expose a large container/period origin in AudioSink presentation timestamps.
- * A probe supplies its requested seek position as [anchorMs], then advances solely by decoded
- * frame duration. Normal playback leaves [anchorMs] null and retains the renderer timestamps.
+ * The analysis sink supplies media timestamps (renderer timestamps minus output-stream offset)
+ * and leaves [anchorMs] null. The optional anchor mode remains for relative-timeline callers;
+ * it must not be used to hide the difference between a requested seek and the decoded position.
  */
 internal class SubtitlePcmTimelineCursor(
     anchorMs: Long?
@@ -91,7 +91,7 @@ internal class SubtitlePcmTimelineCursor(
 /** Builds an absolute-timeline speech profile from decoded PCM. */
 internal class SubtitleSpeechProfileCollector(
     timelineAnchorMs: Long? = null
-) {
+) : SubtitlePcmConsumer {
     private companion object {
         const val TARGET_SAMPLE_RATE = 16_000
         const val VAD_FRAME_SAMPLES = 320
@@ -103,6 +103,7 @@ internal class SubtitleSpeechProfileCollector(
     private var sampleRate: Int = Format.NO_VALUE
     private var channelCount: Int = Format.NO_VALUE
     private var pcmEncoding: Int = C.ENCODING_INVALID
+    private var frameSamples = DoubleArray(0)
     private var bytesPerSample = 0
     private var resamplePhase = 0
     private var resampleAccumulator = 0.0
@@ -153,7 +154,7 @@ internal class SubtitleSpeechProfileCollector(
     }
 
     @Synchronized
-    fun configure(format: Format) {
+    override fun configure(format: Format) {
         val supportedEncoding = format.pcmEncoding == C.ENCODING_PCM_16BIT ||
             format.pcmEncoding == C.ENCODING_PCM_FLOAT ||
             format.pcmEncoding == C.ENCODING_PCM_24BIT ||
@@ -179,6 +180,7 @@ internal class SubtitleSpeechProfileCollector(
         ) {
             sampleRate = format.sampleRate
             channelCount = format.channelCount
+            frameSamples = DoubleArray(channelCount)
             pcmEncoding = format.pcmEncoding
             bytesPerSample = when (pcmEncoding) {
                 C.ENCODING_PCM_16BIT -> 2
@@ -193,7 +195,7 @@ internal class SubtitleSpeechProfileCollector(
     }
 
     @Synchronized
-    fun acceptPcm(buffer: ByteBuffer, presentationTimeUs: Long) {
+    override fun acceptPcm(buffer: ByteBuffer, presentationTimeUs: Long) {
         if (!collecting || !isPcmConfigured() || presentationTimeUs == C.TIME_UNSET) return
         if (ensureVad() == null) return
 
@@ -211,7 +213,6 @@ internal class SubtitleSpeechProfileCollector(
         val endMs = timelineRange.endMs
         appendMerged(observedSpans, SubtitleSyncSpan(startMs, endMs), allowedGapMs = 120L)
 
-        val frameSamples = DoubleArray(channelCount)
         repeat(inputFrameCount) { inputFrameIndex ->
             repeat(channelCount) { channel ->
                 frameSamples[channel] = readPcmSample(input)
@@ -223,7 +224,7 @@ internal class SubtitleSpeechProfileCollector(
     }
 
     @Synchronized
-    fun onDiscontinuity() {
+    override fun onDiscontinuity() {
         timelineCursor.onDiscontinuity()
         resetFraming()
     }

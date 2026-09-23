@@ -51,12 +51,15 @@ internal data class SubtitleFastAudioProbeRequest(
     val seedSnapshot: SubtitleSpeechSnapshot? = null,
     /** Time allowed after the first PCM frame, excluding stream/index startup. */
     val maxWallClockMs: Long = DEFAULT_FAST_AUDIO_PROBE_MAX_WALL_CLOCK_MS,
-    val startupTimeoutMs: Long = DEFAULT_FAST_AUDIO_PROBE_STARTUP_TIMEOUT_MS
+    val startupTimeoutMs: Long = DEFAULT_FAST_AUDIO_PROBE_STARTUP_TIMEOUT_MS,
+    /** Return true to finish, false to extend in-place to the next 15 s checkpoint. */
+    val onCheckpoint: (suspend (SubtitleSpeechSnapshot) -> Boolean)? = null
 )
 
 internal enum class SubtitleFastAudioProbeTermination {
     TARGET_REACHED,
     EOF,
+    STALLED,
     WALL_TIMEOUT,
     ERROR
 }
@@ -91,9 +94,9 @@ internal data class SubtitleFastAudioProbeResult(
  * source deliberately bypasses [PlayerMediaSourceFactory]'s shared VOD cache/session state while
  * retaining the same Nuvio HTTP stack and request headers.
  *
- * Audio is muted and audio-focus handling is disabled. Playback uses the request's adaptive speed;
- * the collector receives the decoder's original PCM (before speed processing) through
- * [PlaybackSpeedAwareAudioSink], so VAD timestamps remain on the media timeline. Player and sink
+ * Audio focus is disabled. [SubtitleAnalysisAudioSink] consumes PCM without playback pacing,
+ * pausing decoder consumption at analysis checkpoints. Adaptive-speed AudioTrack output is only
+ * a compatibility fallback. PCM is mapped using the renderer stream offset. Player and sink
  * resources are always released from the application looper, including cancellation.
  */
 internal class SubtitleFastAudioProbe(
@@ -101,9 +104,11 @@ internal class SubtitleFastAudioProbe(
 ) {
     private val appContext = context.applicationContext
     private var session: ProbeSession? = null
+    private var useLegacySink = false
 
     private companion object {
         const val TAG = "SubtitleFastProbe"
+        const val MULTI_PERIOD_FAILURE = "Auto Sync cannot safely map a multi-period media timeline"
         const val PRE_ROLL_MS = 5_000L
         const val POLL_INTERVAL_MS = 40L
         const val RELEASE_TIMEOUT_MS = 2_000L
@@ -119,6 +124,7 @@ internal class SubtitleFastAudioProbe(
         val key: String,
         val player: ExoPlayer,
         val collector: SubtitleSpeechProfileCollector,
+        val readGate: SubtitleAnalysisReadGate,
         var activeRequest: SubtitleFastAudioProbeRequest? = null,
         var requestedStartMs: Long = 0L,
         var playerError: PlaybackException? = null,
@@ -127,7 +133,29 @@ internal class SubtitleFastAudioProbe(
         var trackSelectionFailure: String? = null
     )
 
-    suspend fun probe(request: SubtitleFastAudioProbeRequest): SubtitleFastAudioProbeResult =
+    suspend fun probe(request: SubtitleFastAudioProbeRequest): SubtitleFastAudioProbeResult {
+        val startedAtMs = SystemClock.elapsedRealtime()
+        val result = probeOnce(request)
+        if (shouldRetrySubtitleProbeWithCompatibility(
+                useLegacySink, result, unsupportedTimeline = result.failureReason == MULTI_PERIOD_FAILURE
+            )
+        ) {
+            Log.w(TAG, "Analysis output ${result.termination} after ${result.observedDurationMs}ms PCM; " +
+                "retrying once with compatibility output and retaining valid PCM")
+            useLegacySink = true
+            release()
+            coroutineContext.ensureActive()
+            val retry = probeOnce(subtitleProbeCompatibilityRequest(request, result))
+            return retry.copy(
+                wallClockMs = SystemClock.elapsedRealtime() - startedAtMs,
+                startupDurationMs = result.startupDurationMs + retry.startupDurationMs,
+                activeDecodeDurationMs = result.activeDecodeDurationMs + retry.activeDecodeDurationMs
+            )
+        }
+        return result
+    }
+
+    private suspend fun probeOnce(request: SubtitleFastAudioProbeRequest): SubtitleFastAudioProbeResult =
         withContext(Dispatchers.Main.immediate) {
             if (request.streamUrl.isBlank()) {
                 return@withContext errorResult("Missing stream URL")
@@ -148,6 +176,10 @@ internal class SubtitleFastAudioProbe(
                 ?.maxOfOrNull { it.endMs }
                 ?: resolveWindowStartMs(request)
             val remainingTargetMs = (totalTargetMs - seedObservedMs).coerceAtLeast(1L)
+            var checkpointMs = if (request.onCheckpoint != null) {
+                minOf(totalTargetMs, (seedObservedMs / 15_000L + 1L) * 15_000L)
+            } else totalTargetMs
+            var analysisDurationMs = 0L
             val startedAtMs = SystemClock.elapsedRealtime()
             var firstPcmAtMs: Long? = null
             var activeSession: ProbeSession? = null
@@ -166,17 +198,20 @@ internal class SubtitleFastAudioProbe(
                 currentSession.playbackEnded = false
                 currentSession.audioOverrideResolved = request.selectedAudioTrack == null
                 currentSession.trackSelectionFailure = null
+                currentSession.readGate.close()
+                currentSession.readGate.begin(requestedStartMs, checkpointMs - seedObservedMs)
                 collector.beginSession(
                     key = "exo-fast:${request.streamUrl.hashCode()}:$requestedStartMs",
-                    timelineAnchorMs = requestedStartMs
+                    timelineAnchorMs = null
                 )
                 collector.stopCollecting(clearExisting = true)
 
                 val localPlayer = currentSession.player
-                localPlayer.playbackParameters = PlaybackParameters(playbackSpeed, 1f)
+                localPlayer.playbackParameters = PlaybackParameters(if (useLegacySink) playbackSpeed else 1f, 1f)
                 localPlayer.seekTo(requestedStartMs)
                 if (request.selectedAudioTrack == null) {
                     collector.startCollecting(clearExisting = true)
+                    currentSession.readGate.enable()
                 } else if (localPlayer.currentTracks.groups.any { it.type == C.TRACK_TYPE_AUDIO }) {
                     resolveSelectedAudioTrack(currentSession, localPlayer.currentTracks)
                 }
@@ -186,12 +221,20 @@ internal class SubtitleFastAudioProbe(
                 val playbackStartedAtMs = SystemClock.elapsedRealtime()
                 val activeTimeoutMs = request.maxWallClockMs.coerceAtLeast(1L)
                 val startupTimeoutMs = request.startupTimeoutMs.coerceAtLeast(1L)
+                val progressWatchdog = SubtitleProbeProgressWatchdog()
                 val termination = withTimeoutOrNull<SubtitleFastAudioProbeTermination>(
-                    startupTimeoutMs + activeTimeoutMs + POLL_INTERVAL_MS * 2L
+                    startupTimeoutMs + activeTimeoutMs + 120_000L
                 ) {
                     while (true) {
                         coroutineContext.ensureActive()
                         currentSession.playerError?.let { throw it }
+                        // Subtracting a renderer's output offset yields PERIOD time. For ordinary
+                        // single-period files/HLS that is media time; multi-period manifests need
+                        // an explicit period-to-window mapping before automatic changes are safe.
+                        if (currentSession.player.currentTimeline.periodCount > 1) {
+                            currentSession.trackSelectionFailure = MULTI_PERIOD_FAILURE
+                            return@withTimeoutOrNull SubtitleFastAudioProbeTermination.ERROR
+                        }
                         if (
                             !currentSession.audioOverrideResolved &&
                             currentSession.player.playbackState == Player.STATE_READY
@@ -214,6 +257,22 @@ internal class SubtitleFastAudioProbe(
                             return@withTimeoutOrNull SubtitleFastAudioProbeTermination.ERROR
                         }
 
+                        val observedMs = seedObservedMs + snapshot.observedDurationMs()
+                        if (request.onCheckpoint != null &&
+                            (observedMs >= checkpointMs || (!useLegacySink && currentSession.readGate.atCheckpoint()))
+                        ) {
+                            val analysisStartedMs = SystemClock.elapsedRealtime()
+                            val stop = request.onCheckpoint.invoke(
+                                mergeSubtitleFastAudioProbeSnapshots(seedSnapshot, snapshot)
+                            )
+                            analysisDurationMs += SystemClock.elapsedRealtime() - analysisStartedMs
+                            if (stop || checkpointMs >= totalTargetMs) {
+                                return@withTimeoutOrNull SubtitleFastAudioProbeTermination.TARGET_REACHED
+                            }
+                            checkpointMs = minOf(totalTargetMs, checkpointMs + 15_000L)
+                            currentSession.readGate.extend(checkpointMs - seedObservedMs)
+                        }
+
                         // ExoPlayer timestamps can start beyond the requested seek position
                         // (notably with large MKV cue tables). An absolute end timestamp therefore
                         // cannot prove that a full window was decoded. Count the union of PCM that
@@ -229,12 +288,22 @@ internal class SubtitleFastAudioProbe(
                         if (currentSession.playbackEnded) {
                             return@withTimeoutOrNull SubtitleFastAudioProbeTermination.EOF
                         }
+                        val timeoutNowMs = SystemClock.elapsedRealtime()
+                        if (progressWatchdog.isStalled(
+                                snapshot.observedDurationMs(),
+                                timeoutNowMs - playbackStartedAtMs - analysisDurationMs
+                            )
+                        ) {
+                            Log.w(TAG, "PCM stalled: mode=${if (useLegacySink) "compatibility" else "analysis"} " +
+                                "decoded=${snapshot.observedDurationMs()}ms " + probeState(currentSession))
+                            return@withTimeoutOrNull SubtitleFastAudioProbeTermination.STALLED
+                        }
                         val pcmStartedAtMs = firstPcmAtMs
                         if (pcmStartedAtMs == null) {
-                            if (nowMs - playbackStartedAtMs >= startupTimeoutMs) {
+                            if (timeoutNowMs - playbackStartedAtMs >= startupTimeoutMs) {
                                 return@withTimeoutOrNull SubtitleFastAudioProbeTermination.WALL_TIMEOUT
                             }
-                        } else if (nowMs - pcmStartedAtMs >= activeTimeoutMs) {
+                        } else if (timeoutNowMs - pcmStartedAtMs - analysisDurationMs >= activeTimeoutMs) {
                             return@withTimeoutOrNull SubtitleFastAudioProbeTermination.WALL_TIMEOUT
                         }
                         delay(POLL_INTERVAL_MS)
@@ -251,13 +320,15 @@ internal class SubtitleFastAudioProbe(
                     ?.coerceAtLeast(0L)
                     ?: (finishedAtMs - playbackStartedAtMs).coerceAtLeast(0L)
                 val activeDecodeDurationMs = firstPcmAtMs
-                    ?.let { (finishedAtMs - it).coerceAtLeast(0L) }
+                    ?.let { (finishedAtMs - it - analysisDurationMs).coerceAtLeast(0L) }
                     ?: 0L
                 val failureReason = when {
                     currentSession.playerError != null -> currentSession.playerError?.message
                     currentSession.trackSelectionFailure != null ->
                         currentSession.trackSelectionFailure
                     snapshot.failureReason != null -> snapshot.failureReason
+                    termination == SubtitleFastAudioProbeTermination.STALLED ->
+                        "Audio probe stopped producing new PCM for 8000 ms"
                     termination == SubtitleFastAudioProbeTermination.WALL_TIMEOUT ->
                         if (firstPcmAtMs == null) {
                             "Audio probe timed out before receiving PCM after $startupTimeoutMs ms"
@@ -270,11 +341,12 @@ internal class SubtitleFastAudioProbe(
                 }
                 Log.i(
                     TAG,
-                    "Exo audio probe finished: termination=$termination speed=${playbackSpeed}x " +
+                    "Exo audio probe finished: termination=$termination mode=${if (useLegacySink) "compatibility" else "analysis"} " +
+                        "compatibilitySpeed=${playbackSpeed}x analysis=${analysisDurationMs}ms " +
                         "wall=${finishedAtMs - startedAtMs}ms " +
                         "firstPcm=${firstPcmAtMs?.minus(playbackStartedAtMs) ?: -1L}ms " +
                         "decoded=${snapshot.observedDurationMs()}ms " +
-                        "reused=${seedObservedMs}ms target=${totalTargetMs}ms"
+                        "reused=${seedObservedMs}ms target=${totalTargetMs}ms " + probeState(currentSession)
                 )
                 snapshot.toProbeResult(
                     termination = termination,
@@ -287,12 +359,16 @@ internal class SubtitleFastAudioProbe(
                 throw error
             } catch (error: Throwable) {
                 Log.w(TAG, "Exo audio probe unavailable: ${error.message}", error)
-                activeSession?.collector?.snapshot().orEmptyProbeSnapshot().toProbeResult(
+                mergeSubtitleFastAudioProbeSnapshots(
+                    seedSnapshot, activeSession?.collector?.snapshot().orEmptyProbeSnapshot()
+                ).toProbeResult(
                     termination = SubtitleFastAudioProbeTermination.ERROR,
-                    failureReason = error.message ?: error.javaClass.simpleName
+                    failureReason = error.message ?: error.javaClass.simpleName,
+                    wallClockMs = SystemClock.elapsedRealtime() - startedAtMs
                 )
             } finally {
                 activeSession?.let { current ->
+                    current.readGate.close()
                     current.collector.stopCollecting(clearExisting = false)
                     current.activeRequest = null
                     runCatching { current.player.pause() }
@@ -304,6 +380,12 @@ internal class SubtitleFastAudioProbe(
     /** Releases the one on-demand player after discovery and validation have both completed. */
     suspend fun release() = withContext(NonCancellable + Dispatchers.Main.immediate) {
         releaseSession()
+    }
+
+    private fun probeState(current: ProbeSession): String = with(current.player) {
+        "state=$playbackState loading=$isLoading playing=$isPlaying " +
+            "position=${currentPosition}ms buffered=${totalBufferedDuration}ms " +
+            "gate=[${current.readGate.describe()}]"
     }
 
     private fun ensureSession(
@@ -344,10 +426,13 @@ internal class SubtitleFastAudioProbe(
             setParameters(parametersBuilder)
         }
         val collector = SubtitleSpeechProfileCollector(timelineAnchorMs = null)
+        val readGate = SubtitleAnalysisReadGate()
         val renderersFactory = SubtitleProbeRenderersFactory(
             context = appContext,
             collector = collector,
-            playbackSpeed = playbackSpeed
+            playbackSpeed = playbackSpeed,
+            readGate = readGate,
+            useLegacySink = useLegacySink
         )
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             .setEnableDecoderFallback(true)
@@ -377,7 +462,7 @@ internal class SubtitleFastAudioProbe(
             .setHandleAudioBecomingNoisy(false)
             .setReleaseTimeoutMs(RELEASE_TIMEOUT_MS)
             .build()
-        val created = ProbeSession(key = key, player = player, collector = collector)
+        val created = ProbeSession(key = key, player = player, collector = collector, readGate = readGate)
         player.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
                 resolveSelectedAudioTrack(created, tracks)
@@ -435,6 +520,7 @@ internal class SubtitleFastAudioProbe(
         // probe() already sought before resolving the track. If an override was required, the
         // branch above also sought after applying it. A third seek here only repeats startup work.
         current.collector.startCollecting(clearExisting = true)
+        current.readGate.enable()
         Log.i(
             TAG,
             "Matched audio track ordinal=${target.audioOrdinal} id=${target.format.id} " +
@@ -446,6 +532,7 @@ internal class SubtitleFastAudioProbe(
     private fun releaseSession() {
         val current = session ?: return
         session = null
+        current.readGate.close()
         current.collector.stopCollecting(clearExisting = true)
         runCatching { current.player.stop() }
         runCatching { current.player.release() }
@@ -480,13 +567,16 @@ private fun SubtitleSpeechSnapshot?.orEmptyProbeSnapshot(): SubtitleSpeechSnapsh
 private class SubtitleProbeRenderersFactory(
     context: Context,
     private val collector: SubtitleSpeechProfileCollector,
-    private val playbackSpeed: Float
+    private val playbackSpeed: Float,
+    private val readGate: SubtitleAnalysisReadGate,
+    private val useLegacySink: Boolean
 ) : DefaultRenderersFactory(context) {
     override fun buildAudioSink(
         context: Context,
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink {
+        if (!useLegacySink) return SubtitleAnalysisAudioSink(collector, readGate)
         // DEFAULT_AUDIO_CAPABILITIES deliberately excludes encoded passthrough. This guarantees
         // that the forwarding sink sees PCM even when the TV advertises AC3/DTS/TrueHD support.
         val pcmSink = DefaultAudioSink.Builder()

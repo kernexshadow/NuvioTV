@@ -45,6 +45,12 @@ internal class PlaybackSpeedAwareAudioSink(
     private var activeInputBuffer: ByteBuffer? = null
     private var activeInputBufferStartPosition = 0
     private var activeInputBufferPresentationTimeUs = C.TIME_UNSET
+    private var subtitleStreamOffsetUs = 0L
+
+    override fun setOutputStreamOffsetUs(outputStreamOffsetUs: Long) {
+        subtitleStreamOffsetUs = outputStreamOffsetUs
+        super.setOutputStreamOffsetUs(outputStreamOffsetUs)
+    }
 
     fun setInitialPlaybackSpeed(speed: Float) {
         playbackSpeed = normalizeSpeed(speed)
@@ -127,7 +133,11 @@ internal class PlaybackSpeedAwareAudioSink(
             }
             source.position(startPosition)
             source.limit(endPosition)
-            subtitleSpeechProfileCollector?.acceptPcm(source.slice(), consumedPresentationTimeUs)
+            subtitleSpeechProfileCollector?.acceptPcm(
+                source.slice(),
+                if (consumedPresentationTimeUs == C.TIME_UNSET) C.TIME_UNSET
+                else consumedPresentationTimeUs - subtitleStreamOffsetUs
+            )
         }
         if (fullyConsumed) clearActiveInputBuffer()
         return fullyConsumed

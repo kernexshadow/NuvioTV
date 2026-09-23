@@ -104,6 +104,27 @@ internal object SubtitleAutoSyncEngine {
         snapshot: SubtitleSpeechSnapshot,
         minimumOffsetMs: Int? = null,
         maximumOffsetMs: Int? = null
+    ): SubtitleAutoSyncResult = findBestOffset(
+        prepareCues(cues), snapshot, minimumOffsetMs, maximumOffsetMs
+    )
+
+    internal data class PreparedCues(
+        val featureCount: Int,
+        val spans: List<SubtitleSyncSpan>,
+        val onsets: List<SubtitleOnset>
+    )
+
+    internal fun prepareCues(cues: List<SubtitleSyncCue>): PreparedCues {
+        val features = SubtitleAutoSyncCueProfile.features(cues)
+        return PreparedCues(features.size, mergeSpans(dialogueSpans(features), BIN_MS), dialogueOnsets(features))
+    }
+
+    internal fun findBestOffset(
+        preparedCues: PreparedCues,
+        snapshot: SubtitleSpeechSnapshot,
+        minimumOffsetMs: Int? = null,
+        maximumOffsetMs: Int? = null,
+        allowShortHypothesis: Boolean = false
     ): SubtitleAutoSyncResult {
         if (!snapshot.pcmAvailable) {
             return rejected(SubtitleAutoSyncRejection.PCM_UNAVAILABLE)
@@ -111,7 +132,8 @@ internal object SubtitleAutoSyncEngine {
 
         val preparedEvidence = prepareAudioEvidence(snapshot)
         val windows = preparedEvidence.windows
-        if (!preparedEvidence.summary.ready) {
+        val provisionalOnly = !preparedEvidence.summary.ready
+        if (provisionalOnly && (!allowShortHypothesis || preparedEvidence.summary.observedMs < 15_000L)) {
             return rejected(
                 reason = SubtitleAutoSyncRejection.NOT_ENOUGH_AUDIO,
                 evidenceWindows = windows.size
@@ -129,16 +151,14 @@ internal object SubtitleAutoSyncEngine {
             )
         }
 
-        val cueFeatures = SubtitleAutoSyncCueProfile.features(cues)
-        if (cueFeatures.size < MIN_DIALOGUE_CUES) {
+        if (preparedCues.featureCount < MIN_DIALOGUE_CUES) {
             return rejected(
                 reason = SubtitleAutoSyncRejection.NOT_ENOUGH_DIALOGUE,
                 evidenceWindows = windows.size
             )
         }
-        val dialogueSpans = dialogueSpans(cueFeatures)
-        val subtitleSpans = mergeSpans(dialogueSpans, allowedGapMs = BIN_MS)
-        val subtitleOnsets = dialogueOnsets(cueFeatures)
+        val subtitleSpans = preparedCues.spans
+        val subtitleOnsets = preparedCues.onsets
         val scoringContext = scoringContext(
             sampleTimes = sampleTimes,
             speechMask = speechMask,
@@ -147,6 +167,16 @@ internal object SubtitleAutoSyncEngine {
             speechOnsets = speech.map { it.startMs }.toLongArray(),
             subtitleOnsets = subtitleOnsets
         )
+
+        // A short sample can nominate a LOCAL hypothesis, never an applicable result. No global
+        // fishing across an entire film based on fifteen seconds of speech/silence.
+        if (provisionalOnly) {
+            return evaluateSearch(
+                searchCandidates(-LOCAL_FINE_SEARCH_RADIUS_MS, LOCAL_FINE_SEARCH_RADIUS_MS, scoringContext, forceFine = true),
+                windows, speech, subtitleSpans, subtitleOnsets,
+                -LOCAL_FINE_SEARCH_RADIUS_MS, LOCAL_FINE_SEARCH_RADIUS_MS, SearchAcceptance.standard
+            ).copy(rejection = SubtitleAutoSyncRejection.LOW_CONFIDENCE)
+        }
 
         val derivedMinimumOffsetMs = windows.minOf { it.startMs } - subtitleSpans.maxOf { it.endMs }
         val derivedMaximumOffsetMs = windows.maxOf { it.endMs } - subtitleSpans.minOf { it.startMs }
@@ -385,8 +415,7 @@ internal object SubtitleAutoSyncEngine {
     )
 
     private class ScoringContext(
-        val sampleTimes: LongArray,
-        val speechMask: BooleanArray,
+        val activityIndex: SubtitleAutoSyncActivityIndex,
         val subtitleStarts: LongArray,
         val subtitleEnds: LongArray,
         val windowStarts: LongArray,
@@ -396,7 +425,7 @@ internal object SubtitleAutoSyncEngine {
         val subtitleOnsetWeights: DoubleArray
     )
 
-    private data class SubtitleOnset(
+    internal data class SubtitleOnset(
         val startMs: Long,
         val weight: Double
     )
@@ -527,37 +556,11 @@ internal object SubtitleAutoSyncEngine {
         offsetMs: Int,
         context: ScoringContext
     ): CandidateScore {
-        var truePositive = 0
-        var falsePositive = 0
-        var falseNegative = 0
-        var trueNegative = 0
-        var subtitleIndex = if (context.sampleTimes.isEmpty()) {
-            0
-        } else {
-            firstGreaterThan(
-                sortedValues = context.subtitleEnds,
-                target = context.sampleTimes.first() - offsetMs.toLong()
-            )
-        }
-
-        context.sampleTimes.forEachIndexed { index, mediaTimeMs ->
-            val subtitleTimeMs = mediaTimeMs - offsetMs.toLong()
-            while (
-                subtitleIndex < context.subtitleEnds.size &&
-                context.subtitleEnds[subtitleIndex] <= subtitleTimeMs
-            ) {
-                subtitleIndex++
-            }
-            val subtitleActive = subtitleIndex < context.subtitleStarts.size &&
-                context.subtitleStarts[subtitleIndex] <= subtitleTimeMs &&
-                subtitleTimeMs < context.subtitleEnds[subtitleIndex]
-            when {
-                context.speechMask[index] && subtitleActive -> truePositive++
-                !context.speechMask[index] && subtitleActive -> falsePositive++
-                context.speechMask[index] -> falseNegative++
-                else -> trueNegative++
-            }
-        }
+        val counts = context.activityIndex.count(offsetMs, context.subtitleStarts, context.subtitleEnds)
+        val truePositive = counts.truePositive
+        val falsePositive = counts.falsePositive
+        val falseNegative = counts.falseNegative
+        val trueNegative = counts.trueNegative
 
         val denominator = sqrt(
             (truePositive + falsePositive).toDouble() *
@@ -652,8 +655,7 @@ internal object SubtitleAutoSyncEngine {
         speechOnsets: LongArray,
         subtitleOnsets: List<SubtitleOnset>
     ): ScoringContext = ScoringContext(
-        sampleTimes = sampleTimes,
-        speechMask = speechMask,
+        activityIndex = SubtitleAutoSyncActivityIndex(sampleTimes, speechMask),
         subtitleStarts = subtitleSpans.mapToLongArray { it.startMs },
         subtitleEnds = subtitleSpans.mapToLongArray { it.endMs },
         windowStarts = windows.mapToLongArray { it.startMs },
@@ -699,21 +701,6 @@ internal object SubtitleAutoSyncEngine {
         while (low < high) {
             val middle = (low + high) ushr 1
             if (sortedValues[middle] < target) {
-                low = middle + 1
-            } else {
-                high = middle
-            }
-        }
-        return low
-    }
-
-    /** Returns the first index whose value is strictly greater than [target]. */
-    private fun firstGreaterThan(sortedValues: LongArray, target: Long): Int {
-        var low = 0
-        var high = sortedValues.size
-        while (low < high) {
-            val middle = (low + high) ushr 1
-            if (sortedValues[middle] <= target) {
                 low = middle + 1
             } else {
                 high = middle

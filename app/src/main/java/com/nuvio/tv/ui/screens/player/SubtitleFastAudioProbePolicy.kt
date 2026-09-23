@@ -92,7 +92,8 @@ internal object SubtitleFastAudioProbePolicy {
         }
 
         if (
-            result.termination == SubtitleFastAudioProbeTermination.WALL_TIMEOUT &&
+            (result.termination == SubtitleFastAudioProbeTermination.WALL_TIMEOUT ||
+                result.termination == SubtitleFastAudioProbeTermination.STALLED) &&
             result.observedDurationMs < TARGET_AUDIO_MS / 2L &&
             current.playbackSpeed > 1f
         ) {
