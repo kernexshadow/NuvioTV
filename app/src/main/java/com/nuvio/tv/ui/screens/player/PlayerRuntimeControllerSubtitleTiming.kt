@@ -283,7 +283,204 @@ private fun PlayerRuntimeController.maybeLoadSubtitleAutoSyncCues(force: Boolean
     }
 }
 
+/** Last-played audio needed before each attempt; the first rung only tries the narrow search. */
+private val AUTO_SYNC_LISTEN_RUNGS_MS = longArrayOf(20_000L, 45_000L, 90_000L, 180_000L)
+private const val AUTO_SYNC_LISTEN_POLL_MS = 1_000L
+private const val AUTO_SYNC_NO_PCM_FALLBACK_MS = 8_000L
+private const val AUTO_SYNC_ALTERNATIVE_GRACE_MS = 5_000L
+
 private fun PlayerRuntimeController.startAutomaticSubtitleSync() {
+    val selectedSubtitle = _uiState.value.selectedAddonSubtitle
+    val tap = subtitleSpeechFeatureTap
+    if (
+        selectedSubtitle != null && !isUsingMpvEngine() && _exoPlayer != null &&
+        tap.isBoundTo(currentStreamUrl) && tap.inputState() != SubtitleSpeechTapInput.ENCODED
+    ) {
+        startListeningAutomaticSubtitleSync(selectedSubtitle)
+    } else {
+        startProbeAutomaticSubtitleSync()
+    }
+}
+
+/**
+ * Aligns the subtitle with audio the main player has already played (see
+ * [SubtitleSpeechFeatureTap]). Playback is never suspended and nothing is downloaded except the
+ * subtitle files. When too little audio has been heard, it keeps listening while the video plays.
+ */
+private fun PlayerRuntimeController.startListeningAutomaticSubtitleSync(selectedSubtitle: Subtitle) {
+    subtitleAutoSyncLoadJob?.cancel()
+    val attemptId = ++subtitleAutoSyncAttemptId
+    val initialState = _uiState.value
+    val selectedTrackKey = selectedSubtitle.autoSyncTrackKey()
+    val streamUrl = currentStreamUrl
+    val tap = subtitleSpeechFeatureTap
+    val startedAtMs = SystemClock.elapsedRealtime()
+
+    subtitleAutoSyncLoadJob = scope.launch {
+        val downloads = mutableMapOf<Subtitle, Deferred<List<SubtitleSyncCue>?>>()
+        val downloadSlots = Semaphore(2)
+        fun checkAttempt() {
+            if (!isCurrentAutoSyncAttempt(attemptId, selectedTrackKey, streamUrl)) {
+                throw CancellationException("Auto Sync selection changed")
+            }
+        }
+        fun fallBackToProbe(reason: String) {
+            Log.i(PlayerRuntimeController.TAG, "Subtitle Auto Sync: $reason; using the separate audio player")
+            scope.launch { startProbeAutomaticSubtitleSync() }
+        }
+
+        try {
+            _uiState.update {
+                it.copy(subtitleAutoSyncLoading = true,
+                    subtitleAutoSyncStatus = context.getString(R.string.subtitle_auto_sync_checking),
+                    subtitleAutoSyncError = null, subtitleAutoSyncAlternatives = emptyList(),
+                    subtitleAutoSyncLoadedTrackKey = selectedTrackKey)
+            }
+            val selectedCues = initialState.subtitleAutoSyncCues.takeIf {
+                initialState.subtitleAutoSyncLoadedTrackKey == selectedTrackKey && it.isNotEmpty()
+            } ?: withContext(Dispatchers.IO) { loadSubtitleAutoSyncCues(selectedSubtitle) }
+            checkAttempt()
+            _uiState.update { it.copy(subtitleAutoSyncCues = selectedCues) }
+            val selectedProfile = withContext(Dispatchers.Default) {
+                SubtitleSpeechAligner.prepareCues(selectedCues)
+            }
+            // Alternatives download in the background and are only compared if the selected
+            // track fails; a slow provider never delays a successful sync.
+            SubtitleAutoSyncCandidateMatcher.alternatives(selectedSubtitle, _uiState.value.addonSubtitles)
+                .forEach { subtitle ->
+                    downloads[subtitle] = async(Dispatchers.IO) {
+                        try {
+                            downloadSlots.withPermit { loadSubtitleAutoSyncCues(subtitle) }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            null
+                        }
+                    }
+                }
+
+            var rung = 0
+            var result: SubtitleSpeechAlignment? = null
+            var playingWithoutPcmSinceMs: Long? = null
+            while (rung < AUTO_SYNC_LISTEN_RUNGS_MS.size) {
+                checkAttempt()
+                if (tap.inputState() == SubtitleSpeechTapInput.ENCODED) {
+                    fallBackToProbe("audio switched to passthrough")
+                    return@launch
+                }
+                val nowMs = SystemClock.elapsedRealtime()
+                val playing = _exoPlayer?.isPlaying == true
+                playingWithoutPcmSinceMs = if (playing && !tap.hasRecentPcm(AUTO_SYNC_NO_PCM_FALLBACK_MS)) {
+                    playingWithoutPcmSinceMs ?: nowMs
+                } else {
+                    null
+                }
+                if (playingWithoutPcmSinceMs != null &&
+                    nowMs - playingWithoutPcmSinceMs >= AUTO_SYNC_NO_PCM_FALLBACK_MS
+                ) {
+                    fallBackToProbe("no decoded PCM reached the speech tap")
+                    return@launch
+                }
+
+                val capturedMs = tap.capturedDurationMs().toLong()
+                if (capturedMs >= AUTO_SYNC_LISTEN_RUNGS_MS[rung]) {
+                    val segments = tap.snapshot()
+                    val alignStartedMs = SystemClock.elapsedRealtime()
+                    val alignment = withContext(Dispatchers.Default) {
+                        SubtitleSpeechAligner.align(segments, selectedProfile)
+                    }
+                    checkAttempt()
+                    result = alignment
+                    logSpeechAlignment("selected", selectedSubtitle, alignment,
+                        SystemClock.elapsedRealtime() - alignStartedMs)
+                    if (alignment is SubtitleSpeechAlignment.Synced) {
+                        finishAutoSyncForCurrentTrack(attemptId, alignment.offsetMs)
+                        return@launch
+                    }
+                    // A frame-rate mismatch will not become a constant delay with more audio.
+                    if (alignment is SubtitleSpeechAlignment.Drift) break
+                    while (rung < AUTO_SYNC_LISTEN_RUNGS_MS.size && AUTO_SYNC_LISTEN_RUNGS_MS[rung] <= capturedMs) {
+                        rung++
+                    }
+                    continue
+                }
+                val targetSeconds = (AUTO_SYNC_LISTEN_RUNGS_MS[rung] / 1_000L).toInt()
+                _uiState.update {
+                    it.copy(subtitleAutoSyncStatus = if (playing) {
+                        context.getString(R.string.subtitle_auto_sync_listening,
+                            (capturedMs / 1_000L).toInt(), targetSeconds)
+                    } else {
+                        context.getString(R.string.subtitle_auto_sync_resume_to_listen)
+                    })
+                }
+                delay(AUTO_SYNC_LISTEN_POLL_MS)
+            }
+
+            // The selected track failed: compare alternatives against the same captured audio.
+            withTimeoutOrNull(AUTO_SYNC_ALTERNATIVE_GRACE_MS) { downloads.values.toList().joinAll() }
+            val segments = tap.snapshot()
+            val suggestions = downloads.mapNotNull { (subtitle, task) ->
+                val cues = task.takeIf { it.isCompleted }?.await() ?: return@mapNotNull null
+                val alignment = withContext(Dispatchers.Default) {
+                    SubtitleSpeechAligner.align(segments, SubtitleSpeechAligner.prepareCues(cues))
+                }
+                logSpeechAlignment("alternative", subtitle, alignment, null)
+                (alignment as? SubtitleSpeechAlignment.Synced)?.let {
+                    SubtitleAutoSyncAlternative(subtitle.autoSyncTrackKey(), subtitle, it.offsetMs, it.confidence)
+                }
+            }.sortedByDescending { it.confidence }.take(3)
+            checkAttempt()
+            val message = when {
+                suggestions.isNotEmpty() -> context.getString(R.string.subtitle_auto_sync_alternatives_found)
+                result is SubtitleSpeechAlignment.Drift ->
+                    context.getString(R.string.subtitle_auto_sync_frame_rate_mismatch)
+                else -> context.getString(R.string.subtitle_auto_sync_no_match,
+                    ((result?.analyzedMs ?: 0L) / 1_000L).toInt())
+            }
+            _uiState.update {
+                it.copy(subtitleAutoSyncLoading = false, subtitleAutoSyncStatus = null,
+                    subtitleAutoSyncError = message, subtitleAutoSyncAlternatives = suggestions)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.e(PlayerRuntimeController.TAG, "Subtitle Auto Sync failed", error)
+            if (isCurrentAutoSyncAttempt(attemptId, selectedTrackKey, streamUrl)) {
+                _uiState.update {
+                    it.copy(subtitleAutoSyncLoading = false, subtitleAutoSyncStatus = null,
+                        subtitleAutoSyncError = error.message ?: context.getString(R.string.subtitle_auto_sync_failed),
+                        subtitleAutoSyncAlternatives = emptyList())
+                }
+            }
+        } finally {
+            downloads.values.forEach { it.cancel() }
+            Log.i(PlayerRuntimeController.TAG, "Subtitle Auto Sync (listening) finished: attempt=$attemptId " +
+                "elapsed=${SystemClock.elapsedRealtime() - startedAtMs}ms")
+        }
+    }
+}
+
+private fun PlayerRuntimeController.logSpeechAlignment(
+    source: String,
+    subtitle: Subtitle,
+    alignment: SubtitleSpeechAlignment,
+    wallMs: Long?
+) {
+    val detail = when (alignment) {
+        is SubtitleSpeechAlignment.Synced -> "synced offset=${alignment.offsetMs} z=${alignment.zScore} " +
+            "psr=${alignment.peakToSidelobe} radius=${alignment.searchRadiusMs}"
+        is SubtitleSpeechAlignment.Drift -> "drift scale=${alignment.scale} offset=${alignment.offsetMs} " +
+            "z=${alignment.zScore} psr=${alignment.peakToSidelobe}"
+        is SubtitleSpeechAlignment.NoMatch -> "no-match best=${alignment.bestOffsetMs} " +
+            "z=${alignment.bestZScore} psr=${alignment.bestPeakToSidelobe}"
+        is SubtitleSpeechAlignment.NotEnoughAudio -> "not-enough-audio required=${alignment.requiredMs}"
+    }
+    Log.i(PlayerRuntimeController.TAG, "Subtitle Auto Sync $source id=${subtitle.id}: $detail " +
+        "audio=${alignment.analyzedMs}ms cues=${alignment.usableCues} wall=${wallMs ?: -1}ms")
+}
+
+/** Previous implementation: a separate audio-only player re-reads samples of the stream. */
+private fun PlayerRuntimeController.startProbeAutomaticSubtitleSync() {
     val initialState = _uiState.value
     val selectedSubtitle = initialState.selectedAddonSubtitle
     if (selectedSubtitle == null) {
@@ -468,7 +665,7 @@ private fun PlayerRuntimeController.startAutomaticSubtitleSync() {
                     checkAttempt()
                     if (confirmed != null) {
                         if (key == selectedTrackKey) {
-                            finishAutoSyncForCurrentTrack(attemptId, confirmed)
+                            finishAutoSyncForCurrentTrack(attemptId, confirmed.offsetMs)
                         } else {
                             subtitleAutoSyncLoadJob = null
                             applyMatchedSubtitle(candidate.subtitle, confirmed.offsetMs)
@@ -817,17 +1014,17 @@ private fun PlayerRuntimeController.applyMatchedSubtitle(subtitle: Subtitle, off
 
 private fun PlayerRuntimeController.finishAutoSyncForCurrentTrack(
     attemptId: Long,
-    result: SubtitleAutoSyncResult
+    offsetMs: Int
 ) {
     if (subtitleAutoSyncAttemptId != attemptId) return
-    setSubtitleDelayMs(targetMs = result.offsetMs, showOverlay = true)
+    setSubtitleDelayMs(targetMs = offsetMs, showOverlay = true)
     _uiState.update {
         it.copy(
             showSubtitleTimingDialog = false,
             subtitleAutoSyncLoading = false,
             subtitleAutoSyncStatus = context.getString(
                 R.string.subtitle_auto_sync_applied,
-                formatAutoSyncDelay(result.offsetMs)
+                formatAutoSyncDelay(offsetMs)
             ),
             subtitleAutoSyncError = null,
             subtitleAutoSyncAlternatives = emptyList()

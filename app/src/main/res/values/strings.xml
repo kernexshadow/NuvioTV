@@ -1716,6 +1716,10 @@
     <string name="subtitle_auto_sync_need_more_audio">The separate audio player could not decode enough data from this source. The subtitle was left unchanged; use Sync by Line below.</string>
     <string name="subtitle_auto_sync_not_enough_dialogue">Not enough dialogue was detected for a safe automatic match. Use the manual Sync below.</string>
     <string name="subtitle_auto_sync_low_confidence">Automatic confidence was only %1$d%%, so the subtitle was left unchanged. Use the manual Sync below.</string>
+    <string name="subtitle_auto_sync_listening">Listening to the playing audio… %1$d s of %2$d s</string>
+    <string name="subtitle_auto_sync_resume_to_listen">Resume playback so Auto Sync can listen to the audio.</string>
+    <string name="subtitle_auto_sync_frame_rate_mismatch">This subtitle seems to be made for a different frame rate, so a fixed delay cannot fix it. Try another subtitle.</string>
+    <string name="subtitle_auto_sync_no_match">No confident match after %1$d s of audio. The subtitle was left unchanged; use the manual Sync below.</string>
     <string name="subtitle_auto_sync_failed">Automatic matching failed. The subtitle was left unchanged; use Sync Line instead.</string>
     <string name="subtitle_timing_loading">Loading subtitle lines…</string>
     <string name="subtitle_timing_no_lines_found">No subtitle lines were found around this moment.</string>

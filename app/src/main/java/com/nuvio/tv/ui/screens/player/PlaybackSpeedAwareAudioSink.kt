@@ -21,7 +21,8 @@ internal class PlaybackSpeedAwareAudioSink(
     sink: AudioSink,
     initialForcePcm: Boolean = false,
     forcePcmForBluetooth: Boolean = false,
-    private val subtitleSpeechProfileCollector: SubtitleSpeechProfileCollector? = null
+    /** Receives each decoded PCM byte once, with its media timestamp (Auto Sync). */
+    private val pcmConsumer: SubtitlePcmConsumer? = null
 ) : ForwardingAudioSink(sink) {
 
     // Set when the sink is built with forcePcm (error recovery). Don't clear on speed reset.
@@ -88,7 +89,7 @@ internal class PlaybackSpeedAwareAudioSink(
         currentInputFormat = inputFormat
         markPcmFallbackIfNeeded(inputFormat, playbackSpeed)
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
-        subtitleSpeechProfileCollector?.configure(inputFormat)
+        pcmConsumer?.configure(inputFormat)
         clearActiveInputBuffer()
     }
 
@@ -133,7 +134,7 @@ internal class PlaybackSpeedAwareAudioSink(
             }
             source.position(startPosition)
             source.limit(endPosition)
-            subtitleSpeechProfileCollector?.acceptPcm(
+            pcmConsumer?.acceptPcm(
                 source.slice(),
                 if (consumedPresentationTimeUs == C.TIME_UNSET) C.TIME_UNSET
                 else consumedPresentationTimeUs - subtitleStreamOffsetUs
@@ -145,19 +146,19 @@ internal class PlaybackSpeedAwareAudioSink(
 
     override fun handleDiscontinuity() {
         clearActiveInputBuffer()
-        subtitleSpeechProfileCollector?.onDiscontinuity()
+        pcmConsumer?.onDiscontinuity()
         super.handleDiscontinuity()
     }
 
     override fun flush() {
         clearActiveInputBuffer()
-        subtitleSpeechProfileCollector?.onDiscontinuity()
+        pcmConsumer?.onDiscontinuity()
         super.flush()
     }
 
     override fun reset() {
         clearActiveInputBuffer()
-        subtitleSpeechProfileCollector?.onDiscontinuity()
+        pcmConsumer?.onDiscontinuity()
         super.reset()
     }
 

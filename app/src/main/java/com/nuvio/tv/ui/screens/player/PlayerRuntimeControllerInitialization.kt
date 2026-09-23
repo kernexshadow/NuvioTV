@@ -829,6 +829,7 @@ internal fun PlayerRuntimeController.initializePlayer(
 
             audioDelayUs.set(_uiState.value.audioDelayMs.toLong() * 1000L)
             subtitleDelayUs.set(_uiState.value.subtitleDelayMs.toLong() * 1000L)
+            subtitleSpeechFeatureTap.bindContent(url)
 
             // ── Fallback Codec Setup ──
             // mapDv7ToHevc is now driven by effective mode (HDR10_BASE_LAYER strips DV7),
@@ -902,6 +903,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     if (pv != null) pv.videoBoundsFraction(videoAspectRatio) else null
                 },
                 gainAudioProcessor = gainAudioProcessor,
+                subtitleSpeechFeatureTap = subtitleSpeechFeatureTap,
                 downmixEnabled = effectiveDownmixEnabled,
                 audioOutputChannels = effectiveAudioOutputChannels,
                 downmixNormalizationEnabled = !playerSettings.maintainOriginalAudioOnDownmix,
@@ -2125,6 +2127,7 @@ private class SubtitleOffsetRenderersFactory(
     private val isSidecarAddonSubtitleActiveProvider: () -> Boolean = { false },
     private val videoBoundsFractionProvider: () -> RectF?,
     private val gainAudioProcessor: GainAudioProcessor,
+    private val subtitleSpeechFeatureTap: SubtitleSpeechFeatureTap,
     private val downmixEnabled: Boolean,
     private val audioOutputChannels: com.nuvio.tv.data.local.AudioOutputChannels,
     private val downmixNormalizationEnabled: Boolean,
@@ -2194,7 +2197,8 @@ private class SubtitleOffsetRenderersFactory(
         val playbackSpeedAwareAudioSink = PlaybackSpeedAwareAudioSink(
             sink = baseAudioSink,
             initialForcePcm = initialForcePcm,
-            forcePcmForBluetooth = bluetoothForcePcm
+            forcePcmForBluetooth = bluetoothForcePcm,
+            pcmConsumer = subtitleSpeechFeatureTap
         )
         playbackSpeedAwareAudioSink.setInitialPlaybackSpeed(playbackSpeedProvider())
         onPlaybackSpeedAwareAudioSinkCreated(playbackSpeedAwareAudioSink)

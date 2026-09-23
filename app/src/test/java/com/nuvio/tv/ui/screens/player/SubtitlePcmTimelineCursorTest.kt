@@ -92,22 +92,54 @@ class SubtitlePcmTimelineCursorTest {
     }
 
     @Test
-    fun `multichannel downmix favours centre dialogue and excludes lfe`() {
-        val centreOnly = downmixSubtitlePcmFrame(
-            doubleArrayOf(0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
-        )
-        val lfeOnly = downmixSubtitlePcmFrame(
-            doubleArrayOf(0.0, 0.0, 0.0, 1.0, 0.0, 0.0)
-        )
+    fun `surround downmix uses centre only and excludes lfe`() {
+        val downmixer = SubtitleDialogueDownmixer()
+        feed(downmixer, 16_384) { index -> doubleArrayOf(0.4, 0.4, speech(index), 0.9, 0.3, 0.3) }
 
-        assertTrue(centreOnly > 0.50)
-        assertEquals(0.0, lfeOnly, 0.0)
+        val mono = downmixer.downmix(doubleArrayOf(0.4, -0.4, 0.5, 0.9, 0.3, -0.3))
+
+        assertEquals(0.5, mono, 1e-9)
     }
 
     @Test
-    fun `stereo anti phase does not cancel all speech energy`() {
-        val mono = downmixSubtitlePcmFrame(doubleArrayOf(0.8, -0.8))
+    fun `surround downmix falls back to fronts when centre is empty`() {
+        val downmixer = SubtitleDialogueDownmixer()
+        feed(downmixer, 16_384) { index -> doubleArrayOf(speech(index), speech(index), 0.0, 0.0, 0.0, 0.0) }
+
+        val mono = downmixer.downmix(doubleArrayOf(0.6, 0.6, 0.0, 0.0, 0.0, 0.0))
+
+        assertTrue(mono > 0.3)
+    }
+
+    @Test
+    fun `silent opening does not declare the centre empty`() {
+        val downmixer = SubtitleDialogueDownmixer()
+        feed(downmixer, 16_384) { doubleArrayOf(0.0, 0.0, 0.0, 0.0, 0.0, 0.0) }
+
+        assertEquals(0.5, downmixer.downmix(doubleArrayOf(0.0, 0.0, 0.5, 0.0, 0.0, 0.0)), 1e-9)
+    }
+
+    @Test
+    fun `stereo downmix averages in phase channels`() {
+        val downmixer = SubtitleDialogueDownmixer()
+        feed(downmixer, 16_384) { index -> doubleArrayOf(speech(index), speech(index)) }
+
+        assertEquals(0.5, downmixer.downmix(doubleArrayOf(0.6, 0.4)), 1e-9)
+    }
+
+    @Test
+    fun `anti phase stereo track does not cancel speech energy`() {
+        val downmixer = SubtitleDialogueDownmixer()
+        feed(downmixer, 16_384) { index -> doubleArrayOf(speech(index), -speech(index)) }
+
+        val mono = downmixer.downmix(doubleArrayOf(0.8, -0.8))
 
         assertTrue(kotlin.math.abs(mono) > 0.50)
+    }
+
+    private fun speech(index: Int): Double = 0.5 * kotlin.math.sin(index * 0.07)
+
+    private fun feed(downmixer: SubtitleDialogueDownmixer, frames: Int, frame: (Int) -> DoubleArray) {
+        repeat(frames) { downmixer.downmix(frame(it)) }
     }
 }

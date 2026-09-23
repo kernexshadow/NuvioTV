@@ -1,8 +1,51 @@
 # Subtitle Auto Sync
 
-Auto Sync estimates a constant subtitle delay by correlating subtitle activity/onsets with
-WebRTC VAD speech activity. It does not transcribe dialogue or compare spoken words with text.
-The confidence value is a heuristic score, not a calibrated probability of correctness.
+Auto Sync estimates a constant subtitle delay by correlating the subtitle's speech schedule with
+speech detected in the audio. It does not transcribe dialogue or compare spoken words with text.
+Confidence values are heuristic scores, not calibrated probabilities of correctness.
+
+## Primary path: listening to played audio
+
+`SubtitleSpeechFeatureTap` sits in the main player's `PlaybackSpeedAwareAudioSink` and reduces
+each decoded PCM byte, once, to 32 ms features: RMS of the 300-3400 Hz speech band and broadband
+RMS. Surround tracks use the centre channel (`SubtitleDialogueDownmixer`). Features are keyed by
+media timestamp, kept per contiguous run, capped at about 60 minutes, and reset when the stream
+changes. There is no second player, no extra download, and playback is never suspended.
+
+`SubtitleSpeechAligner` turns the features into a per-frame speech score (level above a rolling
+noise floor, syllable-rate energy modulation, speech-band share) and cross-correlates it with the
+subtitle schedule by FFT, for all delays at once. Music cues are dropped, and cue spans are capped
+at an estimate of spoken duration (70 ms per character) instead of their reading time. Each lag gets
+a z-like statistic; a result needs both a tall peak and a high peak-to-sidelobe ratio:
+
+- Narrow tier: +/-15 s, from 20 s of audio, z >= 8 and PSR >= 2.5.
+- Full tier: +/-90 s, from 45 s of audio, z >= 4 and PSR >= 5, plus six common frame-rate ratios.
+  A scaled timeline must beat a plain delay by 10%; it is reported as a frame-rate mismatch and
+  never applied.
+
+When too little audio has been heard, Auto Sync keeps listening while the video plays and retries
+at 20/45/90/180 s of captured audio. If the selected track fails, same-language alternatives are
+aligned against the same audio and offered as suggestions.
+
+The tap cannot see bitstream passthrough/offload audio, and MPV has no equivalent hook. In those
+cases Auto Sync falls back to the separate-player path below.
+
+### Credit and license
+
+This path is derived from the subtitle auto-sync in
+[Debrify](https://github.com/varunsalian/debrify) (`SubtitleAligner.kt`, `SpeechFeatureTap.kt`):
+tapping played PCM, the speech score, the FFT correlation with z-score and peak-to-sidelobe
+gates, the two search tiers, the frame-rate check and the listening ladder, including their
+tuning constants. The code was reimplemented for NuvioTV.
+
+Debrify is licensed under the GNU AGPL v3.0, so `SubtitleSpeechAligner.kt` and
+`SubtitleSpeechFeatureTap.kt` are licensed under the AGPL v3.0 too (see their headers; the
+license text is in `LICENSES/AGPL-3.0.txt`). The rest of NuvioTV remains GPL-3.0; section 13 of
+both licenses permits combining them in one program.
+
+## Fallback path: separate audio player
+
+The rest of this document describes the fallback.
 
 ## Acquisition
 

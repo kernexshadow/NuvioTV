@@ -588,7 +588,7 @@ private class SubtitleProbeRenderersFactory(
             sink = pcmSink,
             initialForcePcm = true,
             forcePcmForBluetooth = false,
-            subtitleSpeechProfileCollector = collector
+            pcmConsumer = collector
         ).apply {
             setInitialPlaybackSpeed(playbackSpeed)
         }

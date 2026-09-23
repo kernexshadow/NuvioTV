@@ -1395,6 +1395,10 @@
     <string name="subtitle_auto_sync_need_more_audio">O player de áudio separado não conseguiu descodificar dados suficientes desta fonte. A legenda não foi alterada; utiliza Sincronizar por Linha abaixo.</string>
     <string name="subtitle_auto_sync_not_enough_dialogue">Não foi detetado diálogo suficiente para uma correspondência automática segura. Utiliza a Sincronização manual abaixo.</string>
     <string name="subtitle_auto_sync_low_confidence">A confiança automática foi de apenas %1$d%%, por isso a legenda não foi alterada. Utiliza a Sincronização manual abaixo.</string>
+    <string name="subtitle_auto_sync_listening">A ouvir o áudio em reprodução… %1$d s de %2$d s</string>
+    <string name="subtitle_auto_sync_resume_to_listen">Retoma a reprodução para que a Sincronização automática possa ouvir o áudio.</string>
+    <string name="subtitle_auto_sync_frame_rate_mismatch">Esta legenda parece ter sido feita para outra frame rate, por isso um atraso fixo não a corrige. Experimenta outra legenda.</string>
+    <string name="subtitle_auto_sync_no_match">Não houve correspondência segura após %1$d s de áudio. A legenda não foi alterada. Utiliza a Sincronização manual abaixo.</string>
     <string name="subtitle_auto_sync_failed">A sincronização automática falhou. A legenda não foi alterada; utiliza Linha de Sincronia.</string>
     <string name="subtitle_timing_loading">A carregar linhas de legenda…</string>
     <string name="subtitle_timing_no_lines_found">Não foram encontradas linhas de legenda perto deste momento.</string>

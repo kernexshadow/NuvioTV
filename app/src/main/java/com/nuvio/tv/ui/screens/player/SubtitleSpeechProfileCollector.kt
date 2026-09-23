@@ -9,7 +9,7 @@ import com.konovalov.vad.webrtc.config.Mode
 import com.konovalov.vad.webrtc.config.SampleRate
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.abs
+import kotlin.math.sqrt
 import kotlin.math.roundToInt
 
 internal data class SubtitlePcmTimelineRange(
@@ -116,6 +116,7 @@ internal class SubtitleSpeechProfileCollector(
     private val speechSpans = mutableListOf<SubtitleSyncSpan>()
     private val observedSpans = mutableListOf<SubtitleSyncSpan>()
     private val timelineCursor = SubtitlePcmTimelineCursor(timelineAnchorMs)
+    private val downmixer = SubtitleDialogueDownmixer()
 
     @Synchronized
     fun beginSession(key: String, timelineAnchorMs: Long? = null) {
@@ -124,6 +125,7 @@ internal class SubtitleSpeechProfileCollector(
         speechSpans.clear()
         observedSpans.clear()
         timelineCursor.reset(timelineAnchorMs)
+        downmixer.reset()
         // A reusable probe player does not necessarily call AudioSink.configure() after every
         // seek. Keep the already negotiated PCM format while clearing all timing/VAD state.
         resetAudioState(clearFormat = false)
@@ -181,6 +183,7 @@ internal class SubtitleSpeechProfileCollector(
             sampleRate = format.sampleRate
             channelCount = format.channelCount
             frameSamples = DoubleArray(channelCount)
+            downmixer.reset()
             pcmEncoding = format.pcmEncoding
             bytesPerSample = when (pcmEncoding) {
                 C.ENCODING_PCM_16BIT -> 2
@@ -217,7 +220,7 @@ internal class SubtitleSpeechProfileCollector(
             repeat(channelCount) { channel ->
                 frameSamples[channel] = readPcmSample(input)
             }
-            val mono = downmixSubtitlePcmFrame(frameSamples)
+            val mono = downmixer.downmix(frameSamples)
             val sampleTimeMs = startMs + (inputFrameIndex * 1_000L / sampleRate)
             resampleAndEmit(mono, sampleTimeMs)
         }
@@ -231,6 +234,7 @@ internal class SubtitleSpeechProfileCollector(
 
     @Synchronized
     fun resetForAudioTrackChange() {
+        downmixer.reset()
         speechSpans.clear()
         observedSpans.clear()
         timelineCursor.reset()
@@ -373,34 +377,98 @@ internal class SubtitleSpeechProfileCollector(
     }
 }
 
-/** Center-aware mono fold-down used only by Auto Sync's speech detector. */
-internal fun downmixSubtitlePcmFrame(samples: DoubleArray): Double {
-    if (samples.isEmpty()) return 0.0
-    if (samples.size == 1) return samples[0].coerceIn(-1.0, 1.0)
-    if (samples.size == 2) {
-        val average = (samples[0] + samples[1]) * 0.5
-        val strongest = if (abs(samples[0]) >= abs(samples[1])) samples[0] else samples[1]
-        return if (abs(average) < abs(strongest) * 0.12) {
-            (strongest * 0.70).coerceIn(-1.0, 1.0)
-        } else {
-            average.coerceIn(-1.0, 1.0)
+/**
+ * Mono fold-down for Auto Sync's speech detector. Channel layout decisions are made per track from
+ * accumulated channel energy, never per sample: switching strategy inside a waveform distorts it.
+ *
+ * - Surround: dialogue is mixed to FC, while music and effects dominate the other channels. FC is
+ *   used alone unless it is effectively empty (for example a stereo upmix with a silent centre).
+ * - Stereo: (L+R)/2 keeps centred dialogue and attenuates wide music. A track whose channels are
+ *   inverted relative to each other would cancel, so a strongly anti-phase track uses (L-R)/2.
+ */
+internal class SubtitleDialogueDownmixer {
+    private companion object {
+        const val DECISION_INTERVAL_FRAMES = 2_048
+        const val MIN_DECISION_FRAMES = 8_192L
+        /** Mean squared amplitude below -60 dBFS carries no usable layout information. */
+        const val MIN_MEAN_ENERGY = 1e-6
+        /** A centre 30 dB below the fronts is treated as absent. */
+        const val EMPTY_CENTRE_ENERGY_RATIO = 1e-3
+        const val ANTI_PHASE_CORRELATION = -0.5
+    }
+
+    private var frames = 0L
+    private var framesUntilDecision = DECISION_INTERVAL_FRAMES
+    private var frontEnergy = 0.0
+    private var centreEnergy = 0.0
+    private var leftEnergy = 0.0
+    private var rightEnergy = 0.0
+    private var crossEnergy = 0.0
+    private var centreEmpty = false
+    private var antiPhase = false
+
+    fun reset() {
+        frames = 0L
+        framesUntilDecision = DECISION_INTERVAL_FRAMES
+        frontEnergy = 0.0
+        centreEnergy = 0.0
+        leftEnergy = 0.0
+        rightEnergy = 0.0
+        crossEnergy = 0.0
+        centreEmpty = false
+        antiPhase = false
+    }
+
+    fun downmix(samples: DoubleArray): Double {
+        val mono = when {
+            samples.isEmpty() -> 0.0
+            samples.size == 1 -> samples[0]
+            samples.size == 2 -> stereo(samples[0], samples[1])
+            // Quad PCM normally has no centre or LFE channel.
+            samples.size == 4 -> samples[0] * 0.35 + samples[1] * 0.35 +
+                samples[2] * 0.15 + samples[3] * 0.15
+            else -> surround(samples)
         }
+        return mono.coerceIn(-1.0, 1.0)
     }
 
-    if (samples.size == 4) {
-        // Quad PCM normally has no centre or LFE channel.
-        return (samples[0] * 0.35 + samples[1] * 0.35 +
-            samples[2] * 0.15 + samples[3] * 0.15).coerceIn(-1.0, 1.0)
+    private fun stereo(left: Double, right: Double): Double {
+        leftEnergy += left * left
+        rightEnergy += right * right
+        crossEnergy += left * right
+        countFrame()
+        return if (antiPhase) (left - right) * 0.5 else (left + right) * 0.5
     }
 
-    // Android decoder PCM normally follows FL, FR, FC, [LFE], surrounds. Dialogue is commonly in
-    // FC; LFE is deliberately excluded when present. Extra channels receive a small weight.
-    var weighted = samples[0] * 0.25 + samples[1] * 0.25 + samples[2]
-    var totalWeight = 1.50
-    val firstSurround = if (samples.size >= 6) 4 else 3
-    for (index in firstSurround until samples.size) {
-        weighted += samples[index] * 0.15
-        totalWeight += 0.15
+    // Android decoder PCM follows FL, FR, FC, [LFE], surrounds.
+    private fun surround(samples: DoubleArray): Double {
+        frontEnergy += (samples[0] * samples[0] + samples[1] * samples[1]) * 0.5
+        centreEnergy += samples[2] * samples[2]
+        countFrame()
+        if (!centreEmpty) return samples[2]
+
+        var weighted = (samples[0] + samples[1]) * 0.5
+        var totalWeight = 1.0
+        val firstSurround = if (samples.size >= 6) 4 else 3
+        for (index in firstSurround until samples.size) {
+            weighted += samples[index] * 0.15
+            totalWeight += 0.15
+        }
+        return weighted / totalWeight
     }
-    return (weighted / totalWeight).coerceIn(-1.0, 1.0)
+
+    private fun countFrame() {
+        frames++
+        if (--framesUntilDecision > 0) return
+        framesUntilDecision = DECISION_INTERVAL_FRAMES
+        if (frames < MIN_DECISION_FRAMES) return
+
+        val frontMean = frontEnergy / frames
+        centreEmpty = frontMean >= MIN_MEAN_ENERGY &&
+            centreEnergy < frontEnergy * EMPTY_CENTRE_ENERGY_RATIO
+
+        val stereoMean = (leftEnergy + rightEnergy) * 0.5 / frames
+        antiPhase = stereoMean >= MIN_MEAN_ENERGY &&
+            crossEnergy / sqrt(leftEnergy * rightEnergy) <= ANTI_PHASE_CORRELATION
+    }
 }
