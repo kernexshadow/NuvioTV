@@ -39,9 +39,10 @@ data class CalendarFetchOutcome(
 )
 
 /**
- * Shows: TVmaze first (exact times), then Trakt's next episode for shows TVmaze does not know, then TMDB's plain dates;
- * TMDB's season adds finale marks when a TMDB id is known. Films: TMDB release dates. Any failure keeps the old dates
- * and counts towards the back-off.
+ * Shows: a show TVmaze has not been asked for yet is read from TMDB first. When TMDB knows it and has no release within
+ * [EXACT_TIME_WINDOW], TMDB's plain dates are kept and TVmaze is left alone. Otherwise TVmaze (exact times), then Trakt's
+ * next episode for shows TVmaze does not know, then TMDB's plain dates; TMDB's season adds finale marks when a TMDB id
+ * is known. Films: TMDB release dates. Any failure keeps the old dates and counts towards the back-off.
  */
 class CalendarTitleFetcher(
     private val remote: CalendarRemoteSources,
@@ -86,31 +87,70 @@ class CalendarTitleFetcher(
         learned: MutableMap<String, CalendarTvMazeId>,
         now: Instant
     ): CalendarTitleRecord {
-        val tvMazeId = record.tvmazeId ?: resolveTvMazeId(record.ids, known, learned, now)
+        val triage = if (record.tvmazeId == null && knownTvMazeId(record.ids, known) == null) tmdbTriage(record, now) else null
+        if (triage?.settled == true) return triage.record
+        val base = triage?.record ?: record
+        val tvMazeId = base.tvmazeId ?: resolveTvMazeId(base.ids, known, learned, now)
         if (tvMazeId != null) {
             val dates = remote.tvMazeShow(tvMazeId, now)
-            val updated = record.copy(
+            val updated = base.copy(
                 tvmazeId = tvMazeId,
-                ids = record.ids.merged(dates.ids),
-                name = record.name ?: dates.name,
-                poster = record.poster ?: dates.poster,
-                network = dates.network ?: record.network,
+                ids = base.ids.merged(dates.ids),
+                name = base.name ?: dates.name,
+                poster = base.poster ?: dates.poster,
+                network = dates.network ?: base.network,
                 status = dates.status
             ).withSource(CalendarSource.TVMAZE, dates.entries, now).withoutSources(CalendarSource.TRAKT_NEXT)
             return withFinales(updated, now)
         }
-        val trakt = remote.traktNextEpisode(record.ids)
-        if (trakt != null && trakt.entries.isNotEmpty()) return record.withSource(CalendarSource.TRAKT_NEXT, trakt.entries, now)
-        val withTmdb = withTmdbId(if (trakt != null) record.withoutSources(CalendarSource.TRAKT_NEXT) else record)
+        val trakt = remote.traktNextEpisode(base.ids)
+        if (trakt != null && trakt.entries.isNotEmpty()) return base.withSource(CalendarSource.TRAKT_NEXT, trakt.entries, now)
+        val withoutTrakt = if (trakt != null) base.withoutSources(CalendarSource.TRAKT_NEXT) else base
+        if (triage != null) return withoutTrakt
+        val withTmdb = withTmdbId(withoutTrakt)
         val tmdbId = withTmdb.ids.tmdb ?: return withTmdb
-        val dates = remote.tmdbShow(tmdbId)
-        return withTmdb.copy(
-            name = withTmdb.name ?: dates.name,
-            poster = withTmdb.poster ?: dates.poster,
-            network = dates.network ?: withTmdb.network,
-            status = dates.status
-        ).withSource(CalendarSource.TMDB, dates.entries, now)
+        return withTmdb.withTmdbShow(remote.tmdbShow(tmdbId), now)
     }
+
+    /** [settled] when TMDB knows the show and nothing of it comes out within [EXACT_TIME_WINDOW]. */
+    private class TmdbTriage(val record: CalendarTitleRecord, val settled: Boolean)
+
+    /**
+     * One or two TMDB calls instead of three to five TVmaze ones. Most followed shows have ended or are between seasons;
+     * they only need TVmaze's exact times once a release comes near. A TMDB failure is not the show's failure: it moves
+     * on to TVmaze as before.
+     */
+    private suspend fun tmdbTriage(record: CalendarTitleRecord, now: Instant): TmdbTriage {
+        val updated = try {
+            val withTmdb = withTmdbId(record)
+            val tmdbId = withTmdb.ids.tmdb ?: return TmdbTriage(withTmdb, settled = false)
+            val dates = remote.tmdbShow(tmdbId)
+            if (dates.status == CalendarShowStatus.UNKNOWN && dates.entries.isEmpty()) {
+                return TmdbTriage(withTmdb.withTmdbShow(dates, now), settled = false)
+            }
+            withTmdb.withTmdbShow(dates, now)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.w(TAG, "${record.key}: TMDB first read failed, asking TVmaze: ${error.message}")
+            return TmdbTriage(record, settled = false)
+        }
+        val soon = updated.entries.any { entry ->
+            entry.kind == CalendarEntryKind.EPISODE &&
+                entry.sortInstant()?.let { !it.isBefore(now) && it.isBefore(now.plus(EXACT_TIME_WINDOW)) } == true
+        }
+        return TmdbTriage(updated, settled = !soon)
+    }
+
+    private fun CalendarTitleRecord.withTmdbShow(dates: CalendarShowDates, now: Instant): CalendarTitleRecord = copy(
+        name = name ?: dates.name,
+        poster = poster ?: dates.poster,
+        network = dates.network ?: network,
+        status = dates.status
+    ).withSource(CalendarSource.TMDB, dates.entries, now)
+
+    private fun knownTvMazeId(ids: CalendarIds, known: Map<String, CalendarTvMazeId>): Int? =
+        tvMazeAliases(ids).firstNotNullOfOrNull { known[it]?.id }
 
     /** One TMDB season call marks the finales of the season with the next release, when that is within 60 days. */
     private suspend fun withFinales(record: CalendarTitleRecord, now: Instant): CalendarTitleRecord {
@@ -175,5 +215,7 @@ class CalendarTitleFetcher(
         const val TAG = "CalendarFetch"
         val NOT_FOUND_RECHECK: Duration = Duration.ofDays(30)
         val FINALE_LOOKAHEAD: Duration = Duration.ofDays(60)
+        /** The Calendar's reach; a show with a release within it is read from TVmaze for the exact time and its season. */
+        val EXACT_TIME_WINDOW: Duration = Duration.ofDays(60)
     }
 }
