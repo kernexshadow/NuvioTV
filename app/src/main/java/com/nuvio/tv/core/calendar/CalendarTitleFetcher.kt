@@ -16,6 +16,8 @@ interface CalendarRemoteSources {
     suspend fun tmdbShow(tmdbId: Long): CalendarShowDates
     suspend fun tmdbSeason(tmdbId: Long, season: Int): List<CalendarEntry>
     suspend fun tmdbFilm(tmdbId: Long, region: String): CalendarShowDates
+    /** The followed shows ([wanted] as [calendarTvMazeAliases] makes them) in TVmaze's full schedule; throws on failure. */
+    suspend fun tvMazeSchedule(wanted: Set<String>): TvMazeSchedule
 }
 
 @Singleton
@@ -31,6 +33,7 @@ class DefaultCalendarRemoteSources @Inject constructor(
     override suspend fun tmdbShow(tmdbId: Long) = tmdb.show(tmdbId)
     override suspend fun tmdbSeason(tmdbId: Long, season: Int) = tmdb.season(tmdbId, season)
     override suspend fun tmdbFilm(tmdbId: Long, region: String) = tmdb.film(tmdbId, region)
+    override suspend fun tvMazeSchedule(wanted: Set<String>) = tvMaze.schedule(wanted)
 }
 
 data class CalendarFetchOutcome(
@@ -39,10 +42,12 @@ data class CalendarFetchOutcome(
 )
 
 /**
- * Shows: a show TVmaze has not been asked for yet is read from TMDB first. When TMDB knows it and has no release within
+ * Shows TVmaze's full schedule covers ([applyTvMazeSchedule]) already have their dates; they are only read for TMDB's
+ * finale marks while a release is near. Other shows: a show TVmaze has not been asked for yet is read from TMDB first. When TMDB knows it and has no release within
  * [EXACT_TIME_WINDOW], TMDB's plain dates are kept and TVmaze is left alone. Otherwise TVmaze (exact times), then Trakt's
  * next episode for shows TVmaze does not know, then TMDB's plain dates; TMDB's season adds finale marks when a TMDB id
- * is known. Films: TMDB release dates. Any failure keeps the old dates and counts towards the back-off.
+ * is known. Films: TMDB release dates, unless the library dates the film two or more years back. Any failure keeps
+ * the old dates and counts towards the back-off.
  */
 class CalendarTitleFetcher(
     private val remote: CalendarRemoteSources,
@@ -59,6 +64,7 @@ class CalendarTitleFetcher(
             when {
                 record.type == CalendarTitleType.MOVIE -> refreshFilm(record, now)
                 coveredByTrakt && !record.needsPoster(now) -> record
+                record.scheduleCheckedAtMs > 0L -> refreshScheduled(record, tvMazeIds, learned, now)
                 else -> refreshShow(record, tvMazeIds, learned, now).withPosterChecked(now)
             }.copy(failures = 0, fetchedAtMs = now.toEpochMilli())
         } catch (cancelled: CancellationException) {
@@ -76,6 +82,7 @@ class CalendarTitleFetcher(
     }
 
     private suspend fun refreshFilm(record: CalendarTitleRecord, now: Instant): CalendarTitleRecord {
+        if (record.releasedYearsAgo(now)) return record
         val withTmdb = withTmdbId(record)
         val tmdbId = withTmdb.ids.tmdb ?: return withTmdb
         return withTmdb.withSource(CalendarSource.TMDB, remote.tmdbFilm(tmdbId, region).entries, now)
@@ -110,6 +117,34 @@ class CalendarTitleFetcher(
         val withTmdb = withTmdbId(withoutTrakt)
         val tmdbId = withTmdb.ids.tmdb ?: return withTmdb
         return withTmdb.withTmdbShow(remote.tmdbShow(tmdbId), now)
+    }
+
+    /**
+     * A show the schedule covers. While its TVmaze id is not known it is looked up once: when TVmaze has it, the daily
+     * file is enough from then on; when TVmaze cannot match it, it moves to the per-title refresh for good. Otherwise
+     * only TMDB's finale marks while a release is near; a failed TMDB call leaves them out until the next day.
+     */
+    private suspend fun refreshScheduled(
+        record: CalendarTitleRecord,
+        known: Map<String, CalendarTvMazeId>,
+        learned: MutableMap<String, CalendarTvMazeId>,
+        now: Instant
+    ): CalendarTitleRecord {
+        if (record.tvmazeId == null && knownTvMazeId(record.ids, known) == null) {
+            val id = resolveTvMazeId(record.ids, known, learned, now)
+                ?: return refreshShow(record.copy(scheduleCheckedAtMs = 0L), known + learned, learned, now).withPosterChecked(now)
+            return record.copy(tvmazeId = id)
+        }
+        if (!record.wantsFinales(now)) return record
+        val checked = record.copy(finalesCheckedAtMs = now.toEpochMilli())
+        val withTmdb = try {
+            withTmdbId(checked)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            return checked
+        }
+        return withFinales(withTmdb, now)
     }
 
     /** [settled] when TMDB knows the show and nothing of it comes out within [EXACT_TIME_WINDOW]. */
@@ -150,14 +185,14 @@ class CalendarTitleFetcher(
     ).withSource(CalendarSource.TMDB, dates.entries, now)
 
     private fun knownTvMazeId(ids: CalendarIds, known: Map<String, CalendarTvMazeId>): Int? =
-        tvMazeAliases(ids).firstNotNullOfOrNull { known[it]?.id }
+        calendarTvMazeAliases(ids).firstNotNullOfOrNull { known[it]?.id }
 
     /** One TMDB season call marks the finales of the season with the next release, when that is within 60 days. */
     private suspend fun withFinales(record: CalendarTitleRecord, now: Instant): CalendarTitleRecord {
         val tmdbId = record.ids.tmdb ?: return record
         val next = record.entries.firstOrNull { entry ->
             entry.kind == CalendarEntryKind.EPISODE &&
-                entry.sortInstant()?.let { !it.isBefore(now) && it.isBefore(now.plus(FINALE_LOOKAHEAD)) } == true
+                entry.sortInstant()?.let { !it.isBefore(now) && it.isBefore(now.plus(CALENDAR_FINALE_LOOKAHEAD)) } == true
         } ?: return record.withSource(CalendarSource.TMDB, emptyList(), now)
         val season = next.season ?: return record
         val finales = try {
@@ -176,7 +211,7 @@ class CalendarTitleFetcher(
         learned: MutableMap<String, CalendarTvMazeId>,
         now: Instant
     ): Int? {
-        val aliases = tvMazeAliases(ids)
+        val aliases = calendarTvMazeAliases(ids)
         if (aliases.isEmpty()) return null
         aliases.firstNotNullOfOrNull { known[it]?.id }?.let { return it }
         val missingUntil = now.minus(NOT_FOUND_RECHECK).toEpochMilli()
@@ -184,7 +219,7 @@ class CalendarTitleFetcher(
         val stamp = now.toEpochMilli()
         return when (val lookup = remote.tvMazeLookup(ids)) {
             is TvMazeLookup.Found -> {
-                tvMazeAliases(ids.merged(lookup.ids)).forEach { learned[it] = CalendarTvMazeId(lookup.id, stamp) }
+                calendarTvMazeAliases(ids.merged(lookup.ids)).forEach { learned[it] = CalendarTvMazeId(lookup.id, stamp) }
                 lookup.id
             }
             TvMazeLookup.NotFound -> {
@@ -201,9 +236,6 @@ class CalendarTitleFetcher(
     private fun CalendarTitleRecord.withPosterChecked(now: Instant): CalendarTitleRecord =
         if (poster.isNullOrBlank()) copy(posterCheckedAtMs = now.toEpochMilli()) else this
 
-    private fun tvMazeAliases(ids: CalendarIds): List<String> =
-        listOfNotNull(ids.imdb?.let { "imdb:$it" }, ids.tvdb?.let { "tvdb:$it" })
-
     private suspend fun withTmdbId(record: CalendarTitleRecord): CalendarTitleRecord {
         if (record.ids.tmdb != null) return record
         val imdb = record.ids.imdb ?: return record
@@ -214,7 +246,6 @@ class CalendarTitleFetcher(
     private companion object {
         const val TAG = "CalendarFetch"
         val NOT_FOUND_RECHECK: Duration = Duration.ofDays(30)
-        val FINALE_LOOKAHEAD: Duration = Duration.ofDays(60)
         /** The Calendar's reach; a show with a release within it is read from TVmaze for the exact time and its season. */
         val EXACT_TIME_WINDOW: Duration = Duration.ofDays(60)
     }

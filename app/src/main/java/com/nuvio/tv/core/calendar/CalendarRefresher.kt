@@ -329,7 +329,7 @@ class CalendarRefresher internal constructor(
             val result = followCalendarTitles(sources.candidates + traktCandidates + carried, rules, now)
             val followed = result.titles.withCachedPosters(sources.cachedPosters)
 
-            val due = withOwner(current) {
+            withOwner(current) {
                 var records = applyAddonEntries(reconcileCalendarRecords(followed, data.titles), sources.addonEntries, now)
                     .withCachedArt(sources.cachedArt)
                 records = when {
@@ -346,11 +346,28 @@ class CalendarRefresher internal constructor(
                     }
                 )
                 publishLocked()
-                records.filter { it.isDue(now) }
+            } ?: return true
+            val scheduleDue = calendarScheduleDue(snapshot, now)
+            val schedule = if (scheduleDue) readSchedule(snapshot, followed) else null
+            val due = withOwner(current) {
+                if (scheduleDue) data = data.copy(scheduleTriedAtMs = now.toEpochMilli())
+                if (schedule != null) {
+                    data = data.copy(
+                        titles = applyTvMazeSchedule(data.titles, schedule, data.tvmazeIds, now),
+                        scheduleFetchedAtMs = now.toEpochMilli(),
+                        tvmazeIds = data.tvmazeIds + schedule.learnedTvMazeIds(now)
+                    )
+                    publishLocked()
+                }
+                data.titles.filter { it.isDue(now) }
                     .sortedWith(compareByDescending<CalendarTitleRecord> { CalendarOrigin.BELL in it.origins }.thenBy { it.nextRefreshAtMs })
             } ?: return true
             save(current, force = true)
-            Log.i(TAG, "refresh reason=$reason titles=${followed.size} due=${due.size} trakt=${traktItems?.size ?: "-"}")
+            Log.i(
+                TAG,
+                "refresh reason=$reason titles=${followed.size} due=${due.size} trakt=${traktItems?.size ?: "-"} " +
+                    "schedule=${schedule?.shows?.size ?: "-"}"
+            )
             calendarLeftOutSummary(result.leftOut).forEach { Log.i(TAG, it) }
             if (!complete) {
                 val notReady = sources.notReady.entries.joinToString(", ") { (name, why) -> "$name $why" }
@@ -392,6 +409,26 @@ class CalendarRefresher internal constructor(
             }
         }
         return complete
+    }
+
+    /**
+     * TVmaze's full schedule for the followed shows, read once nothing plays; null when it could not be read, so those
+     * shows keep what they have and new ones go through the per-title refresh.
+     */
+    private suspend fun readSchedule(snapshot: CalendarSnapshot, followed: List<CalendarFollowedTitle>): TvMazeSchedule? {
+        val wanted = HashSet<String>()
+        followed.forEach { if (it.type == CalendarTitleType.SERIES) wanted += calendarTvMazeAliases(it.ids) }
+        snapshot.titles.forEach { if (it.type == CalendarTitleType.SERIES) wanted += calendarTvMazeAliases(it.ids) }
+        if (wanted.isEmpty()) return null
+        awaitNoPlayback()
+        return try {
+            remote.tvMazeSchedule(wanted)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.w(TAG, "TVmaze schedule skipped: ${error.message}")
+            null
+        }
     }
 
     private suspend fun refreshOne(current: Owner, key: String, fetcher: CalendarTitleFetcher) {

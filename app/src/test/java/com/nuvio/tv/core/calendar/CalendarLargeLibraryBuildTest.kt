@@ -16,9 +16,10 @@ import org.junit.Test
 
 /**
  * The first Calendar build for a large library, in virtual time. 1 500 library items, of which the follow rules keep
- * 300. It runs the real follow rules, record reconcile, Trakt calendar merge, fetcher and refresh policy through the
- * refresher's queue (most recent first, N at a time). The services are fakes that cost [LATENCY_MS] per request behind
- * the rate limits the real clients use: TVmaze 15 per 10 s, TMDB 20 per second.
+ * 300. It runs the real follow rules, record reconcile, Trakt calendar merge, TVmaze schedule pass, fetcher and refresh
+ * policy through the refresher's queue (most recent first, N at a time). The services are fakes that cost [LATENCY_MS]
+ * per request behind the rate limits the real clients use (TVmaze 15 per 10 s, TMDB 20 per second); reading the full
+ * schedule costs [SCHEDULE_MS]. One in ten shows TVmaze has carries no IMDb id there, so it cannot be matched by one.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CalendarLargeLibraryBuildTest {
@@ -34,8 +35,10 @@ class CalendarLargeLibraryBuildTest {
         val nextEpisode: Int,
         val seasonLength: Int,
         val tvMazeKnows: Boolean,
+        val tvMazeHasImdb: Boolean,
         val tmdbKnows: Boolean,
-        val withTmdbId: Boolean
+        val withTmdbId: Boolean,
+        val releaseYear: Int
     ) {
         val imdb = "tt%07d".format(1_000_000 + n)
         val tmdb = 10_000L + n
@@ -43,6 +46,7 @@ class CalendarLargeLibraryBuildTest {
         val season = 3
         val ids get() = CalendarIds(imdb = imdb, tmdb = if (withTmdbId) tmdb else null)
         val status get() = if (profile == Profile.ENDED) CalendarShowStatus.ENDED else CalendarShowStatus.RUNNING
+        val tvMazeMatches get() = tvMazeKnows && tvMazeHasImdb
         fun airs(episode: Int): Instant? = next?.plus(Duration.ofDays(7L * (episode - nextEpisode)))
     }
 
@@ -72,8 +76,10 @@ class CalendarLargeLibraryBuildTest {
                 nextEpisode = if (profile == Profile.THIS_WEEK) random.nextInt(1, 8) else 1,
                 seasonLength = 8,
                 tvMazeKnows = random.nextDouble() < 0.95,
+                tvMazeHasImdb = random.nextDouble() < 0.90,
                 tmdbKnows = random.nextDouble() < 0.98,
-                withTmdbId = random.nextDouble() < 0.15
+                withTmdbId = random.nextDouble() < 0.15,
+                releaseYear = if (days != null) 2026 else random.nextInt(2012, 2026)
             )
         }
     }
@@ -109,7 +115,7 @@ class CalendarLargeLibraryBuildTest {
 
         override suspend fun tvMazeLookup(ids: CalendarIds): TvMazeLookup {
             tvMazeRequests(2)
-            val show = ids.imdb?.let(byImdb::get)?.takeIf { it.tvMazeKnows } ?: return TvMazeLookup.NotFound
+            val show = ids.imdb?.let(byImdb::get)?.takeIf { it.tvMazeMatches } ?: return TvMazeLookup.NotFound
             return TvMazeLookup.Found(show.tvMaze, CalendarIds(imdb = show.imdb))
         }
 
@@ -125,6 +131,29 @@ class CalendarLargeLibraryBuildTest {
                 ids = CalendarIds(imdb = show.imdb)
             )
         }
+
+        // after-only-start
+        override suspend fun tvMazeSchedule(wanted: Set<String>): TvMazeSchedule {
+            tvMazeLimiter.acquire()
+            tvMaze++
+            delay(SCHEDULE_MS)
+            val listed = shows.filter { show ->
+                !show.film && show.tvMazeMatches && show.next != null && "imdb:${show.imdb}" in wanted
+            }
+            return TvMazeSchedule(listed.map { show ->
+                TvMazeScheduledShow(
+                    id = show.tvMaze,
+                    ids = CalendarIds(imdb = show.imdb),
+                    name = "Show ${show.n}",
+                    status = show.status,
+                    entries = (1..show.seasonLength).filter { !show.airs(it)!!.isBefore(now.minus(Duration.ofDays(3))) }
+                        .map { exact(show, it, CalendarSource.TVMAZE) }
+                )
+            })
+        }
+
+        private val now get() = Instant.parse("2026-10-05T23:00:00Z")
+        // after-only-end
 
         override suspend fun traktNextEpisode(ids: CalendarIds): CalendarShowDates? {
             traktRequest()
@@ -179,7 +208,11 @@ class CalendarLargeLibraryBuildTest {
         val doneMs: Long,
         val upcoming: Int,
         val upcomingOnCalendar: Int,
+        val upcomingAtStart: Int,
         val upcomingWithTime: Int,
+        val films: Int,
+        val queueStartMs: Long,
+        val filmsDated: Int,
         val failures: Int,
         val records: List<CalendarTitleRecord>,
         val tvMazeIds: Map<String, CalendarTvMazeId>
@@ -200,7 +233,10 @@ class CalendarLargeLibraryBuildTest {
             CalendarTitleCandidate(
                 show.ids, if (show.film) CalendarTitleType.MOVIE else CalendarTitleType.SERIES, CalendarOrigin.LIBRARY,
                 lastActivity = now.minus(Duration.ofHours(6L * show.n)), name = "Show ${show.n}", contentId = show.imdb,
-                poster = "https://example.org/${show.n}.jpg"
+                poster = "https://example.org/${show.n}.jpg",
+                // after-only-start
+                releaseYear = show.releaseYear,
+                // after-only-end
             )
         }
         val followed = followCalendarTitles(candidates, CalendarFollowRules(), at).titles
@@ -221,9 +257,16 @@ class CalendarLargeLibraryBuildTest {
             records = applyTraktCalendar(records, items, at)
             traktFetchedAt = at.toEpochMilli()
         }
+        val tvMazeIds = storedTvMazeIds.toMutableMap()
+        // after-only-start
+        val wanted = records.filter { it.type == CalendarTitleType.SERIES }.flatMapTo(HashSet()) { calendarTvMazeAliases(it.ids) }
+        val schedule = services.tvMazeSchedule(wanted)
+        records = applyTvMazeSchedule(records, schedule, tvMazeIds, at)
+        tvMazeIds += schedule.learnedTvMazeIds(at)
+        // after-only-end
+        val queueStartMs = testScheduler.currentTime - start
         val byKey = LinkedHashMap(records.associateBy { it.key })
         val shownBefore = records.associateBy({ it.key }, { record -> record.entries })
-        val tvMazeIds = storedTvMazeIds.toMutableMap()
         val queue = ArrayDeque(
             records.filter { it.isDue(at) }
                 .sortedWith(compareByDescending<CalendarTitleRecord> { CalendarOrigin.BELL in it.origins }.thenBy { it.nextRefreshAtMs })
@@ -255,19 +298,29 @@ class CalendarLargeLibraryBuildTest {
             record.entries.firstOrNull { it.season == show.season && it.episode == show.nextEpisode }
         }
         val thisWeek = upcoming.filter { (_, show) -> show.next!!.isBefore(at.plus(Duration.ofDays(7))) }
+        val upcomingFilms = byKey.values.mapNotNull { record ->
+            val show = record.ids.imdb?.let(showsByImdb::get) ?: return@mapNotNull null
+            if (show.film && show.next?.isAfter(at) == true && show.tmdbKnows) record else null
+        }
         return Build(
             titles = records.size,
             tvMaze = services.tvMaze,
             tmdb = services.tmdb,
             trakt = services.trakt,
-            thisWeekReadyMs = thisWeek.maxOfOrNull { (record, show) ->
+            thisWeekReadyMs = thisWeek.filter { (record, show) -> nextEntry(record, show) != null }.maxOfOrNull { (record, show) ->
                 val shown = shownBefore[record.key].orEmpty().any { it.season == show.season && it.episode == show.nextEpisode }
-                if (shown) 0L else doneAt[record.key] ?: 0L
+                if (shown) queueStartMs else doneAt[record.key] ?: queueStartMs
             } ?: 0L,
             doneMs = testScheduler.currentTime - start,
             upcoming = upcoming.size,
             upcomingOnCalendar = upcoming.count { (record, show) -> nextEntry(record, show) != null },
+            upcomingAtStart = upcoming.count { (record, show) ->
+                shownBefore[record.key].orEmpty().any { it.season == show.season && it.episode == show.nextEpisode }
+            },
             upcomingWithTime = upcoming.count { (record, show) -> nextEntry(record, show)?.timeKnown == true },
+            films = upcomingFilms.size,
+            queueStartMs = queueStartMs,
+            filmsDated = upcomingFilms.count { record -> record.entries.any { it.kind == CalendarEntryKind.MOVIE_DIGITAL } },
             failures = byKey.values.count { it.failures > 0 },
             records = byKey.values.toList(),
             tvMazeIds = tvMazeIds
@@ -275,12 +328,12 @@ class CalendarLargeLibraryBuildTest {
     }
 
     private fun report(name: String, build: Build) {
-        fun clock(ms: Long) = "%d:%02d".format(ms / 60_000, ms / 1_000 % 60)
+        fun clock(ms: Long) = "%d:%02d.%d".format(ms / 60_000, ms / 1_000 % 60, ms / 100 % 10)
         println(
             "CALENDAR-BUILD $name: titles=${build.titles} tvmaze=${build.tvMaze} tmdb=${build.tmdb} trakt=${build.trakt} " +
                 "thisWeekReady=${clock(build.thisWeekReadyMs)} done=${clock(build.doneMs)} " +
-                "next60days=${build.upcomingOnCalendar}/${build.upcoming} withTime=${build.upcomingWithTime}/${build.upcoming} " +
-                "failures=${build.failures}"
+                "next60days=${build.upcomingOnCalendar}/${build.upcoming} atQueueStart(${clock(build.queueStartMs)})=${build.upcomingAtStart} withTime=${build.upcomingWithTime}/${build.upcoming} " +
+                "upcomingFilms=${build.filmsDated}/${build.films} failures=${build.failures}"
         )
     }
 
@@ -290,7 +343,7 @@ class CalendarLargeLibraryBuildTest {
         report("$name first", first)
         assertEquals(CALENDAR_MAX_TITLES, first.titles)
         assertEquals(0, first.failures)
-        assertEquals(first.upcoming, first.upcomingOnCalendar)
+        assertEquals(first.films, first.filmsDated)
 
         val weekLater = build(shows, workers, trakt, now.plus(Duration.ofDays(7)), first.records, first.tvMazeIds)
         report("$name week-later", weekLater)
@@ -306,5 +359,7 @@ class CalendarLargeLibraryBuildTest {
 
     private companion object {
         const val LATENCY_MS = 200L
+        /** Downloading the 3 MB file and stream-parsing it on a TV box, kept on the slow side. */
+        const val SCHEDULE_MS = 5_000L
     }
 }

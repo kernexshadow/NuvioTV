@@ -37,6 +37,7 @@ class CalendarTitleFetcherTest {
         override suspend fun tmdbShow(tmdbId: Long) = tmdbShow.also { call("tmdbShow:$tmdbId") }
         override suspend fun tmdbSeason(tmdbId: Long, season: Int) = tmdbSeason.also { call("tmdbSeason:$tmdbId/$season") }
         override suspend fun tmdbFilm(tmdbId: Long, region: String) = tmdbFilm.also { call("tmdbFilm:$tmdbId/$region") }
+        override suspend fun tvMazeSchedule(wanted: Set<String>): TvMazeSchedule = throw IOException("not used by the fetcher")
     }
 
     private val show = CalendarTitleRecord("series:imdb:tt1", CalendarTitleType.SERIES, CalendarIds(imdb = "tt1"))
@@ -296,5 +297,84 @@ class CalendarTitleFetcherTest {
         }
         CalendarTitleFetcher(remote, "AU").refresh(show, emptyMap(), false, now)
         assertEquals(listOf("find:tt1", "tmdbShow:77", "lookup", "trakt"), remote.calls)
+    }
+
+    @Test fun aShowTheScheduleCoversWithNothingNearMakesNoCalls() = runBlocking {
+        val remote = FakeRemote().apply { tmdbId = 77 }
+        val scheduled = show.copy(tvmazeId = 83, scheduleCheckedAtMs = now.toEpochMilli())
+        val outcome = CalendarTitleFetcher(remote, "AU").refresh(scheduled, emptyMap(), false, now)
+        assertTrue(remote.calls.isEmpty())
+        assertEquals(now.plus(Duration.ofDays(30)).toEpochMilli(), outcome.record.nextRefreshAtMs)
+    }
+
+    @Test fun aShowTheScheduleCoversOnlyAsksTmdbForFinalesWhileAReleaseIsNear() = runBlocking {
+        val remote = FakeRemote().apply {
+            tmdbId = 77
+            tmdbSeason = listOf(
+                CalendarEntry(season = 1, episode = 8, airDate = "2026-10-12", label = CalendarEpisodeLabel.SEASON_FINALE, source = CalendarSource.TMDB)
+            )
+        }
+        val scheduled = show.copy(
+            tvmazeId = 83, scheduleCheckedAtMs = now.toEpochMilli(),
+            sources = mapOf(CalendarSource.TVMAZE to listOf(CalendarEntry(season = 1, episode = 8, airInstantMs = inDays(6))))
+        )
+        val outcome = CalendarTitleFetcher(remote, "AU").refresh(scheduled, emptyMap(), false, now)
+        assertEquals(listOf("find:tt1", "tmdbSeason:77/1"), remote.calls)
+        assertEquals(CalendarEpisodeLabel.SEASON_FINALE, outcome.record.entries.single().label)
+        assertEquals(now.plus(Duration.ofDays(1)).toEpochMilli(), outcome.record.nextRefreshAtMs)
+
+        val again = FakeRemote().apply { tmdbId = 77 }
+        CalendarTitleFetcher(again, "AU").refresh(outcome.record, emptyMap(), false, now.plus(Duration.ofHours(12)))
+        assertTrue(again.calls.isEmpty())
+    }
+
+    @Test fun aFinaleLookupThatFailsLeavesTheScheduleDates() = runBlocking {
+        val remote = FakeRemote().apply { failOn = "find:tt1" }
+        val entry = CalendarEntry(season = 1, episode = 8, airInstantMs = inDays(6))
+        val scheduled = show.copy(
+            tvmazeId = 83, scheduleCheckedAtMs = now.toEpochMilli(), sources = mapOf(CalendarSource.TVMAZE to listOf(entry))
+        )
+        val outcome = CalendarTitleFetcher(remote, "AU").refresh(scheduled, emptyMap(), false, now)
+        assertEquals(0, outcome.record.failures)
+        assertEquals(listOf(entry), outcome.record.entries)
+    }
+
+    @Test fun aFilmTheLibraryDatesYearsBackMakesNoCalls() = runBlocking {
+        val remote = FakeRemote().apply { tmdbId = 603 }
+        val film = CalendarTitleRecord("movie:imdb:tt0133093", CalendarTitleType.MOVIE, CalendarIds(imdb = "tt0133093"), releaseYear = 2024)
+        val outcome = CalendarTitleFetcher(remote, "AU").refresh(film, emptyMap(), false, now)
+        assertTrue(remote.calls.isEmpty())
+        assertEquals(now.plus(Duration.ofDays(365)).toEpochMilli(), outcome.record.nextRefreshAtMs)
+
+        val recent = FakeRemote().apply { tmdbId = 603 }
+        CalendarTitleFetcher(recent, "AU").refresh(film.copy(releaseYear = 2025), emptyMap(), false, now)
+        assertEquals(listOf("find:tt0133093", "tmdbFilm:603/AU"), recent.calls)
+    }
+
+    @Test fun aShowTheScheduleDoesNotListIsLookedUpOnceAndThenLeftAlone() = runBlocking {
+        val remote = FakeRemote().apply { lookup = TvMazeLookup.Found(83, CalendarIds(imdb = "tt1")) }
+        val unlisted = show.copy(scheduleCheckedAtMs = now.toEpochMilli())
+        val outcome = CalendarTitleFetcher(remote, "AU").refresh(unlisted, emptyMap(), false, now)
+        assertEquals(listOf("lookup"), remote.calls)
+        assertEquals(83, outcome.record.tvmazeId)
+        assertEquals(now.toEpochMilli(), outcome.record.scheduleCheckedAtMs)
+        assertEquals(CalendarTvMazeId(83, now.toEpochMilli()), outcome.tvMazeIds["imdb:tt1"])
+        assertEquals(now.plus(Duration.ofDays(30)).toEpochMilli(), outcome.record.nextRefreshAtMs)
+
+        val later = FakeRemote()
+        CalendarTitleFetcher(later, "AU").refresh(outcome.record, outcome.tvMazeIds, false, now.plus(Duration.ofDays(30)))
+        assertTrue(later.calls.isEmpty())
+    }
+
+    @Test fun aShowTvMazeCannotMatchMovesToThePerTitleRefresh() = runBlocking {
+        val remote = FakeRemote().apply {
+            traktNext = CalendarShowDates(entries = listOf(CalendarEntry(season = 4, episode = 1, airInstantMs = inDays(12), source = CalendarSource.TRAKT_NEXT)))
+        }
+        val unlisted = show.copy(scheduleCheckedAtMs = now.toEpochMilli())
+        val outcome = CalendarTitleFetcher(remote, "AU").refresh(unlisted, emptyMap(), false, now)
+        assertEquals(listOf("lookup", "find:tt1", "trakt"), remote.calls)
+        assertEquals(0L, outcome.record.scheduleCheckedAtMs)
+        assertEquals(inDays(12), outcome.record.entries.single().airInstantMs)
+        assertEquals(null, outcome.tvMazeIds.getValue("imdb:tt1").id)
     }
 }
