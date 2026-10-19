@@ -285,7 +285,7 @@ class CalendarTitleFetcherTest {
             tvMazeShow = CalendarShowDates(entries = listOf(CalendarEntry(season = 1, episode = 2, airInstantMs = inDays(2))))
         }
         val outcome = CalendarTitleFetcher(remote, "AU").refresh(show, emptyMap(), false, now)
-        assertEquals(listOf("find:tt1", "tmdbShow:77", "lookup", "tvmaze:83"), remote.calls)
+        assertEquals(listOf("find:tt1", "tmdbShow:77", "lookup", "tvmaze:83", "tmdbSeason:77/1"), remote.calls)
         assertEquals(0, outcome.record.failures)
         assertEquals(83, outcome.record.tvmazeId)
     }
@@ -376,5 +376,63 @@ class CalendarTitleFetcherTest {
         assertEquals(0L, outcome.record.scheduleCheckedAtMs)
         assertEquals(inDays(12), outcome.record.entries.single().airInstantMs)
         assertEquals(null, outcome.tvMazeIds.getValue("imdb:tt1").id)
+    }
+
+    @Test fun aShowOnAirIsSentToTvMazeEvenWhenTmdbHasNoNextEpisodeYet() = runBlocking {
+        val remote = FakeRemote().apply {
+            tmdbId = 77
+            tmdbShow = CalendarShowDates(
+                status = CalendarShowStatus.RUNNING,
+                entries = listOf(CalendarEntry(season = 2, episode = 4, airDate = "2026-09-25", source = CalendarSource.TMDB))
+            )
+            lookup = TvMazeLookup.Found(83, CalendarIds(imdb = "tt1"))
+            tvMazeShow = CalendarShowDates(
+                status = CalendarShowStatus.RUNNING,
+                entries = listOf(CalendarEntry(season = 2, episode = 5, airInstantMs = inDays(2), source = CalendarSource.TVMAZE))
+            )
+        }
+        val outcome = CalendarTitleFetcher(remote, "AU").refresh(show, emptyMap(), false, now)
+        assertEquals(listOf("find:tt1", "tmdbShow:77", "lookup", "tvmaze:83", "tmdbSeason:77/2"), remote.calls)
+        assertEquals(83, outcome.record.tvmazeId)
+        assertEquals(inDays(2), outcome.record.entries.first { it.episode == 5 }.airInstantMs)
+
+        val lastMonth = FakeRemote().apply {
+            tmdbId = 77
+            tmdbShow = CalendarShowDates(
+                status = CalendarShowStatus.RUNNING,
+                entries = listOf(CalendarEntry(season = 2, episode = 4, airDate = "2026-09-15", source = CalendarSource.TMDB))
+            )
+        }
+        CalendarTitleFetcher(lastMonth, "AU").refresh(show, emptyMap(), false, now)
+        assertEquals(listOf("find:tt1", "tmdbShow:77"), lastMonth.calls)
+    }
+
+    @Test fun aFailedFirstTmdbReadIsTriedAgainAtTheEndAndASecondFailureCounts() = runBlocking {
+        val remote = FakeRemote().apply {
+            tmdbId = 77
+            failOn = "tmdbShow:77"
+        }
+        val outcome = CalendarTitleFetcher(remote, "AU").refresh(show, emptyMap(), false, now)
+        assertEquals(listOf("find:tt1", "tmdbShow:77", "lookup", "trakt", "tmdbShow:77"), remote.calls)
+        assertEquals(1, outcome.record.failures)
+        assertEquals(now.plus(Duration.ofHours(1)).toEpochMilli(), outcome.record.nextRefreshAtMs)
+    }
+
+    @Test fun aShowOnlyTmdbKnowsGetsItsDatesWhenTheSecondReadWorks() = runBlocking {
+        var reads = 0
+        val remote = object : CalendarRemoteSources by FakeRemote() {
+            override suspend fun tmdbFind(imdb: String, type: CalendarTitleType) = 77L
+            override suspend fun tmdbShow(tmdbId: Long): CalendarShowDates {
+                if (reads++ == 0) throw IOException("timeout")
+                return CalendarShowDates(
+                    status = CalendarShowStatus.RUNNING,
+                    entries = listOf(CalendarEntry(season = 1, episode = 2, airDate = "2026-10-20", source = CalendarSource.TMDB))
+                )
+            }
+        }
+        val outcome = CalendarTitleFetcher(remote, "AU").refresh(show, emptyMap(), false, now)
+        assertEquals(2, reads)
+        assertEquals(0, outcome.record.failures)
+        assertEquals("2026-10-20", outcome.record.entries.single().airDate)
     }
 }

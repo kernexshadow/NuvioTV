@@ -113,7 +113,7 @@ class CalendarTitleFetcher(
         val trakt = remote.traktNextEpisode(base.ids)
         if (trakt != null && trakt.entries.isNotEmpty()) return base.withSource(CalendarSource.TRAKT_NEXT, trakt.entries, now)
         val withoutTrakt = if (trakt != null) base.withoutSources(CalendarSource.TRAKT_NEXT) else base
-        if (triage != null) return withoutTrakt
+        if (triage?.answered == true) return withoutTrakt
         val withTmdb = withTmdbId(withoutTrakt)
         val tmdbId = withTmdb.ids.tmdb ?: return withTmdb
         return withTmdb.withTmdbShow(remote.tmdbShow(tmdbId), now)
@@ -147,34 +147,41 @@ class CalendarTitleFetcher(
         return withFinales(withTmdb, now)
     }
 
-    /** [settled] when TMDB knows the show and nothing of it comes out within [EXACT_TIME_WINDOW]. */
-    private class TmdbTriage(val record: CalendarTitleRecord, val settled: Boolean)
+    /**
+     * [settled] when TMDB knows the show, nothing of it comes out within [EXACT_TIME_WINDOW] and it is not on air.
+     * [answered] is false when TMDB could not be read, so it is asked again at the end and a second failure counts.
+     */
+    private class TmdbTriage(val record: CalendarTitleRecord, val settled: Boolean, val answered: Boolean = true)
 
     /**
      * One or two TMDB calls instead of three to five TVmaze ones. Most followed shows have ended or are between seasons;
-     * they only need TVmaze's exact times once a release comes near. A TMDB failure is not the show's failure: it moves
-     * on to TVmaze as before.
+     * they only need TVmaze's exact times once a release comes near. A show whose last episode on TMDB came out within
+     * [ON_AIR_WINDOW] is on air: TMDB may not list next week's episode yet, so it goes on to TVmaze as before. A TMDB
+     * failure is not the show's failure here: it moves on to TVmaze, and TMDB is asked once more at the end.
      */
     private suspend fun tmdbTriage(record: CalendarTitleRecord, now: Instant): TmdbTriage {
-        val updated = try {
-            val withTmdb = withTmdbId(record)
+        var withTmdb = record
+        val dates = try {
+            withTmdb = withTmdbId(record)
             val tmdbId = withTmdb.ids.tmdb ?: return TmdbTriage(withTmdb, settled = false)
-            val dates = remote.tmdbShow(tmdbId)
-            if (dates.status == CalendarShowStatus.UNKNOWN && dates.entries.isEmpty()) {
-                return TmdbTriage(withTmdb.withTmdbShow(dates, now), settled = false)
-            }
-            withTmdb.withTmdbShow(dates, now)
+            remote.tmdbShow(tmdbId)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             Log.w(TAG, "${record.key}: TMDB first read failed, asking TVmaze: ${error.message}")
-            return TmdbTriage(record, settled = false)
+            return TmdbTriage(withTmdb, settled = false, answered = false)
         }
+        val updated = withTmdb.withTmdbShow(dates, now)
+        if (dates.status == CalendarShowStatus.UNKNOWN && dates.entries.isEmpty()) return TmdbTriage(updated, settled = false)
         val soon = updated.entries.any { entry ->
             entry.kind == CalendarEntryKind.EPISODE &&
                 entry.sortInstant()?.let { !it.isBefore(now) && it.isBefore(now.plus(EXACT_TIME_WINDOW)) } == true
         }
-        return TmdbTriage(updated, settled = !soon)
+        val onAir = dates.entries.any { entry ->
+            entry.kind == CalendarEntryKind.EPISODE &&
+                entry.sortInstant()?.let { !it.isAfter(now) && it.isAfter(now.minus(ON_AIR_WINDOW)) } == true
+        }
+        return TmdbTriage(updated, settled = !soon && !onAir)
     }
 
     private fun CalendarTitleRecord.withTmdbShow(dates: CalendarShowDates, now: Instant): CalendarTitleRecord = copy(
@@ -248,5 +255,7 @@ class CalendarTitleFetcher(
         val NOT_FOUND_RECHECK: Duration = Duration.ofDays(30)
         /** The Calendar's reach; a show with a release within it is read from TVmaze for the exact time and its season. */
         val EXACT_TIME_WINDOW: Duration = Duration.ofDays(60)
+        /** A show whose last TMDB episode came out within this long counts as on air. */
+        val ON_AIR_WINDOW: Duration = Duration.ofDays(14)
     }
 }
