@@ -347,8 +347,9 @@ class CalendarRefresher internal constructor(
                 )
                 publishLocked()
             } ?: return true
-            val scheduleDue = calendarScheduleDue(snapshot, now)
-            val schedule = if (scheduleDue) readSchedule(snapshot, followed) else null
+            val wanted = scheduleAliases(snapshot, followed)
+            val scheduleDue = wanted.isNotEmpty() && calendarScheduleDue(snapshot, now)
+            val schedule = if (scheduleDue) readSchedule(wanted) else null
             val due = withOwner(current) {
                 if (scheduleDue) data = data.copy(scheduleTriedAtMs = now.toEpochMilli())
                 if (schedule != null) {
@@ -411,15 +412,19 @@ class CalendarRefresher internal constructor(
         return complete
     }
 
+    /** The ids the followed shows can be found by in TVmaze's full schedule; empty while no show is followed yet. */
+    private fun scheduleAliases(snapshot: CalendarSnapshot, followed: List<CalendarFollowedTitle>): Set<String> {
+        val wanted = HashSet<String>()
+        followed.forEach { if (it.type == CalendarTitleType.SERIES) wanted += calendarTvMazeAliases(it.ids) }
+        snapshot.titles.forEach { if (it.type == CalendarTitleType.SERIES) wanted += calendarTvMazeAliases(it.ids) }
+        return wanted
+    }
+
     /**
      * TVmaze's full schedule for the followed shows, read once nothing plays; null when it could not be read, so those
      * shows keep what they have and new ones go through the per-title refresh.
      */
-    private suspend fun readSchedule(snapshot: CalendarSnapshot, followed: List<CalendarFollowedTitle>): TvMazeSchedule? {
-        val wanted = HashSet<String>()
-        followed.forEach { if (it.type == CalendarTitleType.SERIES) wanted += calendarTvMazeAliases(it.ids) }
-        snapshot.titles.forEach { if (it.type == CalendarTitleType.SERIES) wanted += calendarTvMazeAliases(it.ids) }
-        if (wanted.isEmpty()) return null
+    private suspend fun readSchedule(wanted: Set<String>): TvMazeSchedule? {
         awaitNoPlayback()
         return try {
             remote.tvMazeSchedule(wanted)

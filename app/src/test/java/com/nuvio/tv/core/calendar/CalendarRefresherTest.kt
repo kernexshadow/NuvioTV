@@ -533,4 +533,19 @@ class CalendarRefresherTest {
         assertEquals(listOf("show:1"), remote.calls.toList())
         assertEquals(0L, titles().getValue(1).scheduleCheckedAtMs)
     }
+
+    @Test fun aRefreshWithNoShowsYetDoesNotHoldTheScheduleBack() = runBlocking {
+        remote.schedule = { TvMazeSchedule(emptyList()) }
+        inputs.followed[1] = CalendarFollowedSnapshot()
+        refresher.requestRefresh(CalendarRefreshReason.HOME_SETTLED)
+        until("the empty refresh") { inputs.reads.get() >= 1 && !refresher.state.value.refreshing }
+        assertEquals(0, remote.scheduleCalls.get())
+        assertEquals(0L, storage.load(1).scheduleTriedAtMs)
+
+        inputs.followed[1] = shows(1)
+        refresher.requestRefresh(CalendarRefreshReason.CALENDAR_OPENED)
+        awaitIdle()
+        assertEquals(1, remote.scheduleCalls.get())
+        assertEquals(now.toEpochMilli(), titles().getValue(1).scheduleCheckedAtMs)
+    }
 }
