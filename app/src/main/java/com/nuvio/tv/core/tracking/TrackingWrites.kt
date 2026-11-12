@@ -198,6 +198,15 @@ interface TrackingScrobbler {
     suspend fun scrobble(action: TrackingScrobbleAction, event: TrackingScrobbleEvent)
 
     /**
+     * The progress, in percent, from which this tracker records a stop as a watch, for a playback
+     * whose content ends at [contentEndPercent]. Null when the tracker has no bar of its own.
+     *
+     * The player holds its local completion to the highest of these, so it never counts as watched
+     * a stop that a tracker keeps as a pause.
+     */
+    suspend fun completionThresholdPercent(contentEndPercent: Double?): Double? = null
+
+    /**
      * A chance to prepare the user before a playback starts. This writes nothing; it exists so a
      * tracker can ask its own question before the player opens the item. The default keeps every
      * other tracker out of the path.

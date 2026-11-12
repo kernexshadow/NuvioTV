@@ -13,6 +13,7 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
 import com.nuvio.tv.core.tracking.buildTrackingMediaReference
+import com.nuvio.tv.core.tracking.localCompletionThresholdOverride
 import com.nuvio.tv.core.tracking.scrobbleDiagnosticIdentity
 import com.nuvio.tv.data.local.InternalPlayerEngine
 import com.nuvio.tv.data.local.NightMode
@@ -860,13 +861,13 @@ internal fun PlayerRuntimeController.saveWatchProgressIfNeeded() {
     }
 }
 
-internal fun PlayerRuntimeController.saveWatchProgress() {
+internal fun PlayerRuntimeController.saveWatchProgress(naturalEnd: Boolean = false) {
     if (!hasRenderedFirstFrame) return
     if (_playbackTimeline.value.isLive) return
     val currentPosition = currentPlaybackPositionMs() ?: return
     val duration = getEffectiveDuration(currentPosition)
     if (isShortPlaceholderDuration(duration)) return
-    saveWatchProgressInternal(currentPosition, duration)
+    saveWatchProgressInternal(currentPosition, duration, naturalEnd = naturalEnd)
 }
 
 internal fun PlayerRuntimeController.getEffectiveDuration(position: Long): Long {
@@ -921,7 +922,7 @@ internal fun PlayerRuntimeController.handleNaturalPlaybackEnded() {
     if (contentType.equals("cloud", ignoreCase = true)) {
         saveCloudLibraryProgress(position, duration, completed = true)
     } else {
-        saveWatchProgress()
+        saveWatchProgress(naturalEnd = true)
     }
     resetPostPlayStateAfterPlaybackEnded()
 }
@@ -960,7 +961,27 @@ internal fun PlayerRuntimeController.currentWatchProgress(
     lastWatched = lastWatched
 )
 
-internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, duration: Long, syncRemote: Boolean = true) {
+/**
+ * The local completion bar for [progress] when a connected tracker records a watch only from a
+ * higher point. Read only once the row is past the local bar, the one place where the two can differ.
+ */
+private suspend fun PlayerRuntimeController.trackerCompletionThresholdOverride(progress: WatchProgress): Float? {
+    if (progress.progressPercentage < WatchProgress.COMPLETED_THRESHOLD) return null
+    return localCompletionThresholdOverride(
+        trackingScrobbleCoordinator.completionThresholdPercent(currentContentEndPercent())
+    )
+}
+
+/**
+ * @param naturalEnd the playback reached its end, which completes it whatever bar a tracker sets:
+ * the trackers are told 100 there too.
+ */
+internal fun PlayerRuntimeController.saveWatchProgressInternal(
+    position: Long,
+    duration: Long,
+    syncRemote: Boolean = true,
+    naturalEnd: Boolean = false
+) {
     if (contentType.equals("cloud", ignoreCase = true)) {
         saveCloudLibraryProgress(position, duration, completed = false)
         return
@@ -982,7 +1003,12 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
                 videoId = progress.videoId,
                 profileId = profileId
             )
-            val normalizedProgress = progress.copy(contentId = effectiveContentId)
+            // The bar travels on the row, so the repository's own completion check and a later read
+            // of the saved row agree with the one made here.
+            val normalizedProgress = progress.copy(
+                contentId = effectiveContentId,
+                completionThresholdOverride = if (naturalEnd) null else trackerCompletionThresholdOverride(progress)
+            )
             if (normalizedProgress.isCompleted()) {
                 if (!hasMarkedCurrentEpisodeCompleted) {
                     hasMarkedCurrentEpisodeCompleted = true

@@ -15,6 +15,7 @@ import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleCoordinator
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
 import com.nuvio.tv.core.tracking.buildTrackingMediaReference
+import com.nuvio.tv.core.tracking.localCompletionThresholdOverride
 import com.nuvio.tv.core.util.parseRuntimeMinutes
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettings
@@ -1499,7 +1500,7 @@ class ExternalPlaybackTracker @Inject constructor(
         }
 
         scope.launch {
-            val progress = WatchProgress(
+            val reported = WatchProgress(
                 contentId = metadata.contentId,
                 contentType = metadata.contentType,
                 name = metadata.contentName,
@@ -1515,6 +1516,20 @@ class ExternalPlaybackTracker @Inject constructor(
                 progressPercent = explicitPercent,
                 lastWatched = System.currentTimeMillis()
             )
+            // Same rule as the internal player: past the local bar, a tracker that records a watch
+            // only from a higher point holds the row to that point. An explicit completion stays one.
+            val progress = if (
+                explicitPercent == null &&
+                reported.progressPercentage >= WatchProgress.COMPLETED_THRESHOLD
+            ) {
+                reported.copy(
+                    completionThresholdOverride = localCompletionThresholdOverride(
+                        trackingScrobbleCoordinator.completionThresholdPercent(contentEndPercent)
+                    )
+                )
+            } else {
+                reported
+            }
             Log.d(TAG, "Saving progress: pos=${positionMs}ms, dur=${effectiveDuration}ms, " +
                 "content=${metadata.contentId}, video=${metadata.videoId}, " +
                 "progressPct=${progress.progressPercentage}, isInProgress=${progress.isInProgress()}")

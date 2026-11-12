@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -363,6 +364,24 @@ class SimklTrackingScrobblerTest {
             )
         }
         coVerify(exactly = 1) { syncRepository.commitScrobble(result) }
+    }
+
+    @Test
+    fun `the bar the player completes by is the one a stop is sent with`() = runBlocking {
+        connect()
+        settingsDataStore.setSimklWatchedThresholdPercent(95)
+
+        // Same inputs as the stop above: the marker at 96.5 gives 96, and with no marker the
+        // stored threshold decides.
+        assertEquals(96.0, scrobbler.completionThresholdPercent(contentEndPercent = 96.5)!!, 0.0)
+        assertEquals(95.0, scrobbler.completionThresholdPercent(contentEndPercent = null)!!, 0.0)
+    }
+
+    @Test
+    fun `a disconnected account sets no completion bar`() = runBlocking {
+        every { authRepository.state } returns MutableStateFlow(SimklAuthState(isAuthenticated = false))
+
+        assertNull(scrobbler.completionThresholdPercent(contentEndPercent = 96.5))
     }
 
     @Test

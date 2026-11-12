@@ -81,12 +81,7 @@ class SimklTrackingScrobbler @Inject constructor(
         // account and the client never part ways over a fraction of a percent. A stop below the
         // threshold travels as a stop all the same: with the threshold on the call, the account itself
         // answers a pause and keeps the playback resumable, which is what a stop there has to do.
-        val completionThresholdPercent = simklMinProgressPercent(
-            resolvedSimklCompletionPercent(
-                userThresholdPercent = watchedThresholdPercent().toDouble(),
-                contentEndPercent = enrichedEvent.contentEndPercent
-            )
-        ).toDouble()
+        val completionThresholdPercent = simklCompletionThresholdPercent(enrichedEvent.contentEndPercent)
         // The run of the item, when the account already has one, and the answer the user gave to
         // the question before the playback: together they decide whether the scrobble asks Simkl for
         // a rewatch. A session the account runs releases the answer, which was for the run it opened.
@@ -218,6 +213,20 @@ class SimklTrackingScrobbler @Inject constructor(
 
     private suspend fun watchedThresholdPercent(): Int =
         settingsDataStore.simklWatchedThresholdPercent.first()
+
+    /** The bar a stop is sent with as `min_progress`, so the player can hold its own completion to it. */
+    override suspend fun completionThresholdPercent(contentEndPercent: Double?): Double? {
+        if (!authRepository.state.value.isAuthenticated) return null
+        return simklCompletionThresholdPercent(contentEndPercent)
+    }
+
+    private suspend fun simklCompletionThresholdPercent(contentEndPercent: Double?): Double =
+        simklMinProgressPercent(
+            resolvedSimklCompletionPercent(
+                userThresholdPercent = watchedThresholdPercent().toDouble(),
+                contentEndPercent = contentEndPercent
+            )
+        ).toDouble()
 }
 
 @Singleton

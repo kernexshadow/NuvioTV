@@ -52,6 +52,26 @@ class TrackingScrobbleCoordinator @Inject constructor(
     )
 
     /**
+     * The highest completion bar among the connected trackers, in percent, or null when none has one.
+     * A tracker that fails here is left out rather than failing the progress save.
+     */
+    suspend fun completionThresholdPercent(contentEndPercent: Double?): Double? =
+        providerRegistry.connectedScrobblers().mapNotNull { scrobbler ->
+            try {
+                scrobbler.completionThresholdPercent(contentEndPercent)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Log.w(
+                    "TrackingScrobble",
+                    "${scrobbler.providerId.storageId} completionThresholdPercent failed",
+                    error
+                )
+                null
+            }
+        }.maxOrNull()
+
+    /**
      * Gives the connected trackers a chance to prepare the user before the player starts. A tracker
      * that fails here must not stop the playback, so each one is isolated.
      */

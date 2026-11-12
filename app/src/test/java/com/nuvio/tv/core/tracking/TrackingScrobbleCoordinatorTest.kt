@@ -1,7 +1,10 @@
 package com.nuvio.tv.core.tracking
 
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TrackingScrobbleCoordinatorTest {
@@ -102,6 +105,53 @@ class TrackingScrobbleCoordinatorTest {
 
         assertEquals(1, trakt.callCount)
         assertEquals(1, simkl.callCount)
+    }
+
+    @Test
+    fun `the completion bar is the highest one a connected tracker sets`() = runTest {
+        val coordinator = coordinatorOf(
+            BarScrobbler(TrackingProviderId.TRAKT, bar = null),
+            BarScrobbler(TrackingProviderId.SIMKL, bar = 96.0),
+            BarScrobbler(TrackingProviderId.MDBLIST, bar = 85.0)
+        )
+
+        assertEquals(96.0, coordinator.completionThresholdPercent(contentEndPercent = 96.4)!!, 0.0)
+    }
+
+    @Test
+    fun `no tracker with a bar leaves the completion bar unset`() = runTest {
+        val coordinator = coordinatorOf(BarScrobbler(TrackingProviderId.TRAKT, bar = null))
+
+        assertNull(coordinator.completionThresholdPercent(contentEndPercent = null))
+    }
+
+    @Test
+    fun `a tracker that fails to name its bar is left out`() = runTest {
+        val coordinator = coordinatorOf(
+            BarScrobbler(TrackingProviderId.SIMKL, failure = IllegalStateException("store")),
+            BarScrobbler(TrackingProviderId.MDBLIST, bar = 92.0)
+        )
+
+        assertEquals(92.0, coordinator.completionThresholdPercent(contentEndPercent = null)!!, 0.0)
+    }
+
+    private fun coordinatorOf(vararg scrobblers: TrackingScrobbler) = TrackingScrobbleCoordinator(
+        mockk<TrackingProviderRegistry>().also { registry ->
+            every { registry.connectedScrobblers() } returns scrobblers.toList()
+        }
+    )
+
+    private class BarScrobbler(
+        override val providerId: TrackingProviderId,
+        private val bar: Double? = null,
+        private val failure: Throwable? = null
+    ) : TrackingScrobbler {
+        override suspend fun scrobble(action: TrackingScrobbleAction, event: TrackingScrobbleEvent) = Unit
+
+        override suspend fun completionThresholdPercent(contentEndPercent: Double?): Double? {
+            failure?.let { throw it }
+            return bar
+        }
     }
 
     private class FakeScrobbler(
